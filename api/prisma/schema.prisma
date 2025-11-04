@@ -1,0 +1,396 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  admin
+  contributeur
+  lecteur
+}
+
+enum UserStatus {
+  actif
+  inactif
+  suspendu
+}
+
+enum EntiteType {
+  direction
+  departement
+  service
+  cellule
+  division
+  equipe
+}
+
+enum ProcessusStatut {
+  brouillon
+  en_revision
+  valide
+  actif
+  archive
+  obsolete
+}
+
+enum DocType {
+  processus
+  projet
+  general
+  procedure
+  formulaire
+}
+
+enum RefType {
+  processus
+  projet
+  entite
+}
+
+enum DocStatut {
+  brouillon
+  en_revision
+  valide
+  archive
+}
+
+enum LogAction {
+  connexion
+  deconnexion
+  lecture
+  creation
+  modification
+  suppression
+  telechargement
+  export
+}
+
+enum ResourceType {
+  processus
+  projet
+  document
+  entite
+  utilisateur
+}
+
+enum PermissionResource {
+  processus
+  projet
+  document
+  entite
+}
+
+enum PermissionType {
+  lecture
+  modification
+  suppression
+  gestion
+}
+
+model User {
+  id               String      @id @default(uuid())
+  email            String      @unique
+  passwordHash     String
+  nom              String
+  prenom           String
+  role             Role        @default(contributeur)
+  avatarUrl        String?
+  statut           UserStatus  @default(actif)
+  derniereConnexion DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  
+  // Relations
+  processusProprietaire Processus[] @relation("ProcessusProprietaire")
+  processusCreatedBy    Processus[] @relation("ProcessusCreatedBy")
+  documentsUploaded     Document[]
+  documentsValides      Document[]  @relation("DocumentValidePar")
+  versionsDocuments     VersionDocument[] @relation("VersionDocumentUploadedBy")
+  permissions           Permission[] @relation("PermissionUser")
+  permissionsGranted    Permission[] @relation("PermissionGrantedBy")
+  documentPermissions    DocumentPermission[] @relation("DocumentPermissionUser")
+  journalAcces          JournalAcces[]
+  entitesResponsable    Entite[]    @relation("EntiteResponsable")
+  entitesMembres        UserEntite[]
+  smtpConfigsUpdated    SMTPConfig[] @relation("SMTPConfigUpdatedBy")
+  
+  @@index([email])
+}
+
+model Entite {
+  id                String      @id @default(uuid())
+  nom               String
+  type              EntiteType
+  parentId          String?
+  parent            Entite?     @relation("EntiteHierarchie", fields: [parentId], references: [id], onDelete: Cascade)
+  children          Entite[]    @relation("EntiteHierarchie")
+  responsableId    String?
+  responsable      User?       @relation("EntiteResponsable", fields: [responsableId], references: [id], onDelete: SetNull)
+  code              String      @unique
+  description      String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  
+  // Relations
+  membres           UserEntite[]
+  processus         ProcessusEntite[]
+  projets           ProjetEntite[]
+  
+  @@index([parentId])
+  @@index([code])
+}
+
+model UserEntite {
+  id                String      @id @default(uuid())
+  userId            String
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entiteId          String
+  entite            Entite      @relation(fields: [entiteId], references: [id], onDelete: Cascade)
+  createdAt         DateTime    @default(now())
+  
+  @@unique([userId, entiteId])
+  @@index([userId])
+  @@index([entiteId])
+}
+
+model CategorieProcessus {
+  id                String      @id @default(uuid())
+  nom               String
+  description       String?
+  couleur           String?
+  icone             String?
+  parentId          String?
+  parent            CategorieProcessus? @relation("CategorieHierarchie", fields: [parentId], references: [id], onDelete: Cascade)
+  children          CategorieProcessus[] @relation("CategorieHierarchie")
+  processus         ProcessusCategorie[]
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  
+  @@index([parentId])
+}
+
+model Processus {
+  id                     String            @id @default(uuid())
+  nom                    String
+  codeProcessus          String            @unique
+  description            String?
+  statut                 ProcessusStatut   @default(brouillon)
+  versionActuelle        String?
+  proprietaireId         String?
+  proprietaire           User?             @relation("ProcessusProprietaire", fields: [proprietaireId], references: [id], onDelete: SetNull)
+  dateValidation         DateTime?
+  dateProchaineRevision DateTime?
+  createdById            String?
+  createdBy              User?             @relation("ProcessusCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  
+  // Relations
+  entites                ProcessusEntite[]
+  categories             ProcessusCategorie[]
+  
+  @@index([statut])
+  @@index([codeProcessus])
+}
+
+model ProcessusCategorie {
+  id                String            @id @default(uuid())
+  processusId       String
+  processus         Processus        @relation(fields: [processusId], references: [id], onDelete: Cascade)
+  categorieId       String
+  categorie         CategorieProcessus @relation(fields: [categorieId], references: [id], onDelete: Cascade)
+  createdAt         DateTime          @default(now())
+  
+  @@unique([processusId, categorieId])
+  @@index([processusId])
+  @@index([categorieId])
+}
+
+model ProcessusEntite {
+  id                String    @id @default(uuid())
+  processusId       String
+  processus         Processus @relation(fields: [processusId], references: [id], onDelete: Cascade)
+  entiteId          String
+  entite            Entite    @relation(fields: [entiteId], references: [id], onDelete: Cascade)
+  createdAt         DateTime  @default(now())
+  
+  @@unique([processusId, entiteId])
+  @@index([processusId])
+  @@index([entiteId])
+}
+
+model Projet {
+  id                    String          @id @default(uuid())
+  nom                   String
+  codeProjet            String          @unique
+  description           String?
+  type                  String          // interne, externe, mixte
+  statut                String          // planifie, en_cours, en_pause, termine, annule
+  dateDebut             DateTime?
+  dateFinPrevue         DateTime?
+  dateFinReelle         DateTime?
+  budgetPrevu           Decimal?        @db.Decimal(15, 2)
+  budgetConsomme        Decimal?        @db.Decimal(15, 2)
+  responsableId         String?
+  gestionnaireId        String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  
+  // Relations
+  entites               ProjetEntite[]
+  
+  @@index([statut])
+  @@index([codeProjet])
+}
+
+model ProjetEntite {
+  id                String    @id @default(uuid())
+  projetId          String
+  projet            Projet    @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  entiteId          String
+  entite            Entite    @relation(fields: [entiteId], references: [id], onDelete: Cascade)
+  roleEntite        String?
+  createdAt         DateTime  @default(now())
+  
+  @@unique([projetId, entiteId])
+  @@index([projetId])
+  @@index([entiteId])
+}
+
+model Document {
+  id                  String      @id @default(uuid())
+  nom                 String
+  typeDocument        DocType
+  referenceId         String?
+  referenceType       RefType?
+  version             String?
+  versionMajeure      Int?        @default(1)
+  versionMineure      Int?        @default(0)
+  fichierUrl          String
+  fichierNomOriginal  String
+  fichierTaille       Int
+  fichierType         String
+  description         String?
+  statut              DocStatut   @default(brouillon)
+  estConfidentiel     Boolean     @default(false)
+  uploadedById        String
+  uploadedBy          User        @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  valideById          String?
+  valideBy            User?       @relation("DocumentValidePar", fields: [valideById], references: [id], onDelete: SetNull)
+  dateValidation      DateTime?
+  tags                Json?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  
+  // Relations
+  versions            VersionDocument[]
+  permissionsUtilisateurs DocumentPermission[]
+  
+  @@index([referenceId, referenceType])
+  @@index([typeDocument])
+  @@index([statut])
+}
+
+model VersionDocument {
+  id                String      @id @default(uuid())
+  documentId        String
+  document          Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  version           String
+  fichierUrl        String
+  commentaireVersion String?
+  uploadedById      String
+  uploadedBy        User        @relation("VersionDocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  createdAt         DateTime    @default(now())
+  
+  @@index([documentId])
+}
+
+model DocumentPermission {
+  id                String      @id @default(uuid())
+  documentId        String
+  document          Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User        @relation("DocumentPermissionUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime    @default(now())
+  
+  @@unique([documentId, userId])
+  @@index([documentId])
+  @@index([userId])
+}
+
+model JournalAcces {
+  id                String        @id @default(uuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action            LogAction
+  ressourceType     ResourceType
+  ressourceId       String?
+  ressourceNom      String?
+  details           Json?
+  ipAddress         String?
+  userAgent         String?
+  timestamp         DateTime      @default(now())
+  
+  @@index([userId])
+  @@index([ressourceType, ressourceId])
+  @@index([timestamp])
+  @@index([action])
+}
+
+model Permission {
+  id                String            @id @default(uuid())
+  userId            String
+  user              User              @relation("PermissionUser", fields: [userId], references: [id], onDelete: Cascade)
+  ressourceType     PermissionResource
+  ressourceId      String
+  permission       PermissionType
+  grantedById      String
+  grantedBy        User              @relation("PermissionGrantedBy", fields: [grantedById], references: [id], onDelete: Restrict)
+  createdAt        DateTime          @default(now())
+  
+  @@unique([userId, ressourceType, ressourceId, permission])
+  @@index([userId])
+  @@index([ressourceType, ressourceId])
+}
+
+model SMTPConfig {
+  id                String      @id @default(uuid())
+  host              String
+  port              Int
+  secure            Boolean     @default(false) // true pour 465, false pour autres ports
+  user              String
+  password          String      // Stocké en clair (à chiffrer en production si nécessaire)
+  fromEmail         String
+  fromName          String?
+  isActive          Boolean     @default(false) // Une seule config peut être active
+  lastTestResult    Json?       // Résultat du dernier test (success/error)
+  lastTestAt        DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  updatedById       String?     // ID de l'utilisateur qui a modifié la config
+  updatedBy         User?       @relation("SMTPConfigUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  
+  @@index([isActive])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
