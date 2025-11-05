@@ -9,6 +9,9 @@ export default function Documents() {
   const isLecteur = currentUser?.role === 'lecteur';
   const [documents, setDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [showCommentsModalFor, setShowCommentsModalFor] = useState<any | null>(null);
+  const [commentsModalItems, setCommentsModalItems] = useState<any[]>([]);
   const [viewingDocument, setViewingDocument] = useState<any | null>(null);
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -78,10 +81,36 @@ export default function Documents() {
       }
       const response = await api.get('/documents', { params });
       setDocuments(response.data);
+
+      // Charger les compteurs de commentaires pour chaque document (affichage conditionnel du bouton)
+      const counts: Record<string, number> = {};
+      await Promise.all(
+        (response.data || []).map(async (d: any) => {
+          try {
+            const token = localStorage.getItem('token');
+            const res = await api.get(`/documents/${d.id}/comments`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
+            counts[d.id] = Array.isArray(res.data) ? res.data.length : 0;
+          } catch {
+            counts[d.id] = 0;
+          }
+        })
+      );
+      setCommentCounts(counts);
     } catch (error) {
       console.error('Erreur:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openCommentsModal = async (doc: any) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await api.get(`/documents/${doc.id}/comments`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
+      setCommentsModalItems(Array.isArray(res.data) ? res.data : []);
+      setShowCommentsModalFor(doc);
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Erreur lors du chargement des commentaires');
     }
   };
 
@@ -385,8 +414,8 @@ export default function Documents() {
           </button>
         </div>
       </div>
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200 min-w-[1100px]">
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
@@ -394,6 +423,7 @@ export default function Documents() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processus</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Commentaires</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Uploadé par</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date d'upload</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date de modification</th>
@@ -441,6 +471,15 @@ export default function Documents() {
                   }`}>
                     {d.statut}
                   </span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <button
+                    onClick={() => openCommentsModal(d)}
+                    className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                    title="Voir les commentaires"
+                  >
+                    Voir commentaires{typeof commentCounts[d.id] === 'number' ? ` (${commentCounts[d.id]})` : ''}
+                  </button>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                   {d.uploadedBy ? `${d.uploadedBy.prenom} ${d.uploadedBy.nom}` : '-'}
@@ -560,6 +599,41 @@ export default function Documents() {
                   >
                     Télécharger pour visualiser
                   </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal commentaires */}
+      {showCommentsModalFor && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4">
+            <div className="p-6 max-h-[80vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">Commentaires — {showCommentsModalFor.nom}</h2>
+                <button
+                  onClick={() => { setShowCommentsModalFor(null); setCommentsModalItems([]); }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {commentsModalItems.length === 0 ? (
+                <div className="text-sm text-gray-500">Aucun commentaire</div>
+              ) : (
+                <div className="space-y-2">
+                  {commentsModalItems.map((c) => (
+                    <div key={c.id} className="text-sm bg-gray-50 border border-gray-200 rounded p-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{c.user?.prenom} {c.user?.nom}</span>
+                        <span className="text-xs text-gray-500">{new Date(c.createdAt).toLocaleString('fr-FR')}</span>
+                      </div>
+                      <p className="mt-1 text-gray-700 whitespace-pre-wrap">{c.contenu}</p>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

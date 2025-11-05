@@ -10,6 +10,7 @@ import * as authController from "./controllers/auth.controller";
 import * as entiteController from "./controllers/entite.controller";
 import * as processusController from "./controllers/processus.controller";
 import * as documentController from "./controllers/document.controller";
+import * as documentCommentController from "./controllers/document-comment.controller";
 import * as userController from "./controllers/user.controller";
 import * as dashboardController from "./controllers/dashboard.controller";
 import * as journalController from "./controllers/journal.controller";
@@ -18,7 +19,15 @@ import * as smtpController from "./controllers/smtp.controller";
 
 const app = express();
 app.use(helmet());
-app.use(cors({ origin: process.env.FRONTEND_URL || "http://localhost:5173", credentials: true }));
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Authorization", "authorization", "Content-Type", "Accept"],
+    exposedHeaders: ["Authorization"],
+  })
+);
 app.use(express.json());
 
 // Health check (sans auth)
@@ -67,6 +76,9 @@ app.get("/api/v1/documents/:id/download", documentController.downloadDocument);
 app.get("/api/v1/documents/:id/versions/:versionId/download", documentController.downloadVersion);
 app.put("/api/v1/documents/:id", documentController.updateDocument);
 app.delete("/api/v1/documents/:id", documentController.deleteDocument);
+// Commentaires de documents
+app.get("/api/v1/documents/:id/comments", documentCommentController.listComments);
+app.post("/api/v1/documents/:id/comments", documentCommentController.addComment);
 
 // Utilisateurs
 app.get("/api/v1/users", userController.getAllUsers);

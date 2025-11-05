@@ -28,12 +28,14 @@ export const useAuth = create<AuthState>((set, get) => ({
     localStorage.setItem('token', token);
     localStorage.setItem('refreshToken', refreshToken);
     localStorage.setItem('user', JSON.stringify(user));
+    api.defaults.headers.common.Authorization = `Bearer ${token}`;
     set({ user, token });
   },
   logout: () => {
     localStorage.removeItem('token');
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
+    delete (api.defaults.headers.common as any).Authorization;
     set({ user: null, token: null });
   },
   isAuthenticated: () => {
@@ -43,6 +45,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     const token = localStorage.getItem('token');
     const userStr = localStorage.getItem('user');
     if (token && userStr) {
+      api.defaults.headers.common.Authorization = `Bearer ${token}`;
       set({ token, user: JSON.parse(userStr) });
     }
   },

@@ -120,6 +120,8 @@ model User {
   journalAcces          JournalAcces[]
   entitesResponsable    Entite[]    @relation("EntiteResponsable")
   entitesMembres        UserEntite[]
+  passwordResetTokens   PasswordResetToken[]
+  documentComments      DocumentComment[]
   smtpConfigsUpdated    SMTPConfig[] @relation("SMTPConfigUpdatedBy")
   
   @@index([email])
@@ -293,6 +295,7 @@ model Document {
   // Relations
   versions            VersionDocument[]
   permissionsUtilisateurs DocumentPermission[]
+  comments            DocumentComment[]
   
   @@index([referenceId, referenceType])
   @@index([typeDocument])
@@ -322,6 +325,19 @@ model DocumentPermission {
   createdAt         DateTime    @default(now())
   
   @@unique([documentId, userId])
+  @@index([documentId])
+  @@index([userId])
+}
+
+model DocumentComment {
+  id          String   @id @default(uuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contenu     String
+  createdAt   DateTime @default(now())
+
   @@index([documentId])
   @@index([userId])
 }

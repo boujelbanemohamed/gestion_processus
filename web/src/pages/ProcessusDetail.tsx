@@ -56,6 +56,8 @@ export default function ProcessusDetail() {
   });
   const [viewingDocument, setViewingDocument] = useState<any | null>(null);
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
+  const [docComments, setDocComments] = useState<Record<string, any[]>>({});
+  const [newComment, setNewComment] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (id) {
@@ -113,8 +115,43 @@ export default function ProcessusDetail() {
     try {
       const response = await api.get(`/documents?referenceType=processus&referenceId=${id}`);
       setDocuments(response.data);
+      // Charger les commentaires pour chaque document
+      const commentsByDoc: Record<string, any[]> = {};
+      await Promise.all(
+        (response.data || []).map(async (d: any) => {
+          try {
+            const token = localStorage.getItem('token');
+            const res = await api.get(`/documents/${d.id}/comments`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
+            commentsByDoc[d.id] = res.data || [];
+          } catch {
+            commentsByDoc[d.id] = [];
+          }
+        })
+      );
+      setDocComments(commentsByDoc);
     } catch (error) {
       console.error('Erreur chargement documents:', error);
+    }
+  };
+
+  const handleAddComment = async (documentId: string) => {
+    const content = (newComment[documentId] || '').trim();
+    if (!content) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await api.post(
+        `/documents/${documentId}/comments`,
+        { contenu: content },
+        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
+      );
+      setDocComments({
+        ...docComments,
+        [documentId]: [...(docComments[documentId] || []), res.data],
+      });
+      setNewComment({ ...newComment, [documentId]: '' });
+      loadHistory(1);
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Erreur ajout commentaire');
     }
   };
 
@@ -860,6 +897,47 @@ export default function ProcessusDetail() {
                           </span>
                         )}
                       </div>
+                      {doc.estConfidentiel && (
+                        <div className="mt-3 text-xs text-gray-700 space-y-1 bg-red-50 border border-red-100 rounded p-2">
+                          {
+                            (() => {
+                              const selected = (doc.permissionsUtilisateurs || []).map((p: any) => p.user || p.userId).filter(Boolean);
+                              const selectedUsers = (doc.permissionsUtilisateurs || [])
+                                .map((p: any) => p.user)
+                                .filter((u: any) => !!u);
+                              const viewers: string[] = [];
+                              // Utilisateurs sélectionnés
+                              selectedUsers.forEach((u: any) => viewers.push(`${u.prenom} ${u.nom}`));
+                              // Propriétaire du processus
+                              if (processus?.proprietaire) viewers.push(`${processus.proprietaire.prenom} ${processus.proprietaire.nom}`);
+                              // Créateur du processus
+                              if (processus?.createdBy) viewers.push(`${processus.createdBy.prenom} ${processus.createdBy.nom}`);
+                              // Uploadeur du document
+                              if (doc.uploadedBy) viewers.push(`${doc.uploadedBy.prenom} ${doc.uploadedBy.nom}`);
+                              const editors: string[] = [];
+                              // Seuls les utilisateurs sélectionnés + uploadeur peuvent modifier
+                              selectedUsers.forEach((u: any) => editors.push(`${u.prenom} ${u.nom}`));
+                              if (doc.uploadedBy) editors.push(`${doc.uploadedBy.prenom} ${doc.uploadedBy.nom}`);
+                              // Dédupliquer
+                              const uniq = (arr: string[]) => Array.from(new Set(arr.filter(Boolean)));
+                              const viewersUniq = uniq(viewers);
+                              const editorsUniq = uniq(editors);
+                              return (
+                                <div className="space-y-1">
+                                  <div>
+                                    <span className="font-medium">Peuvent consulter:</span>{' '}
+                                    {viewersUniq.length > 0 ? viewersUniq.join(', ') : 'N/A'}
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">Peuvent modifier:</span>{' '}
+                                    {editorsUniq.length > 0 ? editorsUniq.join(', ') : 'N/A'}
+                                  </div>
+                                </div>
+                              );
+                            })()
+                          }
+                        </div>
+                      )}
                       <div className="mt-4 border-t border-gray-200 pt-3">
                         <p className="text-sm font-medium text-gray-700 mb-3">Historique des versions:</p>
                         <div className="space-y-2">
@@ -972,6 +1050,40 @@ export default function ProcessusDetail() {
                       )}
                     </div>
                   </div>
+              {/* Commentaires */}
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <p className="text-sm font-semibold mb-2">Commentaires</p>
+                {(docComments[doc.id] || []).length === 0 ? (
+                  <p className="text-sm text-gray-500">Aucun commentaire</p>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {(docComments[doc.id] || []).map((c) => (
+                      <div key={c.id} className="text-sm bg-gray-50 border border-gray-200 rounded p-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium">{c.user?.prenom} {c.user?.nom}</span>
+                          <span className="text-xs text-gray-500">{new Date(c.createdAt).toLocaleString('fr-FR')}</span>
+                        </div>
+                        <p className="mt-1 text-gray-700 whitespace-pre-wrap">{c.contenu}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-3 flex gap-2">
+                  <input
+                    type="text"
+                    value={newComment[doc.id] || ''}
+                    onChange={(e) => setNewComment({ ...newComment, [doc.id]: e.target.value })}
+                    placeholder="Écrire un commentaire..."
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded"
+                  />
+                  <button
+                    onClick={() => handleAddComment(doc.id)}
+                    className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Publier
+                  </button>
+                </div>
+              </div>
                 </div>
               ))}
             </div>

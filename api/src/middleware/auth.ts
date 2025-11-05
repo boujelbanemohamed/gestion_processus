@@ -7,17 +7,33 @@ export interface AuthRequest extends Request {
 
 export const authenticate = (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Token manquant' });
+    // Laisser passer les requêtes de préflight CORS
+    if (req.method === 'OPTIONS') {
+      return next();
     }
 
-    const token = authHeader.substring(7);
+    const rawHeader = (req.get('authorization') || (req.headers as any).authorization || (req.headers as any).Authorization) as string | undefined;
+    if (!rawHeader) {
+      console.warn('[AUTH] No Authorization header. headers=', req.headers);
+      return res.status(401).json({ error: 'Token manquant', reason: 'no authorization header' });
+    }
+
+    const match = /^Bearer\s+(.+)$/i.exec(rawHeader.trim());
+    if (!match || !match[1]) {
+      console.warn('[AUTH] Malformed Authorization header:', rawHeader);
+      return res.status(401).json({ error: 'Token manquant', reason: 'malformed authorization header' });
+    }
+
+    const token = match[1].trim();
     const payload = verifyAccessToken(token);
     req.user = payload;
     next();
   } catch (error) {
-    return res.status(401).json({ error: 'Token invalide ou expiré' });
+    // Log détaillé côté serveur pour diagnostiquer (invalid signature, jwt expired, etc.)
+    // En dev, on renvoie aussi la raison pour faciliter le debug côté client
+    const reason = (error as any)?.message || 'invalid token';
+    console.error('[AUTH] JWT error:', reason);
+    return res.status(401).json({ error: 'Token invalide ou expiré', reason });
   }
 };
 
