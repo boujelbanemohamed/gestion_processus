@@ -471,6 +471,41 @@ export default function Documents() {
                   }`}>
                     {d.statut}
                   </span>
+                  {d.estConfidentiel && (
+                    <div className="mt-2 text-xs text-gray-700 space-y-1">
+                      <span className="inline-block px-2 py-0.5 bg-red-100 text-red-800 rounded">Confidentiel</span>
+                      {
+                        (() => {
+                          const selectedUsers = (d.permissionsUtilisateurs || [])
+                            .map((p: any) => p.user)
+                            .filter((u: any) => !!u);
+                          const viewers: string[] = [];
+                          selectedUsers.forEach((u: any) => viewers.push(`${u.prenom} ${u.nom}`));
+                          if (d.uploadedBy) viewers.push(`${d.uploadedBy.prenom} ${d.uploadedBy.nom}`);
+                          if (d.processus?.proprietaire) viewers.push(`${d.processus.proprietaire.prenom} ${d.processus.proprietaire.nom}`);
+                          if (d.processus?.createdBy) viewers.push(`${d.processus.createdBy.prenom} ${d.processus.createdBy.nom}`);
+                          const editors: string[] = [];
+                          selectedUsers.forEach((u: any) => editors.push(`${u.prenom} ${u.nom}`));
+                          if (d.uploadedBy) editors.push(`${d.uploadedBy.prenom} ${d.uploadedBy.nom}`);
+                          const uniq = (arr: string[]) => Array.from(new Set(arr.filter(Boolean)));
+                          const viewersUniq = uniq(viewers);
+                          const editorsUniq = uniq(editors);
+                          return (
+                            <div className="space-y-0.5">
+                              <div>
+                                <span className="font-medium">Peuvent consulter:</span>{' '}
+                                {viewersUniq.length > 0 ? viewersUniq.join(', ') : 'N/A'}
+                              </div>
+                              <div>
+                                <span className="font-medium">Peuvent modifier:</span>{' '}
+                                {editorsUniq.length > 0 ? editorsUniq.join(', ') : 'N/A'}
+                              </div>
+                            </div>
+                          );
+                        })()
+                      }
+                    </div>
+                  )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                   <button
