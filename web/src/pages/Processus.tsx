@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
 
 export default function Processus() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user: currentUser } = useAuth();
   const isLecteur = currentUser?.role === 'lecteur';
   const [processus, setProcessus] = useState<any[]>([]);
@@ -32,9 +33,16 @@ export default function Processus() {
   const pageSize = 10;
 
   useEffect(() => {
+    // Pré-remplir le filtre statut depuis la query (ex: ?statut=brouillon)
+    const params = new URLSearchParams(location.search);
+    const qStatut = params.get('statut');
+    if (qStatut) {
+      setFilters((prev) => ({ ...prev, statut: qStatut }));
+    }
     loadProcessus();
     loadEntites();
     loadCategories();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

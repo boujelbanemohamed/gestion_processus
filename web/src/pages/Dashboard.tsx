@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/auth';
 import { api } from '../services/api';
 
@@ -20,6 +21,9 @@ export default function Dashboard() {
   const { user } = useAuth();
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     loadKPIs();
@@ -43,27 +47,44 @@ export default function Dashboard() {
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-lg shadow">
-          <div className="text-sm text-gray-600">Processus total</div>
-          <div className="text-2xl font-bold">{kpis?.processus.total || 0}</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <div className="text-sm text-gray-600">Processus actifs</div>
-          <div className="text-2xl font-bold">{kpis?.projets.actifs || 0}</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <div className="text-sm text-gray-600">Entités</div>
-          <div className="text-2xl font-bold">{kpis?.entitesTotal || 0}</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <div className="text-sm text-gray-600">Utilisateurs actifs</div>
-          <div className="text-2xl font-bold">{kpis?.utilisateursActifs || 0}</div>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <div className="text-sm text-gray-600">Documents récents</div>
-          <div className="text-2xl font-bold">{kpis?.documentsRecents.length || 0}</div>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <button
+          type="button"
+          onClick={() => navigate('/processus')}
+          className="bg-white p-4 rounded-lg shadow text-left hover:bg-blue-50 transition"
+          title="Aller à la liste des processus"
+        >
+          <div className="text-sm text-blue-600">Processus total</div>
+          <div className="text-2xl font-bold text-blue-600">{kpis?.processus.total || 0}</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('/entites')}
+          className="bg-white p-4 rounded-lg shadow text-left hover:bg-blue-50 transition"
+          title="Aller à la liste des entités"
+        >
+          <div className="text-sm text-blue-600">Entités</div>
+          <div className="text-2xl font-bold text-blue-600">{kpis?.entitesTotal || 0}</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => isAdmin && navigate('/users')}
+          disabled={!isAdmin}
+          className={`p-4 rounded-lg shadow text-left transition ${isAdmin ? 'bg-white hover:bg-blue-50 cursor-pointer' : 'bg-gray-100 cursor-not-allowed'}`}
+          title={isAdmin ? 'Aller à la liste des utilisateurs' : "Accès réservé à l'administrateur"}
+        >
+          <div className={`text-sm ${isAdmin ? 'text-blue-600' : 'text-gray-600'}`}>Utilisateurs actifs</div>
+          <div className={`text-2xl font-bold ${isAdmin ? 'text-blue-600' : 'text-gray-600'}`}>{kpis?.utilisateursActifs || 0}</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('/documents')}
+          className="bg-white p-4 rounded-lg shadow text-left hover:bg-blue-50 transition"
+          title="Aller à la liste des documents"
+        >
+          <div className="text-sm text-blue-600">Documents récents</div>
+          <div className="text-2xl font-bold text-blue-600">{kpis?.documentsRecents.length || 0}</div>
+        </button>
       </div>
 
       {kpis && Object.keys(kpis.processus.parStatut).length > 0 && (
@@ -72,10 +93,16 @@ export default function Dashboard() {
             <h2 className="text-lg font-semibold mb-4">Processus par statut</h2>
             <div className="space-y-2">
               {Object.entries(kpis.processus.parStatut).map(([statut, count]) => (
-                <div key={statut} className="flex justify-between">
-                  <span className="capitalize">{statut}</span>
+                <button
+                  key={statut}
+                  type="button"
+                  onClick={() => navigate(`/processus?statut=${encodeURIComponent(statut)}`)}
+                  className="w-full flex justify-between items-center px-3 py-2 rounded hover:bg-blue-50 transition capitalize text-left text-blue-600 hover:underline"
+                  title={`Voir les processus avec le statut ${statut}`}
+                >
+                  <span>{statut.replace('_', ' ')}</span>
                   <span className="font-bold">{count}</span>
-                </div>
+                </button>
               ))}
             </div>
           </div>
