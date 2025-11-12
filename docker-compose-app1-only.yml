@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # Base de données pour l'application 1 (Gestion des processus)
+  postgres-app1:
+    image: postgres:16-alpine
+    container_name: postgres-gestion-processus
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: cursor_process
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-app1-data:/var/lib/postgresql/data
+    networks:
+      - app1-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # API de l'application 1 (Gestion des processus)
+  api-app1:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: api-gestion-processus
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres-app1:5432/cursor_process?schema=public
+      JWT_SECRET: ${JWT_SECRET_APP1:-your-super-secret-jwt-key-change-in-production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET_APP1:-your-super-secret-refresh-key-change-in-production}
+      PORT: 4000
+      FRONTEND_URL: http://localhost:5173
+      NODE_ENV: production
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./apps/api/uploads:/app/uploads
+      - ./apps/api/.env:/app/.env:ro
+    depends_on:
+      postgres-app1:
+        condition: service_healthy
+    networks:
+      - app1-network
+    restart: unless-stopped
+    command: sh -c "npx prisma generate && npx prisma migrate deploy && npm start"
+
+  # Frontend de l'application 1 (Gestion des processus)
+  web-app1:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: web-gestion-processus
+    environment:
+      VITE_API_URL: http://localhost:4000/api/v1
+    ports:
+      - "5173:80"
+    depends_on:
+      - api-app1
+    networks:
+      - app1-network
+    restart: unless-stopped
+
+networks:
+  app1-network:
+    driver: bridge
+
+volumes:
+  postgres-app1-data:
+    driver: local
+
