@@ -1,0 +1,46 @@
+# Exemple de Dockerfile pour l'API de l'application 2
+# Copiez ce fichier vers apps2/api/Dockerfile et adaptez si nécessaire
+
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copier les fichiers de dépendances
+COPY package*.json ./
+COPY prisma ./prisma
+
+# Installer les dépendances
+RUN npm ci
+
+# Copier le reste du code
+COPY . .
+
+# Générer le client Prisma (si vous utilisez Prisma)
+RUN npx prisma generate || echo "Prisma non configuré"
+
+# Compiler TypeScript (si nécessaire)
+RUN npm run build || echo "Build non configuré"
+
+# Image de production
+FROM node:20-alpine AS production
+
+WORKDIR /app
+
+# Installer uniquement les dépendances de production
+COPY package*.json ./
+COPY prisma ./prisma
+RUN npm ci --only=production
+
+# Copier les fichiers compilés depuis le builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src/generated ./src/generated 2>/dev/null || true
+
+# Créer le dossier pour les uploads
+RUN mkdir -p /app/uploads
+
+# Exposer le port (modifiez selon votre configuration)
+EXPOSE 4001
+
+# Commande par défaut
+CMD ["npm", "start"]
+
