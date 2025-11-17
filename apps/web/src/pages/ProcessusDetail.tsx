@@ -323,7 +323,9 @@ export default function ProcessusDetail() {
       const response = await api.get(`/documents/${doc.id}/download`, {
         responseType: 'blob',
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      // Spécifier le type MIME correct pour éviter les avertissements de sécurité
+      const blob = new Blob([response.data], { type: doc.fichierType || response.headers['content-type'] || 'application/octet-stream' });
+      const url = window.URL.createObjectURL(blob);
       setDocumentUrl(url);
       setViewingDocument(doc);
     } catch (error: any) {
@@ -343,7 +345,9 @@ export default function ProcessusDetail() {
       const response = await api.get(`/documents/${document.id}/download`, {
         responseType: 'blob',
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      // Spécifier le type MIME correct
+      const blob = new Blob([response.data], { type: document.fichierType || response.headers['content-type'] || 'application/octet-stream' });
+      const url = window.URL.createObjectURL(blob);
       const link = window.document.createElement('a');
       link.href = url;
       link.setAttribute('download', document.fichierNomOriginal);
@@ -377,7 +381,9 @@ export default function ProcessusDetail() {
       const response = await api.get(`/documents/${documentId}/versions/${versionId}/download`, {
         responseType: 'blob',
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      // Spécifier le type MIME correct
+      const blob = new Blob([response.data], { type: response.headers['content-type'] || 'application/octet-stream' });
+      const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', `${originalName}_v${version}`);
@@ -1747,23 +1753,28 @@ export default function ProcessusDetail() {
             <div className="flex-1 overflow-hidden p-4">
               {getFileType(viewingDocument.fichierType) === 'pdf' ? (
                 <iframe
-                  src={documentUrl}
+                  src={documentUrl || undefined}
                   className="w-full h-full border border-gray-300 rounded"
                   title={viewingDocument.nom}
+                  sandbox="allow-same-origin allow-scripts"
+                  loading="lazy"
                 />
               ) : getFileType(viewingDocument.fichierType) === 'image' ? (
                 <div className="flex justify-center items-center h-full overflow-auto">
                   <img
-                    src={documentUrl}
+                    src={documentUrl || undefined}
                     alt={viewingDocument.nom}
                     className="max-w-full max-h-full object-contain"
+                    loading="lazy"
                   />
                 </div>
               ) : getFileType(viewingDocument.fichierType) === 'text' ? (
                 <iframe
-                  src={documentUrl}
+                  src={documentUrl || undefined}
                   className="w-full h-full border border-gray-300 rounded"
                   title={viewingDocument.nom}
+                  sandbox="allow-same-origin allow-scripts"
+                  loading="lazy"
                 />
               ) : (
                 <div className="flex flex-col items-center justify-center h-full">
