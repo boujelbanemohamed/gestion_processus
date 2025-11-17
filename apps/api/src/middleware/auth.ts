@@ -12,19 +12,27 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
       return next();
     }
 
+    // Essayer d'abord le header Authorization, puis le paramètre de requête (pour les téléchargements directs)
+    let token: string | undefined;
+    
     const rawHeader = (req.get('authorization') || (req.headers as any).authorization || (req.headers as any).Authorization) as string | undefined;
-    if (!rawHeader) {
-      console.warn('[AUTH] No Authorization header. headers=', req.headers);
-      return res.status(401).json({ error: 'Token manquant', reason: 'no authorization header' });
+    if (rawHeader) {
+      const match = /^Bearer\s+(.+)$/i.exec(rawHeader.trim());
+      if (match && match[1]) {
+        token = match[1].trim();
+      }
+    }
+    
+    // Si pas de token dans le header, essayer le paramètre de requête
+    if (!token && req.query.token && typeof req.query.token === 'string') {
+      token = req.query.token;
     }
 
-    const match = /^Bearer\s+(.+)$/i.exec(rawHeader.trim());
-    if (!match || !match[1]) {
-      console.warn('[AUTH] Malformed Authorization header:', rawHeader);
-      return res.status(401).json({ error: 'Token manquant', reason: 'malformed authorization header' });
+    if (!token) {
+      console.warn('[AUTH] No Authorization header or token query param. headers=', req.headers);
+      return res.status(401).json({ error: 'Token manquant', reason: 'no authorization header or token param' });
     }
 
-    const token = match[1].trim();
     const payload = verifyAccessToken(token);
     req.user = payload;
     next();

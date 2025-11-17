@@ -320,12 +320,10 @@ export default function ProcessusDetail() {
     }
 
     try {
-      const response = await api.get(`/documents/${doc.id}/download`, {
-        responseType: 'blob',
-      });
-      // Spécifier le type MIME correct pour éviter les avertissements de sécurité
-      const blob = new Blob([response.data], { type: doc.fichierType || response.headers['content-type'] || 'application/octet-stream' });
-      const url = window.URL.createObjectURL(blob);
+      // Utiliser directement l'URL de l'API au lieu d'un blob URL pour éviter les problèmes de sécurité
+      const token = localStorage.getItem('token');
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000/api/v1';
+      const url = `${apiUrl}/documents/${doc.id}/download${token ? `?token=${token}` : ''}`;
       setDocumentUrl(url);
       setViewingDocument(doc);
     } catch (error: any) {
@@ -342,19 +340,19 @@ export default function ProcessusDetail() {
     }
 
     try {
-      const response = await api.get(`/documents/${document.id}/download`, {
-        responseType: 'blob',
-      });
-      // Spécifier le type MIME correct
-      const blob = new Blob([response.data], { type: document.fichierType || response.headers['content-type'] || 'application/octet-stream' });
-      const url = window.URL.createObjectURL(blob);
+      // Utiliser directement l'URL de l'API pour éviter les problèmes de blob URLs
+      const token = localStorage.getItem('token');
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000/api/v1';
+      const url = `${apiUrl}/documents/${document.id}/download${token ? `?token=${token}` : ''}`;
+      
+      // Créer un lien de téléchargement direct
       const link = window.document.createElement('a');
       link.href = url;
       link.setAttribute('download', document.fichierNomOriginal);
+      link.style.display = 'none';
       window.document.body.appendChild(link);
       link.click();
       link.remove();
-      window.URL.revokeObjectURL(url);
     } catch (error: any) {
       console.error('Erreur lors du téléchargement:', error);
       alert('Erreur lors du téléchargement');
@@ -362,9 +360,7 @@ export default function ProcessusDetail() {
   };
 
   const closeViewer = () => {
-    if (documentUrl) {
-      window.URL.revokeObjectURL(documentUrl);
-    }
+    // Plus besoin de révoquer l'URL car on utilise maintenant des URLs directes
     setViewingDocument(null);
     setDocumentUrl(null);
   };
@@ -1752,12 +1748,11 @@ export default function ProcessusDetail() {
             {/* Content */}
             <div className="flex-1 overflow-hidden p-4">
               {getFileType(viewingDocument.fichierType) === 'pdf' ? (
-                <iframe
+                <embed
                   src={documentUrl || undefined}
+                  type="application/pdf"
                   className="w-full h-full border border-gray-300 rounded"
                   title={viewingDocument.nom}
-                  sandbox="allow-same-origin allow-scripts"
-                  loading="lazy"
                 />
               ) : getFileType(viewingDocument.fichierType) === 'image' ? (
                 <div className="flex justify-center items-center h-full overflow-auto">
@@ -1766,15 +1761,15 @@ export default function ProcessusDetail() {
                     alt={viewingDocument.nom}
                     className="max-w-full max-h-full object-contain"
                     loading="lazy"
+                    crossOrigin="anonymous"
                   />
                 </div>
               ) : getFileType(viewingDocument.fichierType) === 'text' ? (
-                <iframe
+                <embed
                   src={documentUrl || undefined}
+                  type="text/plain"
                   className="w-full h-full border border-gray-300 rounded"
                   title={viewingDocument.nom}
-                  sandbox="allow-same-origin allow-scripts"
-                  loading="lazy"
                 />
               ) : (
                 <div className="flex flex-col items-center justify-center h-full">
