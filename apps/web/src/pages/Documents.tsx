@@ -237,7 +237,10 @@ export default function Documents() {
       
       // Si un seul fichier et que le nom n'est pas défini, utiliser le nom du fichier
       if (selectedFiles.length === 1 && !uploadData.nom) {
-        setUploadData({ ...uploadData, nom: selectedFiles[0].name });
+        setUploadData((prev) => ({ 
+          ...prev, 
+          nom: selectedFiles[0].name,
+        }));
       }
     }
   };

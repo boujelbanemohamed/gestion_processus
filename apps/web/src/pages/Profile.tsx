@@ -92,7 +92,8 @@ export default function Profile() {
         setError('Utilisateur non connecté');
         return;
       }
-      await api.put(`/users/${currentUser.id}`, updateData);
+      const userId = currentUser.id;
+      await api.put(`/users/${userId}`, updateData);
       await loadUser();
       setIsEditing(false);
       // Optionnel: mettre à jour le store auth
@@ -124,7 +125,8 @@ export default function Profile() {
         setPasswordError('Utilisateur non connecté');
         return;
       }
-      await api.patch(`/users/${currentUser.id}/password`, {
+      const userId = currentUser.id;
+      await api.patch(`/users/${userId}/password`, {
         password: passwordData.password,
       });
       setShowPasswordModal(false);
