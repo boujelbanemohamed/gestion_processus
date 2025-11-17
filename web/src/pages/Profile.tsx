@@ -88,6 +88,10 @@ export default function Profile() {
         return;
       }
 
+      if (!currentUser?.id) {
+        setError('Utilisateur non connecté');
+        return;
+      }
       await api.put(`/users/${currentUser.id}`, updateData);
       await loadUser();
       setIsEditing(false);
@@ -116,6 +120,10 @@ export default function Profile() {
 
     setChangingPassword(true);
     try {
+      if (!currentUser?.id) {
+        setPasswordError('Utilisateur non connecté');
+        return;
+      }
       await api.patch(`/users/${currentUser.id}/password`, {
         password: passwordData.password,
       });

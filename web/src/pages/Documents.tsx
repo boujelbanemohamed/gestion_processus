@@ -689,7 +689,7 @@ export default function Documents() {
                     setError('');
                     setFiles([]);
                     setFileNames({});
-                    setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0' });
+                    setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '' });
                   }}
                   className="text-gray-500 hover:text-gray-700"
                 >
