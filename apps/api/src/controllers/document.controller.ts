@@ -85,9 +85,15 @@ export const createDocument = async (req: AuthRequest, res: Response) => {
     }
 
     const estConfidentiel = req.body.estConfidentiel === 'true' || req.body.estConfidentiel === true;
-    const permissionUserIds = req.body.permissionUserIds 
-      ? (Array.isArray(req.body.permissionUserIds) ? req.body.permissionUserIds : req.body.permissionUserIds.split(','))
-      : [];
+    // Gérer les permissionUserIds envoyés via FormData (peut être un tableau ou une chaîne)
+    let permissionUserIds: string[] = [];
+    if (req.body.permissionUserIds) {
+      if (Array.isArray(req.body.permissionUserIds)) {
+        permissionUserIds = req.body.permissionUserIds;
+      } else if (typeof req.body.permissionUserIds === 'string') {
+        permissionUserIds = req.body.permissionUserIds.split(',').filter((id: string) => id.trim() !== '');
+      }
+    }
 
     // Vérifier si l'utilisateur peut définir le document comme confidentiel
     if (estConfidentiel) {
@@ -106,6 +112,9 @@ export const createDocument = async (req: AuthRequest, res: Response) => {
         if (processus.proprietaireId !== req.user!.userId && processus.createdById !== req.user!.userId) {
           return res.status(403).json({ error: 'Seul le propriétaire ou le créateur du processus peut définir un document comme confidentiel' });
         }
+      } else {
+        // Si le document n'est pas lié à un processus, seul l'utilisateur qui l'upload peut le rendre confidentiel
+        // Cette vérification est implicite car uploadedById sera toujours l'utilisateur actuel
       }
 
       // Vérifier qu'au moins un utilisateur est sélectionné

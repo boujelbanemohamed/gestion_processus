@@ -27,6 +27,8 @@ export default function Documents() {
     processusId: '',
   });
   const [processusList, setProcessusList] = useState<any[]>([]);
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [permissionUserIds, setPermissionUserIds] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [filters, setFilters] = useState({
@@ -41,7 +43,17 @@ export default function Documents() {
   useEffect(() => {
     loadDocuments();
     loadProcessus();
+    loadUsers();
   }, []);
+
+  const loadUsers = async () => {
+    try {
+      const response = await api.get('/users');
+      setUsersList(response.data);
+    } catch (error) {
+      console.error('Erreur chargement utilisateurs:', error);
+    }
+  };
 
   useEffect(() => {
     loadDocuments();
@@ -275,6 +287,9 @@ export default function Documents() {
         }
         formData.append('description', uploadData.description || '');
         formData.append('estConfidentiel', uploadData.estConfidentiel.toString());
+        if (uploadData.estConfidentiel && permissionUserIds.length > 0) {
+          formData.append('permissionUserIds', permissionUserIds.join(','));
+        }
         formData.append('versionMajeure', uploadData.versionMajeure);
         formData.append('versionMineure', uploadData.versionMineure);
         formData.append('versionPatch', uploadData.versionPatch);
@@ -292,6 +307,7 @@ export default function Documents() {
       setFiles([]);
       setFileNames({});
       setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '' });
+      setPermissionUserIds([]);
       loadDocuments();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Erreur lors de l\'upload des fichiers');
@@ -344,6 +360,7 @@ export default function Documents() {
               setFiles([]);
               setFileNames({});
               setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '' });
+              setPermissionUserIds([]);
             }}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
           >
@@ -687,13 +704,14 @@ export default function Documents() {
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold">Nouveau document</h2>
                 <button
-                  onClick={() => {
-                    setShowUploadModal(false);
-                    setError('');
-                    setFiles([]);
-                    setFileNames({});
-                    setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '' });
-                  }}
+                    onClick={() => {
+                      setShowUploadModal(false);
+                      setError('');
+                      setFiles([]);
+                      setFileNames({});
+                      setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '' });
+                      setPermissionUserIds([]);
+                    }}
                   className="text-gray-500 hover:text-gray-700"
                 >
                   ✕
@@ -818,11 +836,47 @@ export default function Documents() {
                     <input
                       type="checkbox"
                       checked={uploadData.estConfidentiel}
-                      onChange={(e) => setUploadData({ ...uploadData, estConfidentiel: e.target.checked })}
+                      onChange={(e) => {
+                        setUploadData({ ...uploadData, estConfidentiel: e.target.checked });
+                        if (!e.target.checked) {
+                          setPermissionUserIds([]);
+                        }
+                      }}
                       className="mr-2"
                     />
                     <span className="text-sm text-gray-700">Document confidentiel</span>
                   </label>
+                  {uploadData.estConfidentiel && (
+                    <div className="mt-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Utilisateurs autorisés <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        multiple
+                        value={permissionUserIds}
+                        onChange={(e) => {
+                          const selected = Array.from(e.target.selectedOptions, option => option.value);
+                          setPermissionUserIds(selected);
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        size={5}
+                      >
+                        {usersList.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.prenom} {user.nom} ({user.email})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Maintenez Ctrl (ou Cmd sur Mac) pour sélectionner plusieurs utilisateurs
+                      </p>
+                      {uploadData.estConfidentiel && permissionUserIds.length === 0 && (
+                        <p className="mt-1 text-xs text-red-500">
+                          Au moins un utilisateur doit être sélectionné pour un document confidentiel
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex justify-end space-x-3 pt-4">
@@ -834,6 +888,7 @@ export default function Documents() {
                       setFiles([]);
                       setFileNames({});
                       setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '' });
+                      setPermissionUserIds([]);
                     }}
                     className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
                   >
@@ -841,7 +896,7 @@ export default function Documents() {
                   </button>
                   <button
                     type="submit"
-                    disabled={uploading || files.length === 0}
+                    disabled={uploading || files.length === 0 || (uploadData.estConfidentiel && permissionUserIds.length === 0)}
                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                   >
                     {uploading ? 'Upload en cours...' : 'Uploader'}
