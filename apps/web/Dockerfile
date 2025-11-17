@@ -44,14 +44,20 @@ RUN echo "=== Variables d'environnement ===" && \
 
 # Build de l'application avec logs détaillés
 RUN echo "=== Début du build ===" && \
-    npm run build 2>&1 | tee /tmp/build.log || \
-    (echo "=== ERREUR BUILD ===" && \
-     echo "=== Log complet ===" && \
-     cat /tmp/build.log && \
-     echo "=== Fin du log ===" && \
-     exit 1) && \
+    npm run build 2>&1 | tee /tmp/build.log && \
+    echo "=== Vérification du résultat du build ===" && \
+    if [ ! -d "dist" ]; then \
+      echo "=== ERREUR: Le dossier dist n'existe pas ===" && \
+      echo "=== Log complet ===" && \
+      cat /tmp/build.log && \
+      echo "=== Fin du log ===" && \
+      exit 1; \
+    fi && \
     echo "=== Build réussi ===" && \
-    ls -la dist/ 2>/dev/null || echo "Dossier dist non trouvé"
+    echo "=== Contenu du dossier dist ===" && \
+    ls -la dist/ && \
+    echo "=== Taille du dossier dist ===" && \
+    du -sh dist/
 
 # Image de production avec Nginx
 FROM nginx:alpine
