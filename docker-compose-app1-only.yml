@@ -32,7 +32,7 @@ services:
       JWT_SECRET: ${JWT_SECRET_APP1:-your-super-secret-jwt-key-change-in-production}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET_APP1:-your-super-secret-refresh-key-change-in-production}
       PORT: 4000
-      FRONTEND_URL: http://localhost:5173
+      FRONTEND_URL: http://172.17.5.198:5173
       NODE_ENV: production
     ports:
       - "4000:4000"

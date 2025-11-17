@@ -19,9 +19,33 @@ import * as smtpController from "./controllers/smtp.controller";
 
 const app = express();
 app.use(helmet());
+// Configuration CORS pour autoriser plusieurs origines
+const allowedOrigins = [
+  process.env.FRONTEND_URL || "http://localhost:5173",
+  "http://localhost:5173",
+  "http://172.17.5.198:5173",
+  "http://127.0.0.1:5173",
+];
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin: (origin, callback) => {
+      // Autoriser les requêtes sans origine (ex: Postman, curl)
+      if (!origin) {
+        return callback(null, true);
+      }
+      // Vérifier si l'origine est autorisée
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        // En développement, autoriser toutes les origines
+        if (process.env.NODE_ENV !== "production") {
+          callback(null, true);
+        } else {
+          callback(new Error("Not allowed by CORS"));
+        }
+      }
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Authorization", "authorization", "Content-Type", "Accept"],
