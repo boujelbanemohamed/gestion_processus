@@ -32,7 +32,7 @@ export class ProcessusService {
       ];
     }
 
-    return prisma.processus.findMany({
+    const processusList = await prisma.processus.findMany({
       where,
       include: {
         proprietaire: { select: { id: true, nom: true, prenom: true, email: true } },
@@ -50,6 +50,24 @@ export class ProcessusService {
       },
       orderBy: { updatedAt: 'desc' },
     });
+
+    // Enrichir avec le nombre de documents (les documents sont liés via referenceType et referenceId)
+    const processusWithCounts = await Promise.all(
+      processusList.map(async (p) => {
+        const nombreDocuments = await prisma.document.count({
+          where: {
+            referenceType: 'processus',
+            referenceId: p.id,
+          },
+        });
+        return {
+          ...p,
+          nombreDocuments,
+        };
+      })
+    );
+
+    return processusWithCounts;
   }
 
   async findOne(id: string) {

@@ -397,6 +397,7 @@ export default function Processus() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documents</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Catégorie</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entité</th>
             </tr>
@@ -420,6 +421,11 @@ export default function Processus() {
                       currentStatut?.color || 'bg-gray-100 text-gray-800'
                     }`}>
                       {currentStatut?.label || p.statut}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
+                    <span className="px-2 py-1 text-xs font-semibold bg-blue-100 text-blue-800 rounded">
+                      {p.nombreDocuments || 0}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
