@@ -34,7 +34,8 @@ RUN echo "=== Structure des fichiers ===" && \
     cat vite.config.ts 2>/dev/null || echo "vite.config.ts non trouvé"
 
 # Variables d'environnement pour le build
-ARG VITE_API_URL=http://localhost:4000/api/v1
+# La valeur par défaut sera remplacée par le build arg du docker-compose
+ARG VITE_API_URL=http://172.17.5.198:4000/api/v1
 ENV VITE_API_URL=$VITE_API_URL
 
 # Afficher la variable d'environnement
