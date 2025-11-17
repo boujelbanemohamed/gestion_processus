@@ -96,14 +96,17 @@ export default function Documents() {
       setDocuments(response.data);
 
       // Charger les compteurs de commentaires pour chaque document (affichage conditionnel du bouton)
+      // On charge les commentaires de manière silencieuse, les erreurs ne bloquent pas l'affichage
       const counts: Record<string, number> = {};
-      await Promise.all(
+      await Promise.allSettled(
         (response.data || []).map(async (d: any) => {
           try {
             const token = localStorage.getItem('token');
             const res = await api.get(`/documents/${d.id}/comments`, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
             counts[d.id] = Array.isArray(res.data) ? res.data.length : 0;
-          } catch {
+          } catch (error) {
+            // Erreur silencieuse : on met simplement le compteur à 0
+            console.warn(`Impossible de charger les commentaires pour le document ${d.id}:`, error);
             counts[d.id] = 0;
           }
         })
