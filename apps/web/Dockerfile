@@ -3,21 +3,54 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Afficher les versions
+RUN echo "=== Versions ===" && \
+    node --version && \
+    npm --version
+
 # Copier les fichiers de dépendances
 COPY package*.json ./
 
-# Installer les dépendances
-RUN npm ci
+# Afficher le contenu de package.json pour vérification
+RUN echo "=== Contenu package.json ===" && \
+    cat package.json | head -20
+
+# Installer les dépendances avec logs détaillés
+RUN echo "=== Installation des dépendances ===" && \
+    npm ci --verbose 2>&1 | tee /tmp/npm-install.log || \
+    (echo "=== ERREUR INSTALLATION ===" && cat /tmp/npm-install.log && exit 1)
 
 # Copier le reste du code
 COPY . .
+
+# Afficher la structure des fichiers copiés
+RUN echo "=== Structure des fichiers ===" && \
+    ls -la && \
+    echo "=== Fichiers src ===" && \
+    ls -la src/ | head -20 && \
+    echo "=== Fichiers tsconfig ===" && \
+    cat tsconfig.json 2>/dev/null || echo "tsconfig.json non trouvé" && \
+    echo "=== Fichiers vite.config ===" && \
+    cat vite.config.ts 2>/dev/null || echo "vite.config.ts non trouvé"
 
 # Variables d'environnement pour le build
 ARG VITE_API_URL=http://localhost:4000/api/v1
 ENV VITE_API_URL=$VITE_API_URL
 
-# Build de l'application
-RUN npm run build
+# Afficher la variable d'environnement
+RUN echo "=== Variables d'environnement ===" && \
+    echo "VITE_API_URL=$VITE_API_URL"
+
+# Build de l'application avec logs détaillés
+RUN echo "=== Début du build ===" && \
+    npm run build 2>&1 | tee /tmp/build.log || \
+    (echo "=== ERREUR BUILD ===" && \
+     echo "=== Log complet ===" && \
+     cat /tmp/build.log && \
+     echo "=== Fin du log ===" && \
+     exit 1) && \
+    echo "=== Build réussi ===" && \
+    ls -la dist/ 2>/dev/null || echo "Dossier dist non trouvé"
 
 # Image de production avec Nginx
 FROM nginx:alpine
