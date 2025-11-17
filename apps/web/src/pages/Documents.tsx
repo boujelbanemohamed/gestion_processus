@@ -7,6 +7,7 @@ export default function Documents() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   const isLecteur = currentUser?.role === 'lecteur';
+  const isAdmin = currentUser?.role === 'admin';
   const [documents, setDocuments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
@@ -214,6 +215,62 @@ export default function Documents() {
     }
     setViewingDocument(null);
     setDocumentUrl(null);
+  };
+
+  const [editingDocument, setEditingDocument] = useState<any | null>(null);
+  const [editData, setEditData] = useState({
+    nom: '',
+    description: '',
+    statut: 'brouillon' as any,
+    estConfidentiel: false,
+    permissionUserIds: [] as string[],
+  });
+
+  const handleEdit = (doc: any) => {
+    setEditingDocument(doc);
+    setEditData({
+      nom: doc.nom,
+      description: doc.description || '',
+      statut: doc.statut,
+      estConfidentiel: doc.estConfidentiel || false,
+      permissionUserIds: doc.permissionsUtilisateurs?.map((p: any) => p.userId || p.user?.id).filter(Boolean) || [],
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingDocument) return;
+    
+    try {
+      const updateData: any = {
+        nom: editData.nom,
+        description: editData.description,
+        statut: editData.statut,
+        estConfidentiel: editData.estConfidentiel,
+      };
+
+      if (editData.estConfidentiel && editData.permissionUserIds.length > 0) {
+        updateData.permissionUserIds = editData.permissionUserIds.join(',');
+      }
+
+      await api.put(`/documents/${editingDocument.id}`, updateData);
+      setEditingDocument(null);
+      loadDocuments();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Erreur lors de la modification du document');
+    }
+  };
+
+  const handleDelete = async (doc: any) => {
+    if (!window.confirm(`Êtes-vous sûr de vouloir supprimer le document "${doc.nom}" ?`)) {
+      return;
+    }
+
+    try {
+      await api.delete(`/documents/${doc.id}`);
+      loadDocuments();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Erreur lors de la suppression du document');
+    }
   };
 
   const getFileType = (mimeType: string): string => {
@@ -447,6 +504,9 @@ export default function Documents() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Uploadé par</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date d'upload</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date de modification</th>
+              {isAdmin && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              )}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -545,6 +605,26 @@ export default function Documents() {
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                   {formatDate(d.updatedAt)}
                 </td>
+                {isAdmin && (
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleEdit(d)}
+                        className="px-3 py-1 text-xs bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200"
+                        title="Modifier le document"
+                      >
+                        Modifier
+                      </button>
+                      <button
+                        onClick={() => handleDelete(d)}
+                        className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                        title="Supprimer le document"
+                      >
+                        Supprimer
+                      </button>
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -900,6 +980,138 @@ export default function Documents() {
                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                   >
                     {uploading ? 'Upload en cours...' : 'Uploader'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de modification */}
+      {editingDocument && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto py-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 my-auto">
+            <div className="p-6 max-h-[85vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">Modifier le document</h2>
+                <button
+                  onClick={() => {
+                    setEditingDocument(null);
+                    setEditData({ nom: '', description: '', statut: 'brouillon', estConfidentiel: false, permissionUserIds: [] });
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={(e) => { e.preventDefault(); handleSaveEdit(); }} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nom <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={editData.nom}
+                    onChange={(e) => setEditData({ ...editData, nom: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    value={editData.description}
+                    onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Statut
+                  </label>
+                  <select
+                    value={editData.statut}
+                    onChange={(e) => setEditData({ ...editData, statut: e.target.value as any })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="brouillon">Brouillon</option>
+                    <option value="en_revision">En révision</option>
+                    <option value="valide">Validé</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={editData.estConfidentiel}
+                      onChange={(e) => {
+                        setEditData({ ...editData, estConfidentiel: e.target.checked });
+                        if (!e.target.checked) {
+                          setEditData({ ...editData, estConfidentiel: false, permissionUserIds: [] });
+                        }
+                      }}
+                      className="mr-2"
+                    />
+                    <span className="text-sm text-gray-700">Document confidentiel</span>
+                  </label>
+                  {editData.estConfidentiel && (
+                    <div className="mt-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Utilisateurs autorisés <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        multiple
+                        value={editData.permissionUserIds}
+                        onChange={(e) => {
+                          const selected = Array.from(e.target.selectedOptions, option => option.value);
+                          setEditData({ ...editData, permissionUserIds: selected });
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        size={5}
+                      >
+                        {usersList.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.prenom} {user.nom} ({user.email})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Maintenez Ctrl (ou Cmd sur Mac) pour sélectionner plusieurs utilisateurs
+                      </p>
+                      {editData.estConfidentiel && editData.permissionUserIds.length === 0 && (
+                        <p className="mt-1 text-xs text-red-500">
+                          Au moins un utilisateur doit être sélectionné pour un document confidentiel
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end space-x-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingDocument(null);
+                      setEditData({ nom: '', description: '', statut: 'brouillon', estConfidentiel: false, permissionUserIds: [] });
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={editData.estConfidentiel && editData.permissionUserIds.length === 0}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Enregistrer
                   </button>
                 </div>
               </form>
