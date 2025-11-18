@@ -413,8 +413,8 @@ export default function Processus() {
                         nom: '',
                         codeProcessus: '',
                         description: '',
-                        entiteId: '',
-                        categorieId: '',
+                        entiteIds: [],
+                        categorieIds: [],
                         proprietaireId: '',
                       });
                     }}

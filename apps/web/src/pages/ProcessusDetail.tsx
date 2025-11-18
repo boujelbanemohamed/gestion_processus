@@ -322,7 +322,8 @@ export default function ProcessusDetail() {
     try {
       // Utiliser directement l'URL de l'API au lieu d'un blob URL pour éviter les problèmes de sécurité
       const token = localStorage.getItem('token');
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000/api/v1';
+      // @ts-expect-error - Vite injecte les variables d'environnement via import.meta.env
+      const apiUrl = (import.meta.env?.VITE_API_URL as string) || 'http://localhost:4000/api/v1';
       const url = `${apiUrl}/documents/${doc.id}/download${token ? `?token=${token}` : ''}`;
       setDocumentUrl(url);
       setViewingDocument(doc);
@@ -342,7 +343,8 @@ export default function ProcessusDetail() {
     try {
       // Utiliser directement l'URL de l'API pour éviter les problèmes de blob URLs
       const token = localStorage.getItem('token');
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000/api/v1';
+      // @ts-expect-error - Vite injecte les variables d'environnement via import.meta.env
+      const apiUrl = (import.meta.env?.VITE_API_URL as string) || 'http://localhost:4000/api/v1';
       const url = `${apiUrl}/documents/${document.id}/download${token ? `?token=${token}` : ''}`;
       
       // Créer un lien de téléchargement direct
