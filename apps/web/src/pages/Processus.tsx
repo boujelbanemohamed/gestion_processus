@@ -323,38 +323,84 @@ export default function Processus() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Entité
+                    Entité(s)
                   </label>
                   <select
-                    value={formData.entiteId}
-                    onChange={(e) => setFormData({ ...formData, entiteId: e.target.value })}
+                    multiple
+                    value={formData.entiteIds}
+                    onChange={(e) => {
+                      const selected = Array.from(e.target.selectedOptions, option => option.value);
+                      setFormData({ ...formData, entiteIds: selected });
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    size={5}
                   >
-                    <option value="">Sélectionner une entité</option>
                     {entites.map((entite) => (
                       <option key={entite.id} value={entite.id}>
                         {entite.nom} ({entite.code})
                       </option>
                     ))}
                   </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Maintenez Ctrl (ou Cmd sur Mac) pour sélectionner plusieurs entités
+                  </p>
+                  {formData.entiteIds.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {formData.entiteIds.map((entiteId) => {
+                        const entite = entites.find(e => e.id === entiteId);
+                        return entite ? (
+                          <span key={entiteId} className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">
+                            {entite.nom} ({entite.code})
+                          </span>
+                        ) : null;
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Catégorie
+                    Catégorie(s)
                   </label>
                   <select
-                    value={formData.categorieId}
-                    onChange={(e) => setFormData({ ...formData, categorieId: e.target.value })}
+                    multiple
+                    value={formData.categorieIds}
+                    onChange={(e) => {
+                      const selected = Array.from(e.target.selectedOptions, option => option.value);
+                      setFormData({ ...formData, categorieIds: selected });
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    size={5}
                   >
-                    <option value="">Sélectionner une catégorie</option>
                     {categories.map((cat) => (
                       <option key={cat.id} value={cat.id}>
                         {cat.nom}
                       </option>
                     ))}
                   </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Maintenez Ctrl (ou Cmd sur Mac) pour sélectionner plusieurs catégories
+                  </p>
+                  {formData.categorieIds.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {formData.categorieIds.map((categorieId) => {
+                        const categorie = categories.find(c => c.id === categorieId);
+                        return categorie ? (
+                          <span
+                            key={categorieId}
+                            className="px-2 py-1 text-xs rounded flex items-center gap-1"
+                            style={{ 
+                              backgroundColor: categorie.couleur ? `${categorie.couleur}20` : '#E5E7EB',
+                              color: categorie.couleur || '#374151',
+                            }}
+                          >
+                            {categorie.icone && <span>{categorie.icone}</span>}
+                            <span>{categorie.nom}</span>
+                          </span>
+                        ) : null;
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex justify-end space-x-3 pt-4">
