@@ -23,8 +23,8 @@ export default function Processus() {
     nom: '',
     codeProcessus: '',
     description: '',
-    entiteId: '',
-    categorieId: '',
+    entiteIds: [] as string[],
+    categorieIds: [] as string[],
     proprietaireId: '',
   });
   const [submitting, setSubmitting] = useState(false);
@@ -113,8 +113,8 @@ export default function Processus() {
         nom: formData.nom,
         codeProcessus: formData.codeProcessus,
         description: formData.description || undefined,
-        entiteIds: formData.entiteId ? [formData.entiteId] : [],
-        categorieIds: formData.categorieId ? [formData.categorieId] : [],
+        entiteIds: formData.entiteIds || [],
+        categorieIds: formData.categorieIds || [],
         proprietaireId: formData.proprietaireId || undefined,
       });
 
@@ -123,8 +123,8 @@ export default function Processus() {
         nom: '',
         codeProcessus: '',
         description: '',
-        entiteId: '',
-        categorieId: '',
+        entiteIds: [],
+        categorieIds: [],
         proprietaireId: '',
       });
       loadProcessus();
@@ -262,8 +262,8 @@ export default function Processus() {
                       nom: '',
                       codeProcessus: '',
                       description: '',
-                      entiteId: '',
-                      categorieId: '',
+                      entiteIds: [],
+                      categorieIds: [],
                       proprietaireId: '',
                     });
                   }}
