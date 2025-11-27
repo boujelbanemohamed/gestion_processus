@@ -293,7 +293,7 @@ export default function Processus() {
               type="text"
               value={filters.search}
               onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-              placeholder="Nom, code, description"
+              placeholder="Nom, code, description, tags"
               className="w-full px-3 py-2 border border-gray-300 rounded-md"
             />
           </div>

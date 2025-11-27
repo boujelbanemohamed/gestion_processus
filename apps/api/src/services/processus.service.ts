@@ -27,17 +27,16 @@ export class ProcessusService {
       };
     }
     if (filters?.search) {
-      // Pour la recherche dans les tags, on utilise une requête brute car Prisma ne supporte pas directement la recherche partielle dans les tableaux
-      const searchLower = filters.search.toLowerCase();
+      // Recherche dans nom, code, description ET tags
+      // Pour les tags, on utilise une recherche avec hasSome pour une correspondance exacte
+      // et on complète avec un filtre côté application pour une recherche partielle
       where.OR = [
         { nom: { contains: filters.search, mode: 'insensitive' } },
         { codeProcessus: { contains: filters.search, mode: 'insensitive' } },
         { description: { contains: filters.search, mode: 'insensitive' } },
+        // Recherche exacte dans les tags (si le terme de recherche correspond exactement à un tag)
+        { tags: { hasSome: [filters.search] } },
       ];
-      
-      // Recherche dans les tags : on récupère tous les processus et on filtre côté application
-      // Note: Pour une meilleure performance, on pourrait utiliser une requête SQL brute
-      // mais pour l'instant, on laisse Prisma gérer et on filtre après
     }
 
     // Définir l'ordre de tri
@@ -90,21 +89,27 @@ export class ProcessusService {
       orderBy,
     });
 
-    // Filtrer par tags si une recherche est effectuée
+    // Filtrer par tags si une recherche est effectuée (recherche partielle dans les tags)
     let filteredList = processusList;
     if (filters?.search) {
       const searchLower = filters.search.toLowerCase();
       filteredList = processusList.filter((p) => {
-        // Vérifier si un des tags contient le terme de recherche
+        // Vérifier si le processus correspond déjà aux critères Prisma (nom, code, description)
+        const matchesPrismaCriteria = 
+          (p.nom && p.nom.toLowerCase().includes(searchLower)) ||
+          (p.codeProcessus && p.codeProcessus.toLowerCase().includes(searchLower)) ||
+          (p.description && p.description.toLowerCase().includes(searchLower));
+        
+        // Vérifier si un des tags contient le terme de recherche (recherche partielle)
+        let tagMatch = false;
         if (p.tags && Array.isArray(p.tags) && p.tags.length > 0) {
-          const tagMatch = p.tags.some((tag: string) => 
+          tagMatch = p.tags.some((tag: string) => 
             tag.toLowerCase().includes(searchLower)
           );
-          if (tagMatch) return true;
         }
-        // Si aucun tag ne correspond, le processus est déjà inclus par les autres critères Prisma
-        // (nom, codeProcessus, description), donc on le garde
-        return true;
+        
+        // Garder le processus s'il correspond aux critères Prisma OU aux tags
+        return matchesPrismaCriteria || tagMatch;
       });
     }
 
