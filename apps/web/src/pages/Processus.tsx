@@ -476,6 +476,7 @@ export default function Processus() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documents</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Catégorie</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entité</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
