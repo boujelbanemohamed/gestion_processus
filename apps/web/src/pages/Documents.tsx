@@ -539,15 +539,75 @@ export default function Documents() {
         <table className="min-w-full divide-y divide-gray-200 min-w-[1100px]">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('nom')}
+              >
+                <div className="flex items-center gap-1">
+                  Nom
+                  {sortConfig?.key === 'nom' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('typeDocument')}
+              >
+                <div className="flex items-center gap-1">
+                  Type
+                  {sortConfig?.key === 'typeDocument' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processus</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('statut')}
+              >
+                <div className="flex items-center gap-1">
+                  Statut
+                  {sortConfig?.key === 'statut' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Commentaires</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Uploadé par</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date d'upload</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date de modification</th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('uploadedBy')}
+              >
+                <div className="flex items-center gap-1">
+                  Uploadé par
+                  {sortConfig?.key === 'uploadedBy' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('createdAt')}
+              >
+                <div className="flex items-center gap-1">
+                  Date d'upload
+                  {sortConfig?.key === 'createdAt' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('updatedAt')}
+              >
+                <div className="flex items-center gap-1">
+                  Date de modification
+                  {sortConfig?.key === 'updatedAt' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
               {isAdmin && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               )}
