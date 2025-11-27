@@ -16,6 +16,7 @@ import * as dashboardController from "./controllers/dashboard.controller";
 import * as journalController from "./controllers/journal.controller";
 import * as categorieController from "./controllers/categorie.controller";
 import * as smtpController from "./controllers/smtp.controller";
+import * as projetController from "./controllers/projet.controller";
 
 const app = express();
 app.use(helmet());
@@ -90,6 +91,14 @@ app.post("/api/v1/processus", processusController.createProcessus);
 app.put("/api/v1/processus/:id", processusController.updateProcessus);
 app.patch("/api/v1/processus/:id/status", processusController.updateProcessusStatus);
 app.delete("/api/v1/processus/:id", processusController.deleteProcessus);
+
+// Projets
+app.get("/api/v1/projets", projetController.getAllProjets);
+app.get("/api/v1/projets/:id", projetController.getProjet);
+app.get("/api/v1/projets/:id/history", projetController.getProjetHistory);
+app.post("/api/v1/projets", projetController.createProjet);
+app.put("/api/v1/projets/:id", projetController.updateProjet);
+app.delete("/api/v1/projets/:id", projetController.deleteProjet);
 
 // Documents
 app.get("/api/v1/documents", documentController.getAllDocuments);

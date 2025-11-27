@@ -16,6 +16,7 @@ import UserDetail from './pages/UserDetail';
 import Profile from './pages/Profile';
 import Journal from './pages/Journal';
 import Configuration from './pages/Configuration';
+import ProjetDetail from './pages/ProjetDetail';
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
   const { isAuthenticated, loadFromStorage, user } = useAuth();
@@ -163,6 +164,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={['admin']}>
               <Configuration />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/projets/:id"
+          element={
+            <ProtectedRoute>
+              <ProjetDetail />
             </ProtectedRoute>
           }
         />

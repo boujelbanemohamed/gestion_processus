@@ -235,6 +235,7 @@ model Projet {
   nom                   String
   codeProjet            String          @unique
   description           String?
+  tags                  String[]       @default([])
   type                  String          // interne, externe, mixte
   statut                String          // planifie, en_cours, en_pause, termine, annule
   dateDebut             DateTime?
