@@ -23,6 +23,23 @@ export const getAllProcessus = async (req: AuthRequest, res: Response) => {
 
 export const getProcessus = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+
+    // Vérifier les permissions d'accès selon le statut
+    const accessCheck = await processusService.canAccess(
+      req.params.id,
+      req.user.userId,
+      req.user.role
+    );
+
+    if (!accessCheck.canAccess) {
+      return res.status(403).json({ 
+        error: accessCheck.reason || 'Accès refusé à ce processus' 
+      });
+    }
+
     const processus = await processusService.findOne(req.params.id);
     if (!processus) {
       return res.status(404).json({ error: 'Processus non trouvé' });

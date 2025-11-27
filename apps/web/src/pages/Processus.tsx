@@ -101,6 +101,24 @@ export default function Processus() {
     return p.proprietaireId === currentUser.id || p.createdById === currentUser.id;
   };
 
+  const canAccessProcessus = (p: any): boolean => {
+    if (!currentUser) return false;
+    
+    // Si le processus est archivé ou obsolète, seuls le super admin, le propriétaire ou le créateur peuvent y accéder
+    if (p.statut === 'archive' || p.statut === 'obsolete') {
+      // Le super admin peut toujours accéder
+      if (currentUser.role === 'admin') {
+        return true;
+      }
+
+      // Le propriétaire ou le créateur peut accéder
+      return p.proprietaireId === currentUser.id || p.createdById === currentUser.id;
+    }
+
+    // Pour les autres statuts, tout le monde peut accéder
+    return true;
+  };
+
   const handleDelete = async (processusId: string, processusNom: string) => {
     // Message de confirmation
     if (!window.confirm(`Êtes-vous sûr de vouloir supprimer le processus "${processusNom}" ? Cette action est irréversible.`)) {
@@ -489,12 +507,21 @@ export default function Processus() {
                 <tr key={p.id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{p.codeProcessus}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <button
-                      onClick={() => navigate(`/processus/${p.id}`)}
-                      className="text-blue-600 hover:text-blue-800 hover:underline"
-                    >
-                      {p.nom}
-                    </button>
+                    {canAccessProcessus(p) ? (
+                      <button
+                        onClick={() => navigate(`/processus/${p.id}`)}
+                        className="text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        {p.nom}
+                      </button>
+                    ) : (
+                      <span
+                        className="text-gray-400 cursor-not-allowed"
+                        title={`Vous ne pouvez plus accéder à ce processus car son statut est "${p.statut === 'archive' ? 'Archivé' : 'Obsolète'}". Seuls le super admin, le propriétaire ou le créateur peuvent accéder aux processus archivés ou obsolètes.`}
+                      >
+                        {p.nom}
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`px-2 py-1 text-xs rounded ${

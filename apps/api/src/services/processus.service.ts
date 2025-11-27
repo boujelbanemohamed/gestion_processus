@@ -290,6 +290,44 @@ export class ProcessusService {
     return processus.proprietaireId === userId || processus.createdById === userId;
   }
 
+  async canAccess(id: string, userId: string, userRole: string): Promise<{ canAccess: boolean; reason?: string }> {
+    // Récupérer le processus pour vérifier le statut et les permissions
+    const processus = await prisma.processus.findUnique({
+      where: { id },
+      select: {
+        statut: true,
+        proprietaireId: true,
+        createdById: true,
+      },
+    });
+
+    if (!processus) {
+      return { canAccess: false, reason: 'Processus non trouvé' };
+    }
+
+    // Si le processus est archivé ou obsolète, seuls le super admin, le propriétaire ou le créateur peuvent y accéder
+    if (processus.statut === 'archive' || processus.statut === 'obsolete') {
+      // Le super admin peut toujours accéder
+      if (userRole === 'admin') {
+        return { canAccess: true };
+      }
+
+      // Le propriétaire ou le créateur peut accéder
+      if (processus.proprietaireId === userId || processus.createdById === userId) {
+        return { canAccess: true };
+      }
+
+      // Les autres utilisateurs ne peuvent pas accéder
+      return { 
+        canAccess: false, 
+        reason: `Vous ne pouvez plus accéder à ce processus car son statut est "${processus.statut === 'archive' ? 'Archivé' : 'Obsolète'}". Seuls le super admin, le propriétaire ou le créateur peuvent accéder aux processus archivés ou obsolètes.` 
+      };
+    }
+
+    // Pour les autres statuts, tout le monde peut accéder
+    return { canAccess: true };
+  }
+
   async delete(id: string) {
     return prisma.processus.delete({ where: { id } });
   }
