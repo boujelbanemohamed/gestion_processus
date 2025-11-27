@@ -10,6 +10,8 @@ export class UserService {
     search?: string;
     nom?: string;
     email?: string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
   }) {
     const where: any = {};
     if (filters?.role) where.role = filters.role;
@@ -50,6 +52,35 @@ export class UserService {
       ];
     }
 
+    // Définir l'ordre de tri
+    let orderBy: any = { nom: 'asc' }; // Par défaut, tri par nom croissant
+    
+    if (filters?.sortBy) {
+      const sortOrder = filters.sortOrder || 'asc';
+      
+      switch (filters.sortBy) {
+        case 'nom':
+          orderBy = { nom: sortOrder };
+          break;
+        case 'email':
+          orderBy = { email: sortOrder };
+          break;
+        case 'role':
+          orderBy = { role: sortOrder };
+          break;
+        case 'statut':
+          orderBy = { statut: sortOrder };
+          break;
+        case 'entites':
+          // Pour les entités, on trie par le nom de la première entité
+          // Note: Prisma ne supporte pas directement le tri par relation, donc on trie côté application
+          orderBy = { nom: sortOrder }; // Tri par défaut, le tri par entités sera fait côté frontend
+          break;
+        default:
+          orderBy = { nom: 'asc' };
+      }
+    }
+
     return prisma.user.findMany({
       where,
       include: {
@@ -65,7 +96,7 @@ export class UserService {
           },
         },
       },
-      orderBy: { nom: 'asc' },
+      orderBy,
     });
   }
 

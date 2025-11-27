@@ -16,6 +16,7 @@ export default function Users() {
     statut: '',
     entiteId: '',
   });
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const [formData, setFormData] = useState({
@@ -37,10 +38,10 @@ export default function Users() {
   useEffect(() => {
     loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.nom, filters.email, filters.role, filters.statut, filters.entiteId]);
+  }, [filters.nom, filters.email, filters.role, filters.statut, filters.entiteId, sortConfig]);
   useEffect(() => {
     setPage(1);
-  }, [filters.nom, filters.email, filters.role, filters.statut, filters.entiteId]);
+  }, [filters.nom, filters.email, filters.role, filters.statut, filters.entiteId, sortConfig]);
 
   const loadUsers = async () => {
     try {
@@ -50,13 +51,40 @@ export default function Users() {
       if (filters.role) params.role = filters.role;
       if (filters.statut) params.statut = filters.statut;
       if (filters.entiteId) params.entiteId = filters.entiteId;
+      if (sortConfig) {
+        params.sortBy = sortConfig.key;
+        params.sortOrder = sortConfig.direction;
+      }
       const response = await api.get('/users', { params });
-      setUsers(response.data);
+      let sortedUsers = response.data;
+      
+      // Tri côté client pour les entités (car Prisma ne peut pas trier directement par relation)
+      if (sortConfig?.key === 'entites') {
+        sortedUsers = [...response.data].sort((a, b) => {
+          const aEntites = a.entitesMembres?.map((ue: any) => ue.entite?.nom || '').filter(Boolean).join(', ') || 'N/A';
+          const bEntites = b.entitesMembres?.map((ue: any) => ue.entite?.nom || '').filter(Boolean).join(', ') || 'N/A';
+          if (sortConfig.direction === 'asc') {
+            return aEntites.localeCompare(bEntites, 'fr', { sensitivity: 'base' });
+          } else {
+            return bEntites.localeCompare(aEntites, 'fr', { sensitivity: 'base' });
+          }
+        });
+      }
+      
+      setUsers(sortedUsers);
     } catch (error) {
       console.error('Erreur:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
   };
 
   const loadEntites = async () => {
@@ -245,11 +273,61 @@ export default function Users() {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rôle</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entités</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('nom')}
+              >
+                <div className="flex items-center gap-1">
+                  Nom
+                  {sortConfig?.key === 'nom' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('email')}
+              >
+                <div className="flex items-center gap-1">
+                  Email
+                  {sortConfig?.key === 'email' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('role')}
+              >
+                <div className="flex items-center gap-1">
+                  Rôle
+                  {sortConfig?.key === 'role' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('entites')}
+              >
+                <div className="flex items-center gap-1">
+                  Entités
+                  {sortConfig?.key === 'entites' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('statut')}
+              >
+                <div className="flex items-center gap-1">
+                  Statut
+                  {sortConfig?.key === 'statut' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">

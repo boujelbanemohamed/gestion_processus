@@ -7,7 +7,7 @@ const userService = new UserService();
 
 export const getAllUsers = async (req: AuthRequest, res: Response) => {
   try {
-    const { role, entiteId, statut, search, nom, email } = req.query;
+    const { role, entiteId, statut, search, nom, email, sortBy, sortOrder } = req.query;
     const users = await userService.findAll({
       role: role as any,
       entiteId: entiteId as string,
@@ -15,6 +15,8 @@ export const getAllUsers = async (req: AuthRequest, res: Response) => {
       search: search as string,
       nom: nom as string,
       email: email as string,
+      sortBy: sortBy as string,
+      sortOrder: (sortOrder as 'asc' | 'desc') || 'asc',
     });
     res.json(users);
   } catch (error: any) {
