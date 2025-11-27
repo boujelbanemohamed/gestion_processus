@@ -30,7 +30,13 @@ export const listComments = async (req: AuthRequest, res: Response) => {
 
 export const addComment = async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    if (!req.user?.userId || !req.user?.role) return res.status(401).json({ error: 'Non authentifié' });
+    
+    // Les lecteurs ne peuvent pas ajouter de commentaires
+    if (req.user.role === 'lecteur') {
+      return res.status(403).json({ error: 'Les lecteurs ne peuvent pas ajouter de commentaires' });
+    }
+    
     const { id } = req.params; // documentId
     const { contenu } = req.body;
     const file = req.file;

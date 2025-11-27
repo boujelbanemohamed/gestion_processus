@@ -1333,45 +1333,47 @@ export default function ProcessusDetail() {
                     ))}
                   </div>
                 )}
-                <div className="mt-3 space-y-2">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newComment[doc.id] || ''}
-                      onChange={(e) => setNewComment({ ...newComment, [doc.id]: e.target.value })}
-                      placeholder="Écrire un commentaire..."
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded"
-                    />
-                    <label className="px-3 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 cursor-pointer text-sm flex items-center">
-                      📎
+                {!isLecteur && (
+                  <div className="mt-3 space-y-2">
+                    <div className="flex gap-2">
                       <input
-                        type="file"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0] || null;
-                          setCommentAttachments({ ...commentAttachments, [doc.id]: file });
-                        }}
+                        type="text"
+                        value={newComment[doc.id] || ''}
+                        onChange={(e) => setNewComment({ ...newComment, [doc.id]: e.target.value })}
+                        placeholder="Écrire un commentaire..."
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded"
                       />
-                    </label>
-                    <button
-                      onClick={() => handleAddComment(doc.id)}
-                      className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                    >
-                      Publier
-                    </button>
-                  </div>
-                  {commentAttachments[doc.id] && (
-                    <div className="flex items-center gap-2 text-xs text-gray-600">
-                      <span>📎 {commentAttachments[doc.id]?.name}</span>
+                      <label className="px-3 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 cursor-pointer text-sm flex items-center">
+                        📎
+                        <input
+                          type="file"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] || null;
+                            setCommentAttachments({ ...commentAttachments, [doc.id]: file });
+                          }}
+                        />
+                      </label>
                       <button
-                        onClick={() => setCommentAttachments({ ...commentAttachments, [doc.id]: null })}
-                        className="text-red-600 hover:text-red-800"
+                        onClick={() => handleAddComment(doc.id)}
+                        className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                       >
-                        ✕
+                        Publier
                       </button>
                     </div>
-                  )}
-                </div>
+                    {commentAttachments[doc.id] && (
+                      <div className="flex items-center gap-2 text-xs text-gray-600">
+                        <span>📎 {commentAttachments[doc.id]?.name}</span>
+                        <button
+                          onClick={() => setCommentAttachments({ ...commentAttachments, [doc.id]: null })}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
                 </div>
               ))}
