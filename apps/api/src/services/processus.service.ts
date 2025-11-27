@@ -243,6 +243,29 @@ export class ProcessusService {
     return processus;
   }
 
+  async canDelete(id: string, userId: string, userRole: string): Promise<boolean> {
+    // Le super admin peut toujours supprimer
+    if (userRole === 'admin') {
+      return true;
+    }
+
+    // Récupérer le processus pour vérifier le propriétaire et le créateur
+    const processus = await prisma.processus.findUnique({
+      where: { id },
+      select: {
+        proprietaireId: true,
+        createdById: true,
+      },
+    });
+
+    if (!processus) {
+      return false;
+    }
+
+    // Le propriétaire ou le créateur peut supprimer
+    return processus.proprietaireId === userId || processus.createdById === userId;
+  }
+
   async delete(id: string) {
     return prisma.processus.delete({ where: { id } });
   }

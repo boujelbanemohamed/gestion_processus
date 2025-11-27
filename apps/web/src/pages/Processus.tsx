@@ -31,6 +31,7 @@ export default function Processus() {
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
   const pageSize = 10;
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     // Pré-remplir le filtre statut depuis la query (ex: ?statut=brouillon)
@@ -85,6 +86,35 @@ export default function Processus() {
       setCategories(response.data);
     } catch (error) {
       console.error('Erreur chargement catégories:', error);
+    }
+  };
+
+  const canDeleteProcessus = (p: any): boolean => {
+    if (!currentUser) return false;
+    
+    // Le super admin peut toujours supprimer
+    if (currentUser.role === 'admin') {
+      return true;
+    }
+
+    // Le propriétaire ou le créateur peut supprimer
+    return p.proprietaireId === currentUser.id || p.createdById === currentUser.id;
+  };
+
+  const handleDelete = async (processusId: string, processusNom: string) => {
+    if (!window.confirm(`Êtes-vous sûr de vouloir supprimer le processus "${processusNom}" ? Cette action est irréversible.`)) {
+      return;
+    }
+
+    setDeletingId(processusId);
+    try {
+      await api.delete(`/processus/${processusId}`);
+      // Recharger la liste
+      loadProcessus();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Erreur lors de la suppression du processus');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -512,6 +542,24 @@ export default function Processus() {
                       </div>
                     ) : (
                       <span className="text-gray-400 italic">N/A</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    {canDeleteProcessus(p) ? (
+                      <button
+                        onClick={() => handleDelete(p.id, p.nom)}
+                        disabled={deletingId === p.id}
+                        className={`px-3 py-1 text-xs rounded ${
+                          deletingId === p.id
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'bg-red-100 text-red-700 hover:bg-red-200'
+                        }`}
+                        title="Supprimer le processus"
+                      >
+                        {deletingId === p.id ? 'Suppression...' : 'Supprimer'}
+                      </button>
+                    ) : (
+                      <span className="text-gray-400 text-xs">-</span>
                     )}
                   </td>
                 </tr>

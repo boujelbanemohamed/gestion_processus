@@ -123,10 +123,30 @@ export const updateProcessusStatus = async (req: AuthRequest, res: Response) => 
 
 export const deleteProcessus = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+
+    // Vérifier les permissions de suppression
+    const canDelete = await processusService.canDelete(
+      req.params.id,
+      req.user.userId,
+      req.user.role
+    );
+
+    if (!canDelete) {
+      return res.status(403).json({ 
+        error: 'Vous n\'avez pas les permissions pour supprimer ce processus. Seuls le super admin, le propriétaire ou le créateur peuvent supprimer un processus.' 
+      });
+    }
+
     await processusService.delete(req.params.id);
     await logAccess(req, res, 'suppression', 'processus', req.params.id);
     res.status(204).send();
   } catch (error: any) {
+    if (error.code === 'P2025') {
+      return res.status(404).json({ error: 'Processus non trouvé' });
+    }
     res.status(400).json({ error: error.message });
   }
 };
