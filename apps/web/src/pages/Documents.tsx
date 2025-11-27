@@ -38,6 +38,7 @@ export default function Documents() {
     statut: '',
     processusId: '',
   });
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
@@ -59,10 +60,10 @@ export default function Documents() {
   useEffect(() => {
     loadDocuments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.typeDocument, filters.statut, filters.processusId]);
+  }, [filters.search, filters.typeDocument, filters.statut, filters.processusId, sortConfig]);
   useEffect(() => {
     setPage(1);
-  }, [filters.search, filters.typeDocument, filters.statut, filters.processusId]);
+  }, [filters.search, filters.typeDocument, filters.statut, filters.processusId, sortConfig]);
 
   const loadProcessus = async () => {
     try {
@@ -92,8 +93,27 @@ export default function Documents() {
         params.referenceType = 'processus';
         params.referenceId = filters.processusId;
       }
+      if (sortConfig) {
+        params.sortBy = sortConfig.key;
+        params.sortOrder = sortConfig.direction;
+      }
       const response = await api.get('/documents', { params });
-      setDocuments(response.data);
+      let sortedDocuments = response.data;
+      
+      // Tri côté client pour uploadedBy (car relation Prisma)
+      if (sortConfig?.key === 'uploadedBy') {
+        sortedDocuments = [...response.data].sort((a, b) => {
+          const aName = a.uploadedBy ? `${a.uploadedBy.prenom} ${a.uploadedBy.nom}` : '';
+          const bName = b.uploadedBy ? `${b.uploadedBy.prenom} ${b.uploadedBy.nom}` : '';
+          if (sortConfig.direction === 'asc') {
+            return aName.localeCompare(bName, 'fr', { sensitivity: 'base' });
+          } else {
+            return bName.localeCompare(aName, 'fr', { sensitivity: 'base' });
+          }
+        });
+      }
+      
+      setDocuments(sortedDocuments);
 
       // Charger les compteurs de commentaires pour chaque document (affichage conditionnel du bouton)
       // On charge les commentaires de manière silencieuse, les erreurs ne bloquent pas l'affichage
@@ -117,6 +137,18 @@ export default function Documents() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const resetSort = () => {
+    setSortConfig(null);
   };
 
   const openCommentsModal = async (doc: any) => {

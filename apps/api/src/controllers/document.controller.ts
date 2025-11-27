@@ -40,13 +40,15 @@ export const uploadMiddleware = upload.single('file');
 
 export const getAllDocuments = async (req: AuthRequest, res: Response) => {
   try {
-    const { typeDocument, referenceType, referenceId, statut, search } = req.query;
+    const { typeDocument, referenceType, referenceId, statut, search, sortBy, sortOrder } = req.query;
     const documents = await documentService.findAll({
       typeDocument: typeDocument as any,
       referenceType: referenceType as any,
       referenceId: referenceId as string,
       statut: statut as any,
       search: search as string,
+      sortBy: sortBy as string,
+      sortOrder: (sortOrder as 'asc' | 'desc') || 'asc',
     });
     
     // Logger la consultation si c'est pour un processus spécifique

@@ -20,6 +20,8 @@ export class DocumentService {
     referenceId?: string;
     statut?: DocStatut;
     search?: string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
   }) {
     const where: any = {};
     if (filters?.typeDocument) where.typeDocument = filters.typeDocument;
@@ -31,6 +33,37 @@ export class DocumentService {
         { nom: { contains: filters.search, mode: 'insensitive' } },
         { description: { contains: filters.search, mode: 'insensitive' } },
       ];
+    }
+
+    // Définir l'ordre de tri
+    let orderBy: any = { createdAt: 'desc' }; // Par défaut, tri par date de création décroissante
+    
+    if (filters?.sortBy) {
+      const sortOrder = filters.sortOrder || 'asc';
+      
+      switch (filters.sortBy) {
+        case 'nom':
+          orderBy = { nom: sortOrder };
+          break;
+        case 'typeDocument':
+          orderBy = { typeDocument: sortOrder };
+          break;
+        case 'statut':
+          orderBy = { statut: sortOrder };
+          break;
+        case 'createdAt':
+          orderBy = { createdAt: sortOrder };
+          break;
+        case 'updatedAt':
+          orderBy = { updatedAt: sortOrder };
+          break;
+        case 'uploadedBy':
+          // Pour uploadedBy, on trie par nom de l'utilisateur (via relation)
+          orderBy = { uploadedBy: { nom: sortOrder } };
+          break;
+        default:
+          orderBy = { createdAt: 'desc' };
+      }
     }
 
     const documents = await prisma.document.findMany({
@@ -51,7 +84,7 @@ export class DocumentService {
         },
         _count: { select: { versions: true } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy,
     });
 
     // Enrichir avec les informations du processus si le document est lié à un processus
