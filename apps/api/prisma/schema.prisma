@@ -184,6 +184,7 @@ model Processus {
   nom                    String
   codeProcessus          String            @unique
   description            String?
+  tags                   String[]          @default([])
   statut                 ProcessusStatut   @default(brouillon)
   versionActuelle        String?
   proprietaireId         String?

@@ -54,6 +54,7 @@ export default function ProcessusDetail() {
     proprietaireId: '',
     entiteIds: [] as string[],
     categorieIds: [] as string[],
+    tags: [] as string[],
   });
   const [viewingDocument, setViewingDocument] = useState<any | null>(null);
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
@@ -80,6 +81,7 @@ export default function ProcessusDetail() {
         proprietaireId: processus.proprietaireId || '',
         entiteIds: processus.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean) || [],
         categorieIds: processus.categories?.map((pc: any) => pc.categorie?.id || pc.categorieId).filter(Boolean) || [],
+        tags: processus.tags || [],
       });
       
       // Vérifier si l'utilisateur peut définir confidentiel (propriétaire ou créateur)
@@ -538,6 +540,18 @@ export default function ProcessusDetail() {
     return processus.proprietaireId === currentUser.id || processus.createdById === currentUser.id;
   };
 
+  const canModifyTags = (): boolean => {
+    if (!currentUser || !processus) return false;
+    
+    // Le super admin peut toujours modifier les tags
+    if (currentUser.role === 'admin') {
+      return true;
+    }
+
+    // Le propriétaire ou le créateur peut modifier les tags
+    return processus.proprietaireId === currentUser.id || processus.createdById === currentUser.id;
+  };
+
   const documentStatuts = [
     { value: 'brouillon', label: 'Brouillon', color: 'bg-gray-100 text-gray-800' },
     { value: 'en_revision', label: 'En révision', color: 'bg-yellow-100 text-yellow-800' },
@@ -637,6 +651,11 @@ export default function ProcessusDetail() {
       const newCategorieIds = (editData.categorieIds || []).sort();
       if (JSON.stringify(currentCategorieIds) !== JSON.stringify(newCategorieIds)) {
         updateData.categorieIds = editData.categorieIds || [];
+      }
+      const currentTags = (processus.tags || []).sort();
+      const newTags = (editData.tags || []).sort();
+      if (JSON.stringify(currentTags) !== JSON.stringify(newTags)) {
+        updateData.tags = editData.tags || [];
       }
       
       // Mettre à jour les autres champs seulement s'il y a des changements
@@ -743,6 +762,7 @@ export default function ProcessusDetail() {
                       proprietaireId: processus.proprietaireId || '',
                       entiteIds: processus.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean) || [],
                       categorieIds: processus.categories?.map((pc: any) => pc.categorie?.id || pc.categorieId).filter(Boolean) || [],
+                      tags: processus.tags || [],
                     });
                   }
                 }}
@@ -945,6 +965,74 @@ export default function ProcessusDetail() {
               <p className="text-sm text-gray-400 italic">Aucune description</p>
             )}
           </div>
+        </div>
+
+        {/* Zone Tags */}
+        <div className="mt-6">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-gray-500">Tags (mots-clés)</label>
+            {canModifyTags() && !isEditing && (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="text-xs text-blue-600 hover:text-blue-800"
+              >
+                Modifier
+              </button>
+            )}
+          </div>
+          {isEditing && canModifyTags() ? (
+            <div>
+              <input
+                type="text"
+                value={editData.tags.join(', ')}
+                onChange={(e) => {
+                  const tagsArray = e.target.value.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+                  setEditData({ ...editData, tags: tagsArray });
+                }}
+                placeholder="Saisir les tags séparés par des virgules (ex: qualité, ISO, sécurité)"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">Séparez les tags par des virgules</p>
+              {editData.tags.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {editData.tags.map((tag, index) => (
+                    <span
+                      key={index}
+                      className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded flex items-center gap-1"
+                    >
+                      {tag}
+                      <button
+                        onClick={() => {
+                          const newTags = editData.tags.filter((_, i) => i !== index);
+                          setEditData({ ...editData, tags: newTags });
+                        }}
+                        className="text-blue-600 hover:text-blue-800"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              {processus.tags && processus.tags.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {processus.tags.map((tag: string, index: number) => (
+                    <span
+                      key={index}
+                      className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 italic">Aucun tag</p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

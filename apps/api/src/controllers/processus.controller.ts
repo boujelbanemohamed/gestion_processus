@@ -134,6 +134,11 @@ export const updateProcessus = async (req: AuthRequest, res: Response) => {
         nouveau: req.body.codeProcessus,
       };
     }
+    const oldTags = (oldProcessus?.tags || []).sort();
+    const newTags = (req.body.tags || []).sort();
+    if (JSON.stringify(oldTags) !== JSON.stringify(newTags)) {
+      details.changementTags = true;
+    }
     if (req.body.proprietaireId && oldProcessus?.proprietaireId !== req.body.proprietaireId) {
       details.changementProprietaire = true;
     }

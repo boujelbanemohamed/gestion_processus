@@ -31,6 +31,7 @@ export class ProcessusService {
         { nom: { contains: filters.search, mode: 'insensitive' } },
         { codeProcessus: { contains: filters.search, mode: 'insensitive' } },
         { description: { contains: filters.search, mode: 'insensitive' } },
+        { tags: { hasSome: [filters.search] } }, // Recherche dans les tags (recherche partielle)
       ];
     }
 
@@ -179,6 +180,7 @@ export class ProcessusService {
     nom?: string;
     codeProcessus?: string;
     description?: string;
+    tags?: string[];
     categorieIds?: string[];
     entiteIds?: string[];
     proprietaireId?: string;
