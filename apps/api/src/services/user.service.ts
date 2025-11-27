@@ -24,15 +24,21 @@ export class UserService {
     
     // Filtre par nom (recherche dans nom et prénom)
     if (filters?.nom) {
-      where.OR = [
-        { nom: { contains: filters.nom, mode: 'insensitive' } },
-        { prenom: { contains: filters.nom, mode: 'insensitive' } },
-      ];
+      where.AND = where.AND || [];
+      where.AND.push({
+        OR: [
+          { nom: { contains: filters.nom, mode: 'insensitive' } },
+          { prenom: { contains: filters.nom, mode: 'insensitive' } },
+        ],
+      });
     }
     
     // Filtre par email
     if (filters?.email) {
-      where.email = { contains: filters.email, mode: 'insensitive' };
+      where.AND = where.AND || [];
+      where.AND.push({
+        email: { contains: filters.email, mode: 'insensitive' },
+      });
     }
     
     // Recherche générale (pour compatibilité avec l'ancien système)
