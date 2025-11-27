@@ -49,6 +49,7 @@ export default function ProcessusDetail() {
   const [categoriesList, setCategoriesList] = useState<any[]>([]);
   const [canSetConfidentiel, setCanSetConfidentiel] = useState(false);
   const [editData, setEditData] = useState({
+    codeProcessus: '',
     statut: '',
     proprietaireId: '',
     entiteIds: [] as string[],
@@ -74,6 +75,7 @@ export default function ProcessusDetail() {
   useEffect(() => {
     if (processus) {
       setEditData({
+        codeProcessus: processus.codeProcessus || '',
         statut: processus.statut || 'brouillon',
         proprietaireId: processus.proprietaireId || '',
         entiteIds: processus.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean) || [],
@@ -521,6 +523,18 @@ export default function ProcessusDetail() {
     return false;
   };
 
+  const canModifyCodeProcessus = (): boolean => {
+    if (!currentUser || !processus) return false;
+    
+    // Le super admin peut toujours modifier le code
+    if (currentUser.role === 'admin') {
+      return true;
+    }
+
+    // Le propriétaire ou le créateur peut modifier le code
+    return processus.proprietaireId === currentUser.id || processus.createdById === currentUser.id;
+  };
+
   const documentStatuts = [
     { value: 'brouillon', label: 'Brouillon', color: 'bg-gray-100 text-gray-800' },
     { value: 'en_revision', label: 'En révision', color: 'bg-yellow-100 text-yellow-800' },
@@ -604,6 +618,10 @@ export default function ProcessusDetail() {
       }
       
       // Préparer les données à mettre à jour
+      // Mettre à jour le code processus si modifié et si l'utilisateur a les droits
+      if (canModifyCodeProcessus() && editData.codeProcessus !== processus.codeProcessus) {
+        updateData.codeProcessus = editData.codeProcessus;
+      }
       if (editData.proprietaireId !== (processus.proprietaireId || '')) {
         updateData.proprietaireId = editData.proprietaireId || null;
       }
@@ -670,7 +688,12 @@ export default function ProcessusDetail() {
           ← Retour à la liste
         </button>
         <h1 className="text-2xl font-bold">{processus.nom}</h1>
-        <p className="text-gray-600 mt-2">Code: {processus.codeProcessus}</p>
+        <p className="text-gray-600 mt-2">
+          Code: {processus.codeProcessus}
+          {canModifyCodeProcessus() && (
+            <span className="ml-2 text-xs text-gray-500">(Modifiable)</span>
+          )}
+        </p>
       </div>
 
       {/* Informations générales */}
@@ -693,6 +716,7 @@ export default function ProcessusDetail() {
                   setIsEditing(false);
                   if (processus) {
                     setEditData({
+                      codeProcessus: processus.codeProcessus || '',
                       statut: processus.statut || 'brouillon',
                       proprietaireId: processus.proprietaireId || '',
                       entiteIds: processus.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean) || [],
@@ -717,6 +741,18 @@ export default function ProcessusDetail() {
 
         {isEditing ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            {canModifyCodeProcessus() && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Code processus</label>
+                <input
+                  type="text"
+                  value={editData.codeProcessus}
+                  onChange={(e) => setEditData({ ...editData, codeProcessus: e.target.value.toUpperCase() })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="PROC-001"
+                />
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Statut</label>
               <select

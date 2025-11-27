@@ -134,6 +134,7 @@ export class ProcessusService {
 
   async update(id: string, data: {
     nom?: string;
+    codeProcessus?: string;
     description?: string;
     categorieIds?: string[];
     entiteIds?: string[];
@@ -263,6 +264,29 @@ export class ProcessusService {
     }
 
     // Le propriétaire ou le créateur peut supprimer
+    return processus.proprietaireId === userId || processus.createdById === userId;
+  }
+
+  async canModifyCode(id: string, userId: string, userRole: string): Promise<boolean> {
+    // Le super admin peut toujours modifier le code
+    if (userRole === 'admin') {
+      return true;
+    }
+
+    // Récupérer le processus pour vérifier le propriétaire et le créateur
+    const processus = await prisma.processus.findUnique({
+      where: { id },
+      select: {
+        proprietaireId: true,
+        createdById: true,
+      },
+    });
+
+    if (!processus) {
+      return false;
+    }
+
+    // Le propriétaire ou le créateur peut modifier le code
     return processus.proprietaireId === userId || processus.createdById === userId;
   }
 

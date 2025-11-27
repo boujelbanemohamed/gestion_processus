@@ -63,7 +63,26 @@ export const createProcessus = async (req: AuthRequest, res: Response) => {
 
 export const updateProcessus = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+
     const oldProcessus = await processusService.findOne(req.params.id);
+    
+    // Vérifier les permissions pour modifier le code processus si c'est demandé
+    if (req.body.codeProcessus !== undefined && req.body.codeProcessus !== oldProcessus?.codeProcessus) {
+      const canModifyCode = await processusService.canModifyCode(
+        req.params.id,
+        req.user.userId,
+        req.user.role
+      );
+
+      if (!canModifyCode) {
+        return res.status(403).json({ 
+          error: 'Vous n\'avez pas les permissions pour modifier le code processus. Seuls le super admin, le propriétaire ou le créateur peuvent modifier le code processus.' 
+        });
+      }
+    }
     
     // Convertir entiteIds si c'est une chaîne ou un tableau
     const updateData: any = { ...req.body };
@@ -83,6 +102,12 @@ export const updateProcessus = async (req: AuthRequest, res: Response) => {
     
     // Détails des modifications
     const details: any = {};
+    if (req.body.codeProcessus && oldProcessus?.codeProcessus !== req.body.codeProcessus) {
+      details.changementCodeProcessus = {
+        ancien: oldProcessus?.codeProcessus,
+        nouveau: req.body.codeProcessus,
+      };
+    }
     if (req.body.proprietaireId && oldProcessus?.proprietaireId !== req.body.proprietaireId) {
       details.changementProprietaire = true;
     }
