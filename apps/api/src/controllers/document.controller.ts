@@ -82,8 +82,31 @@ export const getDocument = async (req: AuthRequest, res: Response) => {
 
 export const createDocument = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    
     if (!req.file) {
       return res.status(400).json({ error: 'Fichier requis' });
+    }
+    
+    // Vérifier les permissions pour les contributeurs si le document est lié à un processus
+    if (req.user.role === 'contributeur' && req.body.referenceType === 'processus' && req.body.referenceId) {
+      const { prisma } = await import('../utils/prisma');
+      const processus = await prisma.processus.findUnique({
+        where: { id: req.body.referenceId },
+        select: { proprietaireId: true, createdById: true },
+      });
+      
+      if (!processus) {
+        return res.status(404).json({ error: 'Processus non trouvé' });
+      }
+      
+      if (processus.proprietaireId !== req.user.userId && processus.createdById !== req.user.userId) {
+        return res.status(403).json({ 
+          error: 'Vous n\'avez pas les permissions pour ajouter un document à ce processus. Seuls le propriétaire ou le créateur du processus peuvent ajouter des documents.' 
+        });
+      }
     }
 
     const estConfidentiel = req.body.estConfidentiel === 'true' || req.body.estConfidentiel === true;
