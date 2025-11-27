@@ -87,20 +87,41 @@ export class DocumentService {
       orderBy,
     });
 
-    // Enrichir avec les informations du processus si le document est lié à un processus
+    // Enrichir avec les informations du processus et les statistiques
     const documentsWithProcessus = await Promise.all(
       documents.map(async (doc) => {
+        let processus = null;
         if (doc.referenceType === 'processus' && doc.referenceId) {
-          const processus = await prisma.processus.findUnique({
+          processus = await prisma.processus.findUnique({
             where: { id: doc.referenceId },
             select: { id: true, nom: true, codeProcessus: true },
           });
-          return {
-            ...doc,
-            processus: processus || null,
-          };
         }
-        return { ...doc, processus: null };
+        
+        // Compter les téléchargements et visualisations
+        const [telechargements, visualisations] = await Promise.all([
+          prisma.journalAcces.count({
+            where: {
+              ressourceType: 'document',
+              ressourceId: doc.id,
+              action: 'telechargement',
+            },
+          }),
+          prisma.journalAcces.count({
+            where: {
+              ressourceType: 'document',
+              ressourceId: doc.id,
+              action: 'lecture',
+            },
+          }),
+        ]);
+        
+        return {
+          ...doc,
+          processus: processus || null,
+          nombreTelechargements: telechargements,
+          nombreVisualisations: visualisations,
+        };
       })
     );
 
@@ -108,7 +129,7 @@ export class DocumentService {
   }
 
   async findOne(id: string) {
-    return prisma.document.findUnique({
+    const document = await prisma.document.findUnique({
       where: { id },
       include: {
         uploadedBy: true,
@@ -126,6 +147,34 @@ export class DocumentService {
         },
       },
     });
+
+    if (!document) {
+      return null;
+    }
+
+    // Compter les téléchargements et visualisations
+    const [telechargements, visualisations] = await Promise.all([
+      prisma.journalAcces.count({
+        where: {
+          ressourceType: 'document',
+          ressourceId: id,
+          action: 'telechargement',
+        },
+      }),
+      prisma.journalAcces.count({
+        where: {
+          ressourceType: 'document',
+          ressourceId: id,
+          action: 'lecture',
+        },
+      }),
+    ]);
+
+    return {
+      ...document,
+      nombreTelechargements: telechargements,
+      nombreVisualisations: visualisations,
+    };
   }
 
   async canUserAccessDocument(documentId: string, userId: string): Promise<boolean> {
