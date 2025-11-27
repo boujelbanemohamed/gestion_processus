@@ -96,13 +96,14 @@ export class ProcessusService {
       const searchLower = filters.search.toLowerCase();
       filteredList = processusList.filter((p) => {
         // Vérifier si un des tags contient le terme de recherche
-        if (p.tags && Array.isArray(p.tags)) {
+        if (p.tags && Array.isArray(p.tags) && p.tags.length > 0) {
           const tagMatch = p.tags.some((tag: string) => 
             tag.toLowerCase().includes(searchLower)
           );
           if (tagMatch) return true;
         }
-        // Les autres critères sont déjà gérés par Prisma dans le where
+        // Si aucun tag ne correspond, le processus est déjà inclus par les autres critères Prisma
+        // (nom, codeProcessus, description), donc on le garde
         return true;
       });
     }
