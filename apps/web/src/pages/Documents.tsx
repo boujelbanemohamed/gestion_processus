@@ -536,6 +536,18 @@ export default function Documents() {
         </div>
       </div>
       <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <div className="flex justify-between items-center p-4 border-b">
+          <h2 className="text-lg font-semibold">Liste des documents</h2>
+          {sortConfig && (
+            <button
+              onClick={resetSort}
+              className="px-3 py-1 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              title="Réinitialiser le tri"
+            >
+              Réinitialiser le tri
+            </button>
+          )}
+        </div>
         <table className="min-w-full divide-y divide-gray-200 min-w-[1100px]">
           <thead className="bg-gray-50">
             <tr>
