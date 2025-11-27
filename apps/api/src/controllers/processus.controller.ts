@@ -8,12 +8,14 @@ const processusService = new ProcessusService();
 
 export const getAllProcessus = async (req: AuthRequest, res: Response) => {
   try {
-    const { statut, entiteId, categorieId, search } = req.query;
+    const { statut, entiteId, categorieId, search, sortBy, sortOrder } = req.query;
     const processus = await processusService.findAll({
       statut: statut as any,
       entiteId: entiteId as string,
       categorieId: categorieId as string,
       search: search as string,
+      sortBy: sortBy as string,
+      sortOrder: (sortOrder as 'asc' | 'desc') || 'asc',
     });
     res.json(processus);
   } catch (error: any) {

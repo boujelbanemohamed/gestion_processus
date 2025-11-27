@@ -7,6 +7,8 @@ export class ProcessusService {
     entiteId?: string;
     categorieId?: string;
     search?: string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
   }) {
     const where: any = {};
     if (filters?.statut) where.statut = filters.statut;
@@ -32,6 +34,37 @@ export class ProcessusService {
       ];
     }
 
+    // Définir l'ordre de tri
+    let orderBy: any = { updatedAt: 'desc' }; // Par défaut, tri par date de mise à jour décroissante
+    
+    if (filters?.sortBy) {
+      const sortOrder = filters.sortOrder || 'asc';
+      
+      switch (filters.sortBy) {
+        case 'codeProcessus':
+          orderBy = { codeProcessus: sortOrder };
+          break;
+        case 'nom':
+          orderBy = { nom: sortOrder };
+          break;
+        case 'statut':
+          orderBy = { statut: sortOrder };
+          break;
+        case 'createdAt':
+          orderBy = { createdAt: sortOrder };
+          break;
+        case 'updatedAt':
+          orderBy = { updatedAt: sortOrder };
+          break;
+        case 'proprietaire':
+          // Pour proprietaire, on trie par nom de l'utilisateur (via relation)
+          orderBy = { proprietaire: { nom: sortOrder } };
+          break;
+        default:
+          orderBy = { updatedAt: 'desc' };
+      }
+    }
+
     const processusList = await prisma.processus.findMany({
       where,
       include: {
@@ -48,7 +81,7 @@ export class ProcessusService {
         },
         createdBy: { select: { id: true, nom: true, prenom: true } },
       },
-      orderBy: { updatedAt: 'desc' },
+      orderBy,
     });
 
     // Enrichir avec le nombre de documents (les documents sont liés via referenceType et referenceId)

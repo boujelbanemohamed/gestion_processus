@@ -32,6 +32,7 @@ export default function Processus() {
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
   useEffect(() => {
     // Pré-remplir le filtre statut depuis la query (ex: ?statut=brouillon)
@@ -50,10 +51,10 @@ export default function Processus() {
     // recharger les processus à chaque changement de filtre
     loadProcessus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.statut, filters.entiteId, filters.categorieId]);
+  }, [filters.search, filters.statut, filters.entiteId, filters.categorieId, sortConfig]);
   useEffect(() => {
     setPage(1);
-  }, [filters.search, filters.statut, filters.entiteId, filters.categorieId]);
+  }, [filters.search, filters.statut, filters.entiteId, filters.categorieId, sortConfig]);
 
   const loadProcessus = async () => {
     try {
@@ -62,13 +63,64 @@ export default function Processus() {
       if (filters.statut) params.statut = filters.statut;
       if (filters.entiteId) params.entiteId = filters.entiteId;
       if (filters.categorieId) params.categorieId = filters.categorieId;
+      if (sortConfig) {
+        params.sortBy = sortConfig.key;
+        params.sortOrder = sortConfig.direction;
+      }
       const response = await api.get('/processus', { params });
-      setProcessus(response.data);
+      let sortedProcessus = response.data;
+      
+      // Tri côté client pour proprietaire, entités, catégories (car relations Prisma)
+      if (sortConfig?.key === 'proprietaire') {
+        sortedProcessus = [...response.data].sort((a, b) => {
+          const aName = a.proprietaire ? `${a.proprietaire.prenom} ${a.proprietaire.nom}` : '';
+          const bName = b.proprietaire ? `${b.proprietaire.prenom} ${b.proprietaire.nom}` : '';
+          if (sortConfig.direction === 'asc') {
+            return aName.localeCompare(bName, 'fr', { sensitivity: 'base' });
+          } else {
+            return bName.localeCompare(aName, 'fr', { sensitivity: 'base' });
+          }
+        });
+      } else if (sortConfig?.key === 'entites') {
+        sortedProcessus = [...response.data].sort((a, b) => {
+          const aEntites = a.entites?.map((pe: any) => pe.entite?.nom || '').filter(Boolean).join(', ') || 'N/A';
+          const bEntites = b.entites?.map((pe: any) => pe.entite?.nom || '').filter(Boolean).join(', ') || 'N/A';
+          if (sortConfig.direction === 'asc') {
+            return aEntites.localeCompare(bEntites, 'fr', { sensitivity: 'base' });
+          } else {
+            return bEntites.localeCompare(aEntites, 'fr', { sensitivity: 'base' });
+          }
+        });
+      } else if (sortConfig?.key === 'categories') {
+        sortedProcessus = [...response.data].sort((a, b) => {
+          const aCategories = a.categories?.map((pc: any) => pc.categorie?.nom || '').filter(Boolean).join(', ') || 'N/A';
+          const bCategories = b.categories?.map((pc: any) => pc.categorie?.nom || '').filter(Boolean).join(', ') || 'N/A';
+          if (sortConfig.direction === 'asc') {
+            return aCategories.localeCompare(bCategories, 'fr', { sensitivity: 'base' });
+          } else {
+            return bCategories.localeCompare(aCategories, 'fr', { sensitivity: 'base' });
+          }
+        });
+      }
+      
+      setProcessus(sortedProcessus);
     } catch (error) {
       console.error('Erreur:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const resetSort = () => {
+    setSortConfig(null);
   };
 
   const loadEntites = async () => {
@@ -488,15 +540,77 @@ export default function Processus() {
       )}
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="flex justify-between items-center p-4 border-b">
+          <h2 className="text-lg font-semibold">Liste des processus</h2>
+          {sortConfig && (
+            <button
+              onClick={resetSort}
+              className="px-3 py-1 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              title="Réinitialiser le tri"
+            >
+              Réinitialiser le tri
+            </button>
+          )}
+        </div>
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('codeProcessus')}
+              >
+                <div className="flex items-center gap-1">
+                  Code
+                  {sortConfig?.key === 'codeProcessus' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('nom')}
+              >
+                <div className="flex items-center gap-1">
+                  Nom
+                  {sortConfig?.key === 'nom' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('statut')}
+              >
+                <div className="flex items-center gap-1">
+                  Statut
+                  {sortConfig?.key === 'statut' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documents</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Catégorie</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entité</th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('categories')}
+              >
+                <div className="flex items-center gap-1">
+                  Catégorie
+                  {sortConfig?.key === 'categories' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('entites')}
+              >
+                <div className="flex items-center gap-1">
+                  Entité
+                  {sortConfig?.key === 'entites' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
             </tr>
           </thead>
