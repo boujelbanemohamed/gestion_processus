@@ -10,7 +10,8 @@ export default function Users() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const [filters, setFilters] = useState({
-    search: '',
+    nom: '',
+    email: '',
     role: '',
     statut: '',
     entiteId: '',
@@ -36,15 +37,16 @@ export default function Users() {
   useEffect(() => {
     loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.role, filters.statut, filters.entiteId]);
+  }, [filters.nom, filters.email, filters.role, filters.statut, filters.entiteId]);
   useEffect(() => {
     setPage(1);
-  }, [filters.search, filters.role, filters.statut, filters.entiteId]);
+  }, [filters.nom, filters.email, filters.role, filters.statut, filters.entiteId]);
 
   const loadUsers = async () => {
     try {
       const params: any = {};
-      if (filters.search) params.search = filters.search;
+      if (filters.nom) params.nom = filters.nom;
+      if (filters.email) params.email = filters.email;
       if (filters.role) params.role = filters.role;
       if (filters.statut) params.statut = filters.statut;
       if (filters.entiteId) params.entiteId = filters.entiteId;
@@ -166,14 +168,24 @@ export default function Users() {
 
       {/* Filtres */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Recherche</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nom</label>
             <input
               type="text"
-              value={filters.search}
-              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-              placeholder="Nom, prénom, email"
+              value={filters.nom}
+              onChange={(e) => setFilters({ ...filters, nom: e.target.value })}
+              placeholder="Nom ou prénom"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input
+              type="text"
+              value={filters.email}
+              onChange={(e) => setFilters({ ...filters, email: e.target.value })}
+              placeholder="Adresse email"
               className="w-full px-3 py-2 border border-gray-300 rounded-md"
             />
           </div>
@@ -222,7 +234,7 @@ export default function Users() {
         <div className="flex justify-end mt-4">
           <button
             type="button"
-            onClick={() => setFilters({ search: '', role: '', statut: '', entiteId: '' })}
+            onClick={() => setFilters({ nom: '', email: '', role: '', statut: '', entiteId: '' })}
             className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
           >
             Réinitialiser

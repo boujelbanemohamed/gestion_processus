@@ -8,6 +8,8 @@ export class UserService {
     entiteId?: string;
     statut?: UserStatus;
     search?: string;
+    nom?: string;
+    email?: string;
   }) {
     const where: any = {};
     if (filters?.role) where.role = filters.role;
@@ -19,7 +21,22 @@ export class UserService {
       };
     }
     if (filters?.statut) where.statut = filters.statut;
-    if (filters?.search) {
+    
+    // Filtre par nom (recherche dans nom et prénom)
+    if (filters?.nom) {
+      where.OR = [
+        { nom: { contains: filters.nom, mode: 'insensitive' } },
+        { prenom: { contains: filters.nom, mode: 'insensitive' } },
+      ];
+    }
+    
+    // Filtre par email
+    if (filters?.email) {
+      where.email = { contains: filters.email, mode: 'insensitive' };
+    }
+    
+    // Recherche générale (pour compatibilité avec l'ancien système)
+    if (filters?.search && !filters?.nom && !filters?.email) {
       where.OR = [
         { email: { contains: filters.search, mode: 'insensitive' } },
         { nom: { contains: filters.search, mode: 'insensitive' } },

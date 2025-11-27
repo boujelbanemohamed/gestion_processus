@@ -7,12 +7,14 @@ const userService = new UserService();
 
 export const getAllUsers = async (req: AuthRequest, res: Response) => {
   try {
-    const { role, entiteId, statut, search } = req.query;
+    const { role, entiteId, statut, search, nom, email } = req.query;
     const users = await userService.findAll({
       role: role as any,
       entiteId: entiteId as string,
       statut: statut as any,
       search: search as string,
+      nom: nom as string,
+      email: email as string,
     });
     res.json(users);
   } catch (error: any) {
