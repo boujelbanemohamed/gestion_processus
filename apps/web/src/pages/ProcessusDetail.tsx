@@ -8,6 +8,17 @@ export default function ProcessusDetail() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   const isLecteur = currentUser?.role === 'lecteur';
+  const isContributeur = currentUser?.role === 'contributeur';
+  
+  // Vérifier si l'utilisateur peut modifier le processus (admin, propriétaire ou créateur)
+  const canModifyProcessus = () => {
+    if (!currentUser || !processus) return false;
+    if (currentUser.role === 'admin') return true;
+    if (isContributeur) {
+      return processus.proprietaireId === currentUser.id || processus.createdById === currentUser.id;
+    }
+    return !isLecteur;
+  };
   const [processus, setProcessus] = useState<any>(null);
   const [documents, setDocuments] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
@@ -500,17 +511,26 @@ export default function ProcessusDetail() {
   };
 
   const canModifyDocument = (doc: any): boolean => {
-    // Si le document n'est pas confidentiel, tout le monde peut le modifier
+    if (!currentUser || !processus) return false;
+    
+    // Les lecteurs ne peuvent jamais modifier
+    if (isLecteur) return false;
+    
+    // Les admins peuvent toujours modifier
+    if (currentUser.role === 'admin') return true;
+    
+    // Pour les contributeurs, seuls le propriétaire ou le créateur du processus peuvent modifier
+    if (isContributeur) {
+      return processus.proprietaireId === currentUser.id || processus.createdById === currentUser.id;
+    }
+    
+    // Si le document n'est pas confidentiel, les autres rôles peuvent le modifier
     if (!doc.estConfidentiel) return true;
 
-    // Récupérer l'utilisateur actuel
-    const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-    
     // L'utilisateur qui a uploadé peut toujours modifier
     if (doc.uploadedById === currentUser.id) return true;
 
     // Pour les documents confidentiels, seuls les utilisateurs explicitement dans la liste des permissions peuvent modifier
-    // (le propriétaire/créateur du processus n'a pas automatiquement ce droit, sauf s'il est dans la liste)
     if (doc.permissionsUtilisateurs && doc.permissionsUtilisateurs.length > 0) {
       return doc.permissionsUtilisateurs.some((perm: any) => perm.userId === currentUser.id || perm.user?.id === currentUser.id);
     }
@@ -519,17 +539,26 @@ export default function ProcessusDetail() {
   };
 
   const canDeleteOrAddVersion = (doc: any): boolean => {
-    // Si le document n'est pas confidentiel, tout le monde peut supprimer/ajouter version
+    if (!currentUser || !processus) return false;
+    
+    // Les lecteurs ne peuvent jamais supprimer/ajouter version
+    if (isLecteur) return false;
+    
+    // Les admins peuvent toujours supprimer/ajouter version
+    if (currentUser.role === 'admin') return true;
+    
+    // Pour les contributeurs, seuls le propriétaire ou le créateur du processus peuvent supprimer/ajouter version
+    if (isContributeur) {
+      return processus.proprietaireId === currentUser.id || processus.createdById === currentUser.id;
+    }
+    
+    // Si le document n'est pas confidentiel, les autres rôles peuvent supprimer/ajouter version
     if (!doc.estConfidentiel) return true;
 
-    // Récupérer l'utilisateur actuel
-    const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-    
     // L'utilisateur qui a uploadé peut toujours supprimer/ajouter version
     if (doc.uploadedById === currentUser.id) return true;
 
     // Pour les documents confidentiels, seuls les utilisateurs explicitement dans la liste des permissions peuvent supprimer/ajouter version
-    // (le propriétaire/créateur du processus n'a pas automatiquement ce droit, sauf s'il est dans la liste)
     if (doc.permissionsUtilisateurs && doc.permissionsUtilisateurs.length > 0) {
       return doc.permissionsUtilisateurs.some((perm: any) => perm.userId === currentUser.id || perm.user?.id === currentUser.id);
     }
@@ -751,7 +780,7 @@ export default function ProcessusDetail() {
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Informations générales</h2>
           {!isEditing ? (
-            !isLecteur && (
+            canModifyProcessus() && (
               <button
                 onClick={() => {
                   setIsEditing(true);

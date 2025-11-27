@@ -95,6 +95,16 @@ export const updateProcessus = async (req: AuthRequest, res: Response) => {
 
     const oldProcessus = await processusService.findOne(req.params.id);
     
+    // Vérifier les permissions pour les contributeurs
+    if (req.user.role === 'contributeur') {
+      // Les contributeurs ne peuvent modifier que s'ils sont propriétaire ou créateur
+      if (oldProcessus?.proprietaireId !== req.user.userId && oldProcessus?.createdById !== req.user.userId) {
+        return res.status(403).json({ 
+          error: 'Vous n\'avez pas les permissions pour modifier ce processus. Seuls le propriétaire ou le créateur peuvent modifier un processus.' 
+        });
+      }
+    }
+    
     // Vérifier les permissions pour modifier le code processus si c'est demandé
     if (req.body.codeProcessus !== undefined && req.body.codeProcessus !== oldProcessus?.codeProcessus) {
       const canModifyCode = await processusService.canModifyCode(

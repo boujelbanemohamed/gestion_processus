@@ -159,6 +159,10 @@ export const createDocument = async (req: AuthRequest, res: Response) => {
 
 export const createVersion = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    
     if (!req.file) {
       return res.status(400).json({ error: 'Fichier requis' });
     }
@@ -167,6 +171,29 @@ export const createVersion = async (req: AuthRequest, res: Response) => {
     const oldDocument = await documentService.findOne(req.params.id);
     if (!oldDocument) {
       return res.status(404).json({ error: 'Document non trouvé' });
+    }
+    
+    // Vérifier les permissions pour les contributeurs
+    if (req.user.role === 'contributeur') {
+      // Si le document est lié à un processus, vérifier si l'utilisateur est propriétaire ou créateur
+      if (oldDocument.referenceType === 'processus' && oldDocument.referenceId) {
+        const { prisma } = await import('../utils/prisma');
+        const processus = await prisma.processus.findUnique({
+          where: { id: oldDocument.referenceId },
+          select: { proprietaireId: true, createdById: true },
+        });
+        
+        if (processus && processus.proprietaireId !== req.user.userId && processus.createdById !== req.user.userId) {
+          return res.status(403).json({ 
+            error: 'Vous n\'avez pas les permissions pour créer une nouvelle version de ce document. Seuls le propriétaire ou le créateur du processus peuvent créer une nouvelle version.' 
+          });
+        }
+      } else {
+        // Si le document n'est pas lié à un processus, seuls les admins peuvent créer une version
+        return res.status(403).json({ 
+          error: 'Vous n\'avez pas les permissions pour créer une nouvelle version de ce document.' 
+        });
+      }
     }
 
     // Vérifier les permissions pour les documents confidentiels
@@ -290,9 +317,36 @@ export const downloadVersion = async (req: AuthRequest, res: Response) => {
 
 export const updateDocument = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    
     const oldDocument = await documentService.findOne(req.params.id);
     if (!oldDocument) {
       return res.status(404).json({ error: 'Document non trouvé' });
+    }
+    
+    // Vérifier les permissions pour les contributeurs
+    if (req.user.role === 'contributeur') {
+      // Si le document est lié à un processus, vérifier si l'utilisateur est propriétaire ou créateur
+      if (oldDocument.referenceType === 'processus' && oldDocument.referenceId) {
+        const { prisma } = await import('../utils/prisma');
+        const processus = await prisma.processus.findUnique({
+          where: { id: oldDocument.referenceId },
+          select: { proprietaireId: true, createdById: true },
+        });
+        
+        if (processus && processus.proprietaireId !== req.user.userId && processus.createdById !== req.user.userId) {
+          return res.status(403).json({ 
+            error: 'Vous n\'avez pas les permissions pour modifier ce document. Seuls le propriétaire ou le créateur du processus peuvent modifier un document.' 
+          });
+        }
+      } else {
+        // Si le document n'est pas lié à un processus, seuls les admins peuvent le modifier
+        return res.status(403).json({ 
+          error: 'Vous n\'avez pas les permissions pour modifier ce document.' 
+        });
+      }
     }
 
     const estConfidentiel = req.body.estConfidentiel !== undefined 
@@ -358,9 +412,36 @@ export const updateDocument = async (req: AuthRequest, res: Response) => {
 
 export const deleteDocument = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    
     const document = await documentService.findOne(req.params.id);
     if (!document) {
       return res.status(404).json({ error: 'Document non trouvé' });
+    }
+    
+    // Vérifier les permissions pour les contributeurs
+    if (req.user.role === 'contributeur') {
+      // Si le document est lié à un processus, vérifier si l'utilisateur est propriétaire ou créateur
+      if (document.referenceType === 'processus' && document.referenceId) {
+        const { prisma } = await import('../utils/prisma');
+        const processus = await prisma.processus.findUnique({
+          where: { id: document.referenceId },
+          select: { proprietaireId: true, createdById: true },
+        });
+        
+        if (processus && processus.proprietaireId !== req.user.userId && processus.createdById !== req.user.userId) {
+          return res.status(403).json({ 
+            error: 'Vous n\'avez pas les permissions pour supprimer ce document. Seuls le propriétaire ou le créateur du processus peuvent supprimer un document.' 
+          });
+        }
+      } else {
+        // Si le document n'est pas lié à un processus, seuls les admins peuvent le supprimer
+        return res.status(403).json({ 
+          error: 'Vous n\'avez pas les permissions pour supprimer ce document.' 
+        });
+      }
     }
 
     // Vérifier les permissions pour les documents confidentiels
