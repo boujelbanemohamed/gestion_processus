@@ -102,7 +102,8 @@ app.put("/api/v1/documents/:id", documentController.updateDocument);
 app.delete("/api/v1/documents/:id", documentController.deleteDocument);
 // Commentaires de documents
 app.get("/api/v1/documents/:id/comments", documentCommentController.listComments);
-app.post("/api/v1/documents/:id/comments", documentCommentController.addComment);
+app.post("/api/v1/documents/:id/comments", documentCommentController.uploadMiddleware, documentCommentController.addComment);
+app.get("/api/v1/comments/:commentId/attachment", documentCommentController.downloadAttachment);
 
 // Utilisateurs
 app.get("/api/v1/users", userController.getAllUsers);

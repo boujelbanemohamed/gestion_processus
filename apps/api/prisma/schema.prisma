@@ -330,13 +330,17 @@ model DocumentPermission {
 }
 
 model DocumentComment {
-  id          String   @id @default(uuid())
-  documentId  String
-  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  contenu     String
-  createdAt   DateTime @default(now())
+  id                String   @id @default(uuid())
+  documentId        String
+  document          Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contenu           String
+  pieceJointeNom    String?
+  pieceJointePath   String?
+  pieceJointeType   String?
+  pieceJointeTaille Int?     // Taille en octets
+  createdAt         DateTime @default(now())
 
   @@index([documentId])
   @@index([userId])

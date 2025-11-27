@@ -58,6 +58,7 @@ export default function ProcessusDetail() {
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
   const [docComments, setDocComments] = useState<Record<string, any[]>>({});
   const [newComment, setNewComment] = useState<Record<string, string>>({});
+  const [commentAttachments, setCommentAttachments] = useState<Record<string, File | null>>({});
 
   useEffect(() => {
     if (id) {
@@ -136,22 +137,55 @@ export default function ProcessusDetail() {
 
   const handleAddComment = async (documentId: string) => {
     const content = (newComment[documentId] || '').trim();
-    if (!content) return;
+    const attachment = commentAttachments[documentId];
+    
+    if (!content && !attachment) {
+      alert('Veuillez saisir un commentaire ou joindre un fichier');
+      return;
+    }
+    
     try {
-      const token = localStorage.getItem('token');
-      const res = await api.post(
-        `/documents/${documentId}/comments`,
-        { contenu: content },
-        token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
-      );
+      const formData = new FormData();
+      formData.append('contenu', content || '');
+      if (attachment) {
+        formData.append('pieceJointe', attachment);
+      }
+
+      const res = await api.post(`/documents/${documentId}/comments`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      
       setDocComments({
         ...docComments,
         [documentId]: [...(docComments[documentId] || []), res.data],
       });
       setNewComment({ ...newComment, [documentId]: '' });
+      setCommentAttachments({ ...commentAttachments, [documentId]: null });
       loadHistory(1);
     } catch (err: any) {
       alert(err.response?.data?.error || 'Erreur ajout commentaire');
+    }
+  };
+
+  const handleDownloadAttachment = async (commentId: string, fileName: string) => {
+    try {
+      const response = await api.get(`/comments/${commentId}/attachment`, {
+        responseType: 'blob',
+      });
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => window.URL.revokeObjectURL(url), 100);
+    } catch (error: any) {
+      console.error('Erreur lors du téléchargement:', error);
+      alert('Erreur lors du téléchargement de la pièce jointe');
     }
   };
 
@@ -1083,25 +1117,67 @@ export default function ProcessusDetail() {
                           <span className="font-medium">{c.user?.prenom} {c.user?.nom}</span>
                           <span className="text-xs text-gray-500">{new Date(c.createdAt).toLocaleString('fr-FR')}</span>
                         </div>
-                        <p className="mt-1 text-gray-700 whitespace-pre-wrap">{c.contenu}</p>
+                        {c.contenu && (
+                          <p className="mt-1 text-gray-700 whitespace-pre-wrap">{c.contenu}</p>
+                        )}
+                        {c.pieceJointeNom && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <span className="text-xs text-gray-600">📎 Pièce jointe:</span>
+                            <button
+                              onClick={() => handleDownloadAttachment(c.id, c.pieceJointeNom)}
+                              className="text-xs text-blue-600 hover:text-blue-800 underline"
+                            >
+                              {c.pieceJointeNom}
+                              {c.pieceJointeTaille && (
+                                <span className="ml-1 text-gray-500">
+                                  ({(c.pieceJointeTaille / 1024).toFixed(1)} KB)
+                                </span>
+                              )}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
-                <div className="mt-3 flex gap-2">
-                  <input
-                    type="text"
-                    value={newComment[doc.id] || ''}
-                    onChange={(e) => setNewComment({ ...newComment, [doc.id]: e.target.value })}
-                    placeholder="Écrire un commentaire..."
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded"
-                  />
-                  <button
-                    onClick={() => handleAddComment(doc.id)}
-                    className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                  >
-                    Publier
-                  </button>
+                <div className="mt-3 space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newComment[doc.id] || ''}
+                      onChange={(e) => setNewComment({ ...newComment, [doc.id]: e.target.value })}
+                      placeholder="Écrire un commentaire..."
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded"
+                    />
+                    <label className="px-3 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 cursor-pointer text-sm flex items-center">
+                      📎
+                      <input
+                        type="file"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] || null;
+                          setCommentAttachments({ ...commentAttachments, [doc.id]: file });
+                        }}
+                      />
+                    </label>
+                    <button
+                      onClick={() => handleAddComment(doc.id)}
+                      className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                    >
+                      Publier
+                    </button>
+                  </div>
+                  {commentAttachments[doc.id] && (
+                    <div className="flex items-center gap-2 text-xs text-gray-600">
+                      <span>📎 {commentAttachments[doc.id]?.name}</span>
+                      <button
+                        onClick={() => setCommentAttachments({ ...commentAttachments, [doc.id]: null })}
+                        className="text-red-600 hover:text-red-800"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
                 </div>
