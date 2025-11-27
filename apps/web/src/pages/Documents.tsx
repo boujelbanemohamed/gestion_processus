@@ -250,6 +250,8 @@ export default function Documents() {
       link.remove();
       // Nettoyer le blob URL après un court délai
       setTimeout(() => window.URL.revokeObjectURL(url), 100);
+      // Recharger les documents pour mettre à jour les statistiques
+      loadDocuments();
     } catch (error: any) {
       console.error('Erreur lors du téléchargement:', error);
       if (error.response?.status === 403) {
