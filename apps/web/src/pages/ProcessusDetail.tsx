@@ -341,13 +341,16 @@ export default function ProcessusDetail() {
     }
 
     try {
-      // Utiliser directement l'URL de l'API pour éviter les problèmes de blob URLs
-      const token = localStorage.getItem('token');
-      // @ts-expect-error - Vite injecte les variables d'environnement via import.meta.env
-      const apiUrl = (import.meta.env?.VITE_API_URL as string) || 'http://localhost:4000/api/v1';
-      const url = `${apiUrl}/documents/${document.id}/download${token ? `?token=${token}` : ''}`;
+      // Utiliser l'API avec le token dans les headers pour télécharger le fichier
+      const response = await api.get(`/documents/${document.id}/download`, {
+        responseType: 'blob',
+      });
       
-      // Créer un lien de téléchargement direct
+      // Créer un blob URL et déclencher le téléchargement
+      const blob = new Blob([response.data], { 
+        type: document.fichierType || response.headers['content-type'] || 'application/octet-stream' 
+      });
+      const url = window.URL.createObjectURL(blob);
       const link = window.document.createElement('a');
       link.href = url;
       link.setAttribute('download', document.fichierNomOriginal);
@@ -355,9 +358,15 @@ export default function ProcessusDetail() {
       window.document.body.appendChild(link);
       link.click();
       link.remove();
+      // Nettoyer le blob URL après un court délai
+      setTimeout(() => window.URL.revokeObjectURL(url), 100);
     } catch (error: any) {
       console.error('Erreur lors du téléchargement:', error);
-      alert('Erreur lors du téléchargement');
+      if (error.response?.status === 403) {
+        alert('Vous n\'avez pas accès à ce document confidentiel');
+      } else {
+        alert('Erreur lors du téléchargement');
+      }
     }
   };
 
@@ -388,8 +397,15 @@ export default function ProcessusDetail() {
       document.body.appendChild(link);
       link.click();
       link.remove();
-    } catch (error) {
-      alert('Erreur lors du téléchargement de la version');
+      // Nettoyer le blob URL après un court délai
+      setTimeout(() => window.URL.revokeObjectURL(url), 100);
+    } catch (error: any) {
+      console.error('Erreur lors du téléchargement de la version:', error);
+      if (error.response?.status === 403) {
+        alert('Vous n\'avez pas accès à ce document confidentiel');
+      } else {
+        alert('Erreur lors du téléchargement de la version');
+      }
     }
   };
 

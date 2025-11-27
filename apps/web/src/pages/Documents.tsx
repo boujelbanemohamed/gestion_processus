@@ -198,17 +198,26 @@ export default function Documents() {
       const response = await api.get(`/documents/${doc.id}/download`, {
         responseType: 'blob',
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      // Créer un blob avec le type MIME correct
+      const blob = new Blob([response.data], { 
+        type: doc.fichierType || response.headers['content-type'] || 'application/octet-stream' 
+      });
+      const url = window.URL.createObjectURL(blob);
       const link = window.document.createElement('a');
       link.href = url;
       link.setAttribute('download', doc.fichierNomOriginal);
       window.document.body.appendChild(link);
       link.click();
       link.remove();
-      window.URL.revokeObjectURL(url);
+      // Nettoyer le blob URL après un court délai
+      setTimeout(() => window.URL.revokeObjectURL(url), 100);
     } catch (error: any) {
       console.error('Erreur lors du téléchargement:', error);
-      alert('Erreur lors du téléchargement du document');
+      if (error.response?.status === 403) {
+        alert('Vous n\'avez pas accès à ce document confidentiel');
+      } else {
+        alert('Erreur lors du téléchargement du document');
+      }
     }
   };
 
