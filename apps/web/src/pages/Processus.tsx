@@ -102,6 +102,7 @@ export default function Processus() {
   };
 
   const handleDelete = async (processusId: string, processusNom: string) => {
+    // Message de confirmation
     if (!window.confirm(`Êtes-vous sûr de vouloir supprimer le processus "${processusNom}" ? Cette action est irréversible.`)) {
       return;
     }
@@ -109,6 +110,8 @@ export default function Processus() {
     setDeletingId(processusId);
     try {
       await api.delete(`/processus/${processusId}`);
+      // Message de succès
+      alert(`Le processus "${processusNom}" a été supprimé avec succès.`);
       // Recharger la liste
       loadProcessus();
     } catch (err: any) {
