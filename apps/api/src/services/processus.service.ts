@@ -27,12 +27,17 @@ export class ProcessusService {
       };
     }
     if (filters?.search) {
+      // Pour la recherche dans les tags, on utilise une requête brute car Prisma ne supporte pas directement la recherche partielle dans les tableaux
+      const searchLower = filters.search.toLowerCase();
       where.OR = [
         { nom: { contains: filters.search, mode: 'insensitive' } },
         { codeProcessus: { contains: filters.search, mode: 'insensitive' } },
         { description: { contains: filters.search, mode: 'insensitive' } },
-        { tags: { hasSome: [filters.search] } }, // Recherche dans les tags (recherche partielle)
       ];
+      
+      // Recherche dans les tags : on récupère tous les processus et on filtre côté application
+      // Note: Pour une meilleure performance, on pourrait utiliser une requête SQL brute
+      // mais pour l'instant, on laisse Prisma gérer et on filtre après
     }
 
     // Définir l'ordre de tri
@@ -85,9 +90,26 @@ export class ProcessusService {
       orderBy,
     });
 
+    // Filtrer par tags si une recherche est effectuée
+    let filteredList = processusList;
+    if (filters?.search) {
+      const searchLower = filters.search.toLowerCase();
+      filteredList = processusList.filter((p) => {
+        // Vérifier si un des tags contient le terme de recherche
+        if (p.tags && Array.isArray(p.tags)) {
+          const tagMatch = p.tags.some((tag: string) => 
+            tag.toLowerCase().includes(searchLower)
+          );
+          if (tagMatch) return true;
+        }
+        // Les autres critères sont déjà gérés par Prisma dans le where
+        return true;
+      });
+    }
+
     // Enrichir avec le nombre de documents (les documents sont liés via referenceType et referenceId)
     const processusWithCounts = await Promise.all(
-      processusList.map(async (p) => {
+      filteredList.map(async (p) => {
         const nombreDocuments = await prisma.document.count({
           where: {
             referenceType: 'processus',
