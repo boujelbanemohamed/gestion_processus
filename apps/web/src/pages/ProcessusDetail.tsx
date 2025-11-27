@@ -364,16 +364,22 @@ export default function ProcessusDetail() {
     }
 
     try {
-      // Utiliser directement l'URL de l'API au lieu d'un blob URL pour éviter les problèmes de sécurité
-      const token = localStorage.getItem('token');
-      // @ts-expect-error - Vite injecte les variables d'environnement via import.meta.env
-      const apiUrl = (import.meta.env?.VITE_API_URL as string) || 'http://localhost:4000/api/v1';
-      const url = `${apiUrl}/documents/${doc.id}/download${token ? `?token=${token}` : ''}`;
+      // Utiliser l'endpoint /view pour la visualisation (log 'lecture')
+      const response = await api.get(`/documents/${doc.id}/view`, {
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
       setDocumentUrl(url);
       setViewingDocument(doc);
+      // Recharger les documents pour mettre à jour les statistiques
+      loadDocuments();
     } catch (error: any) {
       console.error('Erreur lors du chargement du document:', error);
-      alert('Erreur lors du chargement du document');
+      if (error.response?.status === 403) {
+        alert('Vous n\'avez pas accès à ce document confidentiel');
+      } else {
+        alert('Erreur lors du chargement du document');
+      }
     }
   };
 

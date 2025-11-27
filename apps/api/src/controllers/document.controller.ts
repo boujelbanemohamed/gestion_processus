@@ -198,6 +198,35 @@ export const createVersion = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const viewDocument = async (req: AuthRequest, res: Response) => {
+  try {
+    const document = await documentService.findOne(req.params.id);
+    if (!document) {
+      return res.status(404).json({ error: 'Document non trouvé' });
+    }
+
+    // Vérifier les permissions pour les documents confidentiels
+    const canAccess = await documentService.canUserAccessDocument(document.id, req.user!.userId);
+    if (!canAccess) {
+      return res.status(403).json({ error: 'Accès non autorisé à ce document confidentiel' });
+    }
+
+    const filePath = path.join(UPLOAD_DIR, document.fichierUrl);
+    
+    // Logger la visualisation (lecture)
+    await logAccess(req, res, 'lecture', 'document', document.id, document.nom, {
+      version: document.version,
+      processusId: document.referenceId,
+      typeAction: 'visualisation',
+    });
+    
+    // Envoyer le fichier pour visualisation (pas de téléchargement)
+    res.sendFile(path.resolve(filePath));
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 export const downloadDocument = async (req: AuthRequest, res: Response) => {
   try {
     const document = await documentService.findOne(req.params.id);

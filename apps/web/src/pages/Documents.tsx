@@ -206,15 +206,22 @@ export default function Documents() {
     }
 
     try {
-      const response = await api.get(`/documents/${doc.id}/download`, {
+      // Utiliser l'endpoint /view pour la visualisation (log 'lecture')
+      const response = await api.get(`/documents/${doc.id}/view`, {
         responseType: 'blob',
       });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       setDocumentUrl(url);
       setViewingDocument(doc);
+      // Recharger les documents pour mettre à jour les statistiques
+      loadDocuments();
     } catch (error: any) {
       console.error('Erreur lors du chargement du document:', error);
-      alert('Erreur lors du chargement du document');
+      if (error.response?.status === 403) {
+        alert('Vous n\'avez pas accès à ce document confidentiel');
+      } else {
+        alert('Erreur lors du chargement du document');
+      }
     }
   };
 

@@ -105,6 +105,7 @@ app.get("/api/v1/documents", documentController.getAllDocuments);
 app.get("/api/v1/documents/:id", documentController.getDocument);
 app.post("/api/v1/documents", documentController.uploadMiddleware, documentController.createDocument);
 app.post("/api/v1/documents/:id/versions", documentController.uploadMiddleware, documentController.createVersion);
+app.get("/api/v1/documents/:id/view", documentController.viewDocument);
 app.get("/api/v1/documents/:id/download", documentController.downloadDocument);
 app.get("/api/v1/documents/:id/versions/:versionId/download", documentController.downloadVersion);
 app.put("/api/v1/documents/:id", documentController.updateDocument);
