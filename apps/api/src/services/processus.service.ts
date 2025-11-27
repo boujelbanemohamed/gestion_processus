@@ -103,6 +103,16 @@ export class ProcessusService {
     return processusWithCounts;
   }
 
+  async getConsultationCount(id: string): Promise<number> {
+    return prisma.journalAcces.count({
+      where: {
+        ressourceType: 'processus',
+        ressourceId: id,
+        action: 'lecture',
+      },
+    });
+  }
+
   async findOne(id: string) {
     return prisma.processus.findUnique({
       where: { id },

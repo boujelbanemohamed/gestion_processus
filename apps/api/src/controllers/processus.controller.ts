@@ -46,8 +46,15 @@ export const getProcessus = async (req: AuthRequest, res: Response) => {
     if (!processus) {
       return res.status(404).json({ error: 'Processus non trouvé' });
     }
+    
+    // Récupérer le nombre de consultations
+    const nombreConsultations = await processusService.getConsultationCount(req.params.id);
+    
     await logAccess(req, res, 'lecture', 'processus', processus.id, processus.nom);
-    res.json(processus);
+    res.json({
+      ...processus,
+      nombreConsultations,
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

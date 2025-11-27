@@ -705,12 +705,17 @@ export default function ProcessusDetail() {
           ← Retour à la liste
         </button>
         <h1 className="text-2xl font-bold">{processus.nom}</h1>
-        <p className="text-gray-600 mt-2">
-          Code: {processus.codeProcessus}
-          {canModifyCodeProcessus() && (
-            <span className="ml-2 text-xs text-gray-500">(Modifiable)</span>
-          )}
-        </p>
+        <div className="text-gray-600 mt-2 space-y-1">
+          <p>
+            Code: {processus.codeProcessus}
+            {canModifyCodeProcessus() && (
+              <span className="ml-2 text-xs text-gray-500">(Modifiable)</span>
+            )}
+          </p>
+          <p className="text-sm">
+            Nombre de consultations: <span className="font-semibold text-blue-600">{processus.nombreConsultations || 0}</span>
+          </p>
+        </div>
       </div>
 
       {/* Informations générales */}
