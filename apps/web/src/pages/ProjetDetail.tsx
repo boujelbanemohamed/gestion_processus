@@ -14,6 +14,7 @@ export default function ProjetDetail() {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [entitesList, setEntitesList] = useState<any[]>([]);
+  const [tagsInput, setTagsInput] = useState('');
   const [editData, setEditData] = useState({
     nom: '',
     codeProjet: '',
@@ -35,6 +36,7 @@ export default function ProjetDetail() {
 
   useEffect(() => {
     if (projet) {
+      const tags = projet.tags || [];
       setEditData({
         nom: projet.nom || '',
         codeProjet: projet.codeProjet || '',
@@ -44,8 +46,9 @@ export default function ProjetDetail() {
         responsableId: projet.responsableId || '',
         gestionnaireId: projet.gestionnaireId || '',
         entiteIds: projet.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean) || [],
-        tags: projet.tags || [],
+        tags: tags,
       });
+      setTagsInput(tags.join(', '));
     }
   }, [projet]);
 
@@ -210,12 +213,16 @@ export default function ProjetDetail() {
           <h2 className="text-lg font-semibold">Informations générales</h2>
           {!isEditing ? (
             !isLecteur && (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
-              >
-                Modifier
-              </button>
+            <button
+              onClick={() => {
+                setIsEditing(true);
+                // Initialiser tagsInput avec les tags existants
+                setTagsInput(editData.tags.join(', '));
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+            >
+              Modifier
+            </button>
             )
           ) : (
             <div className="flex gap-2">
@@ -223,6 +230,7 @@ export default function ProjetDetail() {
                 onClick={() => {
                   setIsEditing(false);
                   if (projet) {
+                    const tags = projet.tags || [];
                     setEditData({
                       nom: projet.nom || '',
                       codeProjet: projet.codeProjet || '',
@@ -232,8 +240,9 @@ export default function ProjetDetail() {
                       responsableId: projet.responsableId || '',
                       gestionnaireId: projet.gestionnaireId || '',
                       entiteIds: projet.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean) || [],
-                      tags: projet.tags || [],
+                      tags: tags,
                     });
+                    setTagsInput(tags.join(', '));
                   }
                 }}
                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
@@ -400,15 +409,29 @@ export default function ProjetDetail() {
             <div>
               <input
                 type="text"
-                value={editData.tags.join(', ')}
+                value={tagsInput}
                 onChange={(e) => {
-                  const tagsArray = e.target.value.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+                  setTagsInput(e.target.value);
+                }}
+                onBlur={() => {
+                  // Traiter les tags quand on perd le focus
+                  const tagsArray = tagsInput.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
                   setEditData({ ...editData, tags: tagsArray });
+                  setTagsInput(tagsArray.join(', '));
+                }}
+                onKeyDown={(e) => {
+                  // Traiter les tags quand on appuie sur Entrée
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const tagsArray = tagsInput.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+                    setEditData({ ...editData, tags: tagsArray });
+                    setTagsInput(tagsArray.join(', '));
+                  }
                 }}
                 placeholder="Saisir les tags séparés par des virgules (ex: qualité, ISO, sécurité)"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
-              <p className="text-xs text-gray-500 mt-1">Séparez les tags par des virgules</p>
+              <p className="text-xs text-gray-500 mt-1">Séparez les tags par des virgules. Appuyez sur Entrée ou cliquez ailleurs pour valider.</p>
               {editData.tags.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-2">
                   {editData.tags.map((tag, index) => (
@@ -421,6 +444,7 @@ export default function ProjetDetail() {
                         onClick={() => {
                           const newTags = editData.tags.filter((_, i) => i !== index);
                           setEditData({ ...editData, tags: newTags });
+                          setTagsInput(newTags.join(', '));
                         }}
                         className="text-blue-600 hover:text-blue-800"
                       >

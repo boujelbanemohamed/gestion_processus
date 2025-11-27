@@ -61,6 +61,7 @@ export default function ProcessusDetail() {
   const [docComments, setDocComments] = useState<Record<string, any[]>>({});
   const [newComment, setNewComment] = useState<Record<string, string>>({});
   const [commentAttachments, setCommentAttachments] = useState<Record<string, File | null>>({});
+  const [tagsInput, setTagsInput] = useState('');
 
   useEffect(() => {
     if (id) {
@@ -75,14 +76,16 @@ export default function ProcessusDetail() {
 
   useEffect(() => {
     if (processus) {
+      const tags = processus.tags || [];
       setEditData({
         codeProcessus: processus.codeProcessus || '',
         statut: processus.statut || 'brouillon',
         proprietaireId: processus.proprietaireId || '',
         entiteIds: processus.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean) || [],
         categorieIds: processus.categories?.map((pc: any) => pc.categorie?.id || pc.categorieId).filter(Boolean) || [],
-        tags: processus.tags || [],
+        tags: tags,
       });
+      setTagsInput(tags.join(', '));
       
       // Vérifier si l'utilisateur peut définir confidentiel (propriétaire ou créateur)
       const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
@@ -744,7 +747,11 @@ export default function ProcessusDetail() {
           {!isEditing ? (
             !isLecteur && (
               <button
-                onClick={() => setIsEditing(true)}
+                onClick={() => {
+                  setIsEditing(true);
+                  // Initialiser tagsInput avec les tags existants
+                  setTagsInput(editData.tags.join(', '));
+                }}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
               >
                 Modifier
@@ -756,14 +763,16 @@ export default function ProcessusDetail() {
                 onClick={() => {
                   setIsEditing(false);
                   if (processus) {
+                    const tags = processus.tags || [];
                     setEditData({
                       codeProcessus: processus.codeProcessus || '',
                       statut: processus.statut || 'brouillon',
                       proprietaireId: processus.proprietaireId || '',
                       entiteIds: processus.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean) || [],
                       categorieIds: processus.categories?.map((pc: any) => pc.categorie?.id || pc.categorieId).filter(Boolean) || [],
-                      tags: processus.tags || [],
+                      tags: tags,
                     });
+                    setTagsInput(tags.join(', '));
                   }
                 }}
                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
@@ -973,7 +982,11 @@ export default function ProcessusDetail() {
             <label className="text-sm font-medium text-gray-500">Tags (mots-clés)</label>
             {canModifyTags() && !isEditing && (
               <button
-                onClick={() => setIsEditing(true)}
+                onClick={() => {
+                  setIsEditing(true);
+                  // Initialiser tagsInput avec les tags existants
+                  setTagsInput(editData.tags.join(', '));
+                }}
                 className="text-xs text-blue-600 hover:text-blue-800"
               >
                 Modifier
@@ -984,15 +997,29 @@ export default function ProcessusDetail() {
             <div>
               <input
                 type="text"
-                value={editData.tags.join(', ')}
+                value={tagsInput}
                 onChange={(e) => {
-                  const tagsArray = e.target.value.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+                  setTagsInput(e.target.value);
+                }}
+                onBlur={() => {
+                  // Traiter les tags quand on perd le focus
+                  const tagsArray = tagsInput.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
                   setEditData({ ...editData, tags: tagsArray });
+                  setTagsInput(tagsArray.join(', '));
+                }}
+                onKeyDown={(e) => {
+                  // Traiter les tags quand on appuie sur Entrée
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const tagsArray = tagsInput.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+                    setEditData({ ...editData, tags: tagsArray });
+                    setTagsInput(tagsArray.join(', '));
+                  }
                 }}
                 placeholder="Saisir les tags séparés par des virgules (ex: qualité, ISO, sécurité)"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               />
-              <p className="text-xs text-gray-500 mt-1">Séparez les tags par des virgules</p>
+              <p className="text-xs text-gray-500 mt-1">Séparez les tags par des virgules. Appuyez sur Entrée ou cliquez ailleurs pour valider.</p>
               {editData.tags.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-2">
                   {editData.tags.map((tag, index) => (
@@ -1005,6 +1032,7 @@ export default function ProcessusDetail() {
                         onClick={() => {
                           const newTags = editData.tags.filter((_, i) => i !== index);
                           setEditData({ ...editData, tags: newTags });
+                          setTagsInput(newTags.join(', '));
                         }}
                         className="text-blue-600 hover:text-blue-800"
                       >
