@@ -28,6 +28,7 @@ export default function Entites() {
     parentId: '',
     responsableId: '',
   });
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
@@ -39,10 +40,10 @@ export default function Entites() {
   useEffect(() => {
     loadEntites();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.type, filters.parentId, filters.responsableId]);
+  }, [filters.search, filters.type, filters.parentId, filters.responsableId, sortConfig]);
   useEffect(() => {
     setPage(1);
-  }, [filters.search, filters.type, filters.parentId, filters.responsableId]);
+  }, [filters.search, filters.type, filters.parentId, filters.responsableId, sortConfig]);
 
   const loadEntites = async () => {
     try {
@@ -51,13 +52,54 @@ export default function Entites() {
       if (filters.type) params.type = filters.type;
       if (filters.parentId) params.parentId = filters.parentId;
       if (filters.responsableId) params.responsableId = filters.responsableId;
+      if (sortConfig) {
+        params.sortBy = sortConfig.key;
+        params.sortOrder = sortConfig.direction;
+      }
       const response = await api.get('/entites', { params });
-      setEntites(response.data);
+      let sortedEntites = response.data;
+      
+      // Tri côté client pour responsable et parent (car relations Prisma)
+      if (sortConfig?.key === 'responsable') {
+        sortedEntites = [...response.data].sort((a, b) => {
+          const aName = a.responsable ? `${a.responsable.prenom} ${a.responsable.nom}` : '';
+          const bName = b.responsable ? `${b.responsable.prenom} ${b.responsable.nom}` : '';
+          if (sortConfig.direction === 'asc') {
+            return aName.localeCompare(bName, 'fr', { sensitivity: 'base' });
+          } else {
+            return bName.localeCompare(aName, 'fr', { sensitivity: 'base' });
+          }
+        });
+      } else if (sortConfig?.key === 'parent') {
+        sortedEntites = [...response.data].sort((a, b) => {
+          const aName = a.parent ? `${a.parent.nom} (${a.parent.code})` : 'N/A';
+          const bName = b.parent ? `${b.parent.nom} (${b.parent.code})` : 'N/A';
+          if (sortConfig.direction === 'asc') {
+            return aName.localeCompare(bName, 'fr', { sensitivity: 'base' });
+          } else {
+            return bName.localeCompare(aName, 'fr', { sensitivity: 'base' });
+          }
+        });
+      }
+      
+      setEntites(sortedEntites);
     } catch (error) {
       console.error('Erreur:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const resetSort = () => {
+    setSortConfig(null);
   };
 
   const loadUsers = async () => {
@@ -447,14 +489,76 @@ export default function Entites() {
       )}
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="flex justify-between items-center p-4 border-b">
+          <h2 className="text-lg font-semibold">Liste des entités</h2>
+          {sortConfig && (
+            <button
+              onClick={resetSort}
+              className="px-3 py-1 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              title="Réinitialiser le tri"
+            >
+              Réinitialiser le tri
+            </button>
+          )}
+        </div>
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Responsable</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entité parente</th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('code')}
+              >
+                <div className="flex items-center gap-1">
+                  Code
+                  {sortConfig?.key === 'code' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('nom')}
+              >
+                <div className="flex items-center gap-1">
+                  Nom
+                  {sortConfig?.key === 'nom' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('type')}
+              >
+                <div className="flex items-center gap-1">
+                  Type
+                  {sortConfig?.key === 'type' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('responsable')}
+              >
+                <div className="flex items-center gap-1">
+                  Responsable
+                  {sortConfig?.key === 'responsable' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
+              <th 
+                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
+                onClick={() => handleSort('parent')}
+              >
+                <div className="flex items-center gap-1">
+                  Entité parente
+                  {sortConfig?.key === 'parent' && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                  )}
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">

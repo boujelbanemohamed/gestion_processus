@@ -2,7 +2,14 @@ import { prisma } from '../utils/prisma';
 import { EntiteType } from '@prisma/client';
 
 export class EntiteService {
-  async findAll(filters?: { parentId?: string; type?: EntiteType; search?: string; responsableId?: string }) {
+  async findAll(filters?: { 
+    parentId?: string; 
+    type?: EntiteType; 
+    search?: string; 
+    responsableId?: string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+  }) {
     const where: any = {};
     if (filters?.parentId !== undefined && filters.parentId !== '') where.parentId = filters.parentId;
     if (filters?.type) where.type = filters.type;
@@ -13,6 +20,35 @@ export class EntiteService {
         { code: { contains: filters.search, mode: 'insensitive' } },
         { description: { contains: filters.search, mode: 'insensitive' } },
       ];
+    }
+
+    // Définir l'ordre de tri
+    let orderBy: any = { nom: 'asc' }; // Par défaut, tri par nom croissant
+    
+    if (filters?.sortBy) {
+      const sortOrder = filters.sortOrder || 'asc';
+      
+      switch (filters.sortBy) {
+        case 'nom':
+          orderBy = { nom: sortOrder };
+          break;
+        case 'code':
+          orderBy = { code: sortOrder };
+          break;
+        case 'type':
+          orderBy = { type: sortOrder };
+          break;
+        case 'responsable':
+          // Pour responsable, on trie par nom de l'utilisateur (via relation)
+          orderBy = { responsable: { nom: sortOrder } };
+          break;
+        case 'parent':
+          // Pour parent, on trie par nom de l'entité parente (via relation)
+          orderBy = { parent: { nom: sortOrder } };
+          break;
+        default:
+          orderBy = { nom: 'asc' };
+      }
     }
 
     return prisma.entite.findMany({
@@ -35,7 +71,7 @@ export class EntiteService {
           select: { membres: true, processus: true },
         },
       },
-      orderBy: { nom: 'asc' },
+      orderBy,
     });
   }
 

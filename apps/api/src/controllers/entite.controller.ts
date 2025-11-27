@@ -8,12 +8,14 @@ const entiteService = new EntiteService();
 
 export const getAllEntites = async (req: AuthRequest, res: Response) => {
   try {
-    const { parentId, type, search, responsableId } = req.query;
+    const { parentId, type, search, responsableId, sortBy, sortOrder } = req.query;
     const entites = await entiteService.findAll({
       parentId: parentId as string,
       type: type as any,
       search: search as string,
       responsableId: responsableId as string,
+      sortBy: sortBy as string,
+      sortOrder: (sortOrder as 'asc' | 'desc') || 'asc',
     });
     res.json(entites);
   } catch (error: any) {
