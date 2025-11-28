@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Fond bleu -->
+  <rect width="64" height="64" fill="#1e40af" rx="8"/>
+  
+  <!-- Lettre M stylisée -->
+  <path d="M 16 20 L 16 44 L 20 44 L 20 28 L 28 44 L 36 44 L 28 28 L 28 20 L 20 20 Z" fill="white" opacity="0.9"/>
+  
+  <!-- Ligne décorative en bas -->
+  <rect x="12" y="48" width="40" height="3" fill="white" opacity="0.7" rx="1.5"/>
+</svg>
+
