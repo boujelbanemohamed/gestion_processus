@@ -18,6 +18,7 @@ import * as categorieController from "./controllers/categorie.controller";
 import * as smtpController from "./controllers/smtp.controller";
 import * as projetController from "./controllers/projet.controller";
 import * as corbeilleController from "./controllers/corbeille.controller";
+import * as favorisController from "./controllers/favoris.controller";
 
 const app = express();
 app.use(helmet());
@@ -148,6 +149,15 @@ app.post("/api/v1/corbeille/processus/:id/restaurer", corbeilleController.restau
 app.post("/api/v1/corbeille/documents/:id/restaurer", corbeilleController.restaurerDocument);
 app.delete("/api/v1/corbeille/processus/:id", corbeilleController.supprimerDefinitivementProcessus);
 app.delete("/api/v1/corbeille/documents/:id", corbeilleController.supprimerDefinitivementDocument);
+
+// Favoris
+app.get("/api/v1/favoris", favorisController.getFavoris);
+app.post("/api/v1/favoris/processus/:id", favorisController.ajouterProcessusFavori);
+app.delete("/api/v1/favoris/processus/:id", favorisController.retirerProcessusFavori);
+app.post("/api/v1/favoris/documents/:id", favorisController.ajouterDocumentFavori);
+app.delete("/api/v1/favoris/documents/:id", favorisController.retirerDocumentFavori);
+app.get("/api/v1/favoris/processus/:id/check", favorisController.estProcessusFavori);
+app.get("/api/v1/favoris/documents/:id/check", favorisController.estDocumentFavori);
 
 // Gestion des erreurs
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

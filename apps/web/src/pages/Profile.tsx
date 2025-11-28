@@ -23,10 +23,13 @@ export default function Profile() {
     prenom: '',
     email: '',
   });
+  const [favoris, setFavoris] = useState<{ processus: any[]; documents: any[] }>({ processus: [], documents: [] });
+  const [loadingFavoris, setLoadingFavoris] = useState(false);
 
   useEffect(() => {
     if (currentUser?.id) {
       loadUser();
+      loadFavoris();
     }
   }, [currentUser]);
 
@@ -103,6 +106,36 @@ export default function Profile() {
       setError(err.response?.data?.error || 'Erreur lors de la modification');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const loadFavoris = async () => {
+    setLoadingFavoris(true);
+    try {
+      const response = await api.get('/favoris');
+      setFavoris(response.data);
+    } catch (error) {
+      console.error('Erreur chargement favoris:', error);
+    } finally {
+      setLoadingFavoris(false);
+    }
+  };
+
+  const handleRetirerProcessusFavori = async (processusId: string) => {
+    try {
+      await api.delete(`/favoris/processus/${processusId}`);
+      await loadFavoris();
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'Erreur lors de la suppression du favori');
+    }
+  };
+
+  const handleRetirerDocumentFavori = async (documentId: string) => {
+    try {
+      await api.delete(`/favoris/documents/${documentId}`);
+      await loadFavoris();
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'Erreur lors de la suppression du favori');
     }
   };
 
@@ -360,6 +393,96 @@ export default function Profile() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Section Favoris */}
+      <div className="mt-6 bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-bold mb-4">Mes Favoris</h2>
+        
+        {loadingFavoris ? (
+          <div className="text-center py-8 text-gray-500">Chargement des favoris...</div>
+        ) : (
+          <div className="space-y-6">
+            {/* Favoris Processus */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">Processus favoris ({favoris.processus.length})</h3>
+              {favoris.processus.length === 0 ? (
+                <p className="text-sm text-gray-500 italic">Aucun processus en favoris</p>
+              ) : (
+                <div className="space-y-2">
+                  {favoris.processus.map((p: any) => (
+                    <div key={p.id} className="border border-gray-200 rounded p-3 flex items-center justify-between hover:bg-gray-50">
+                      <div className="flex-1">
+                        <button
+                          onClick={() => navigate(`/processus/${p.id}`)}
+                          className="text-left"
+                        >
+                          <p className="font-medium text-sm text-blue-600 hover:underline">{p.nom}</p>
+                          {p.codeProcessus && (
+                            <p className="text-xs text-gray-500">Code: {p.codeProcessus}</p>
+                          )}
+                          {p.statut && (
+                            <p className="text-xs text-gray-500 capitalize">Statut: {p.statut.replace('_', ' ')}</p>
+                          )}
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => handleRetirerProcessusFavori(p.id)}
+                        className="ml-4 px-3 py-1 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
+                        title="Retirer des favoris"
+                      >
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Favoris Documents */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">Documents favoris ({favoris.documents.length})</h3>
+              {favoris.documents.length === 0 ? (
+                <p className="text-sm text-gray-500 italic">Aucun document en favoris</p>
+              ) : (
+                <div className="space-y-2">
+                  {favoris.documents.map((d: any) => (
+                    <div key={d.id} className="border border-gray-200 rounded p-3 flex items-center justify-between hover:bg-gray-50">
+                      <div className="flex-1">
+                        <button
+                          onClick={() => navigate(`/documents`)}
+                          className="text-left"
+                        >
+                          <p className="font-medium text-sm text-blue-600 hover:underline">{d.nom}</p>
+                          {d.version && (
+                            <p className="text-xs text-gray-500">Version: {d.version}</p>
+                          )}
+                          {d.typeDocument && (
+                            <p className="text-xs text-gray-500 capitalize">Type: {d.typeDocument}</p>
+                          )}
+                          {d.processus && (
+                            <p className="text-xs text-gray-500">Processus: {d.processus.nom} ({d.processus.codeProcessus})</p>
+                          )}
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => handleRetirerDocumentFavori(d.id)}
+                        className="ml-4 px-3 py-1 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
+                        title="Retirer des favoris"
+                      >
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

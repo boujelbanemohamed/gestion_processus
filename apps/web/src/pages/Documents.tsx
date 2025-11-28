@@ -41,12 +41,49 @@ export default function Documents() {
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
+  const [favorisDocuments, setFavorisDocuments] = useState<Set<string>>(new Set());
+  const [loadingFavoris, setLoadingFavoris] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     loadDocuments();
     loadProcessus();
     loadUsers();
+    loadFavorisStatus();
   }, []);
+
+  const loadFavorisStatus = async () => {
+    if (!currentUser?.id) return;
+    try {
+      const response = await api.get('/favoris');
+      const favorisIds = new Set(response.data.documents.map((d: any) => d.id));
+      setFavorisDocuments(favorisIds);
+    } catch (error) {
+      console.error('Erreur chargement statut favoris:', error);
+    }
+  };
+
+  const handleToggleDocumentFavori = async (documentId: string) => {
+    if (loadingFavoris[documentId]) return;
+    setLoadingFavoris({ ...loadingFavoris, [documentId]: true });
+    try {
+      const estFavori = favorisDocuments.has(documentId);
+      if (estFavori) {
+        await api.delete(`/favoris/documents/${documentId}`);
+        setFavorisDocuments((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(documentId);
+          return newSet;
+        });
+      } else {
+        await api.post(`/favoris/documents/${documentId}`);
+        setFavorisDocuments((prev) => new Set([...prev, documentId]));
+      }
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'Erreur lors de la modification des favoris');
+    } finally {
+      setLoadingFavoris({ ...loadingFavoris, [documentId]: false });
+    }
+  };
 
   const loadUsers = async () => {
     try {
@@ -631,6 +668,7 @@ export default function Documents() {
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Visualisations</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Téléchargements</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Favoris</th>
               {isAdmin && (
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               )}
@@ -748,6 +786,22 @@ export default function Documents() {
                     </svg>
                     {d.nombreTelechargements || 0}
                   </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  <button
+                    onClick={() => handleToggleDocumentFavori(d.id)}
+                    disabled={loadingFavoris[d.id]}
+                    className={`px-2 py-1 rounded transition-colors ${
+                      favorisDocuments.has(d.id)
+                        ? 'bg-yellow-100 text-yellow-600 hover:bg-yellow-200'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    } disabled:opacity-50`}
+                    title={favorisDocuments.has(d.id) ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                  >
+                    <svg className="w-4 h-4" fill={favorisDocuments.has(d.id) ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                    </svg>
+                  </button>
                 </td>
                 {isAdmin && (
                   <td className="px-6 py-4 whitespace-nowrap text-sm">

@@ -73,6 +73,8 @@ export default function ProcessusDetail() {
   const [newComment, setNewComment] = useState<Record<string, string>>({});
   const [commentAttachments, setCommentAttachments] = useState<Record<string, File | null>>({});
   const [tagsInput, setTagsInput] = useState('');
+  const [estFavori, setEstFavori] = useState(false);
+  const [loadingFavori, setLoadingFavori] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -82,8 +84,37 @@ export default function ProcessusDetail() {
       loadUsers();
       loadCategories();
       loadHistory(1);
+      checkFavori();
     }
-  }, [id]);
+  }, [id, currentUser]);
+
+  const checkFavori = async () => {
+    if (!id || !currentUser?.id) return;
+    try {
+      const response = await api.get(`/favoris/processus/${id}/check`);
+      setEstFavori(response.data.estFavori);
+    } catch (error) {
+      console.error('Erreur vérification favori:', error);
+    }
+  };
+
+  const handleToggleFavori = async () => {
+    if (!id || !currentUser?.id || loadingFavori) return;
+    setLoadingFavori(true);
+    try {
+      if (estFavori) {
+        await api.delete(`/favoris/processus/${id}`);
+        setEstFavori(false);
+      } else {
+        await api.post(`/favoris/processus/${id}`);
+        setEstFavori(true);
+      }
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'Erreur lors de la modification des favoris');
+    } finally {
+      setLoadingFavori(false);
+    }
+  };
 
   useEffect(() => {
     if (processus) {
@@ -761,7 +792,23 @@ export default function ProcessusDetail() {
         >
           ← Retour à la liste
         </button>
-        <h1 className="text-2xl font-bold">{processus.nom}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold">{processus.nom}</h1>
+          <button
+            onClick={handleToggleFavori}
+            disabled={loadingFavori}
+            className={`px-3 py-1 rounded transition-colors ${
+              estFavori
+                ? 'bg-yellow-100 text-yellow-600 hover:bg-yellow-200'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            } disabled:opacity-50`}
+            title={estFavori ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+          >
+            <svg className="w-5 h-5" fill={estFavori ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+            </svg>
+          </button>
+        </div>
         <div className="text-gray-600 mt-2 space-y-1">
           <p>
             Code: {processus.codeProcessus}
