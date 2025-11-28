@@ -17,6 +17,13 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validation basique côté client
+    if (!email || !password) {
+      setError('Veuillez remplir tous les champs');
+      return;
+    }
+
     setError(''); // Effacer les erreurs précédentes au début de la soumission
     setLoading(true);
 
@@ -27,22 +34,37 @@ export default function Login() {
       navigate('/dashboard');
     } catch (err: any) {
       // Afficher le message d'erreur spécifique retourné par l'API
-      console.log('Erreur de connexion complète:', err);
+      console.log('=== ERREUR DE CONNEXION ===');
+      console.log('Erreur complète:', err);
+      console.log('Response:', err.response);
       console.log('Response data:', err.response?.data);
       console.log('Response status:', err.response?.status);
+      console.log('Message:', err.message);
       
       // Extraire le message d'erreur de différentes façons possibles
       let errorMessage = 'Erreur de connexion';
+      
       if (err.response?.data?.error) {
-        errorMessage = err.response.data.error;
-      } else if (err.message) {
-        errorMessage = err.message;
+        errorMessage = String(err.response.data.error);
+      } else if (err.message && err.message !== 'Request failed with status code 401') {
+        errorMessage = String(err.message);
       } else if (err.response?.status === 401) {
         errorMessage = 'Email ou mot de passe incorrect';
       }
       
-      console.log('Message d\'erreur à afficher:', errorMessage);
+      console.log('Message d\'erreur final à afficher:', errorMessage);
+      console.log('=== FIN ERREUR ===');
+      
+      // Forcer l'affichage de l'erreur
       setError(errorMessage);
+      
+      // Forcer un re-render en cas de problème
+      setTimeout(() => {
+        if (!error) {
+          console.log('Erreur non affichée, nouvelle tentative...');
+          setError(errorMessage || 'Erreur de connexion');
+        }
+      }, 100);
     } finally {
       setLoading(false);
     }
