@@ -8,7 +8,7 @@ export class AuthService {
     const user = await prisma.user.findUnique({ where: { email } });
     
     if (!user) {
-      throw new Error('Email ou mot de passe incorrect');
+      throw new Error('EMAIL_INCORRECT');
     }
 
     if (user.statut !== 'actif') {
@@ -17,7 +17,7 @@ export class AuthService {
 
     const isValid = await comparePassword(password, user.passwordHash);
     if (!isValid) {
-      throw new Error('Email ou mot de passe incorrect');
+      throw new Error('MOT_DE_PASSE_INCORRECT');
     }
 
     // Mettre à jour la dernière connexion

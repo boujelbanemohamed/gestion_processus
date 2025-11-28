@@ -19,7 +19,9 @@ export default function Login() {
       await login(email, password);
       navigate('/dashboard');
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Erreur de connexion');
+      // Afficher le message d'erreur spécifique retourné par l'API
+      const errorMessage = err.response?.data?.error || 'Erreur de connexion';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

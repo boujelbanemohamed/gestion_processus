@@ -23,7 +23,14 @@ export const login = async (req: Request, res: Response) => {
 
     res.json(result);
   } catch (error: any) {
-    res.status(401).json({ error: error.message });
+    // Mapper les codes d'erreur en messages spécifiques
+    let errorMessage = error.message;
+    if (error.message === 'EMAIL_INCORRECT') {
+      errorMessage = 'Email incorrect';
+    } else if (error.message === 'MOT_DE_PASSE_INCORRECT') {
+      errorMessage = 'Mot de passe incorrect';
+    }
+    res.status(401).json({ error: errorMessage });
   }
 };
 
