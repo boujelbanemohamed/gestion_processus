@@ -22,8 +22,21 @@ export default function Login() {
       navigate('/dashboard');
     } catch (err: any) {
       // Afficher le message d'erreur spécifique retourné par l'API
-      console.log('Erreur de connexion:', err);
-      const errorMessage = err.response?.data?.error || err.message || 'Erreur de connexion';
+      console.log('Erreur de connexion complète:', err);
+      console.log('Response data:', err.response?.data);
+      console.log('Response status:', err.response?.status);
+      
+      // Extraire le message d'erreur de différentes façons possibles
+      let errorMessage = 'Erreur de connexion';
+      if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      } else if (err.message) {
+        errorMessage = err.message;
+      } else if (err.response?.status === 401) {
+        errorMessage = 'Email ou mot de passe incorrect';
+      }
+      
+      console.log('Message d\'erreur à afficher:', errorMessage);
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -40,12 +53,12 @@ export default function Login() {
           </p>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && (
-            <div className="bg-red-50 border-2 border-red-400 text-red-700 px-4 py-3 rounded-md shadow-sm flex items-center gap-2">
+          {error && error.trim() !== '' && (
+            <div className="bg-red-50 border-2 border-red-400 text-red-700 px-4 py-3 rounded-md shadow-sm flex items-center gap-2 animate-pulse">
               <svg className="w-5 h-5 text-red-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
               </svg>
-              <span className="font-medium">{error}</span>
+              <span className="font-medium text-sm">{error}</span>
             </div>
           )}
           <div>
