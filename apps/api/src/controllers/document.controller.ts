@@ -263,6 +263,13 @@ export const viewDocument = async (req: AuthRequest, res: Response) => {
 
     const filePath = path.join(UPLOAD_DIR, document.fichierUrl);
     
+    // Vérifier que le fichier existe
+    try {
+      await fs.access(filePath);
+    } catch {
+      return res.status(404).json({ error: 'Fichier non trouvé sur le serveur' });
+    }
+    
     // Logger la visualisation (lecture)
     await logAccess(req, res, 'lecture', 'document', document.id, document.nom, {
       version: document.version,
@@ -270,9 +277,18 @@ export const viewDocument = async (req: AuthRequest, res: Response) => {
       typeAction: 'visualisation',
     });
     
-    // Envoyer le fichier pour visualisation (pas de téléchargement)
-    res.sendFile(path.resolve(filePath));
+    // Définir le type MIME correct
+    const mimeType = document.fichierType || 'application/octet-stream';
+    
+    // Définir les headers appropriés pour la visualisation
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(document.fichierNomOriginal)}"`);
+    
+    // Lire et envoyer le fichier
+    const fileBuffer = await fs.readFile(filePath);
+    res.send(fileBuffer);
   } catch (error: any) {
+    console.error('Erreur viewDocument:', error);
     res.status(500).json({ error: error.message });
   }
 };

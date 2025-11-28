@@ -274,7 +274,10 @@ export default function Documents() {
         setExcelData(jsonData);
         setLoadingExcel(false);
       } else {
-        const url = window.URL.createObjectURL(new Blob([response.data]));
+        // Créer un blob avec le type MIME correct pour une meilleure compatibilité
+        const mimeType = doc.fichierType || response.headers['content-type'] || 'application/octet-stream';
+        const blob = new Blob([response.data], { type: mimeType });
+        const url = window.URL.createObjectURL(blob);
         setDocumentUrl(url);
       }
       
@@ -285,8 +288,11 @@ export default function Documents() {
       console.error('Erreur lors du chargement du document:', error);
       if (error.response?.status === 403) {
         alert('Vous n\'avez pas accès à ce document confidentiel');
+      } else if (error.response?.status === 404) {
+        alert('Document non trouvé. Veuillez vérifier que l\'API est à jour.');
+        console.error('Endpoint non trouvé:', error.config?.url);
       } else {
-        alert('Erreur lors du chargement du document');
+        alert(`Erreur lors du chargement du document: ${error.response?.data?.error || error.message}`);
       }
       setLoadingExcel(false);
     }
