@@ -55,7 +55,8 @@ export default function Documents() {
     if (!currentUser?.id) return;
     try {
       const response = await api.get('/favoris');
-      const favorisIds = new Set(response.data.documents.map((d: any) => d.id));
+      const documents = response.data.documents || [];
+      const favorisIds = new Set<string>(documents.map((d: any) => String(d.id)));
       setFavorisDocuments(favorisIds);
     } catch (error) {
       console.error('Erreur chargement statut favoris:', error);
