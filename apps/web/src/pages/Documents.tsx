@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
+import * as XLSX from 'xlsx';
 
 export default function Documents() {
   const navigate = useNavigate();
@@ -15,6 +16,11 @@ export default function Documents() {
   const [commentsModalItems, setCommentsModalItems] = useState<any[]>([]);
   const [viewingDocument, setViewingDocument] = useState<any | null>(null);
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
+  const [excelData, setExcelData] = useState<any[]>([]);
+  const [excelSheetNames, setExcelSheetNames] = useState<string[]>([]);
+  const [currentSheet, setCurrentSheet] = useState<string>('');
+  const [loadingExcel, setLoadingExcel] = useState(false);
+  const [excelWorkbook, setExcelWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [fileNames, setFileNames] = useState<{ [key: string]: string }>({});
@@ -248,8 +254,30 @@ export default function Documents() {
       const response = await api.get(`/documents/${doc.id}/view`, {
         responseType: 'blob',
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      setDocumentUrl(url);
+      
+      const fileType = getFileType(doc.fichierType);
+      
+      // Si c'est un fichier Excel, parser le contenu
+      if (fileType === 'excel') {
+        setLoadingExcel(true);
+        const arrayBuffer = await response.data.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        const sheetNames = workbook.SheetNames;
+        setExcelWorkbook(workbook);
+        setExcelSheetNames(sheetNames);
+        const firstSheetName = sheetNames[0] || '';
+        setCurrentSheet(firstSheetName);
+        
+        // Convertir la première feuille en JSON
+        const firstSheet = workbook.Sheets[firstSheetName];
+        const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+        setExcelData(jsonData);
+        setLoadingExcel(false);
+      } else {
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        setDocumentUrl(url);
+      }
+      
       setViewingDocument(doc);
       // Recharger les documents pour mettre à jour les statistiques
       loadDocuments();
@@ -260,6 +288,7 @@ export default function Documents() {
       } else {
         alert('Erreur lors du chargement du document');
       }
+      setLoadingExcel(false);
     }
   };
 
@@ -306,6 +335,18 @@ export default function Documents() {
     }
     setViewingDocument(null);
     setDocumentUrl(null);
+    setExcelData([]);
+    setExcelSheetNames([]);
+    setCurrentSheet('');
+    setExcelWorkbook(null);
+  };
+
+  const handleSheetChange = (sheetName: string) => {
+    if (!excelWorkbook) return;
+    setCurrentSheet(sheetName);
+    const sheet = excelWorkbook.Sheets[sheetName];
+    const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    setExcelData(jsonData);
   };
 
   const [editingDocument, setEditingDocument] = useState<any | null>(null);
@@ -368,6 +409,10 @@ export default function Documents() {
     if (mimeType?.includes('pdf')) return 'pdf';
     if (mimeType?.includes('image')) return 'image';
     if (mimeType?.includes('text')) return 'text';
+    if (mimeType?.includes('spreadsheet') || mimeType?.includes('excel') || 
+        mimeType?.includes('vnd.ms-excel') || mimeType?.includes('vnd.openxmlformats-officedocument.spreadsheetml')) {
+      return 'excel';
+    }
     return 'other';
   };
 
@@ -875,7 +920,7 @@ export default function Documents() {
       </div>
 
       {/* Modal de visualisation */}
-      {viewingDocument && documentUrl && (
+      {viewingDocument && (documentUrl || getFileType(viewingDocument.fichierType) === 'excel') && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-[90vw] h-[90vh] flex flex-col">
             {/* Header */}
@@ -905,23 +950,70 @@ export default function Documents() {
 
             {/* Content */}
             <div className="flex-1 overflow-hidden p-4">
-              {getFileType(viewingDocument.fichierType) === 'pdf' ? (
+              {getFileType(viewingDocument.fichierType) === 'excel' ? (
+                <div className="h-full flex flex-col">
+                  {excelSheetNames.length > 1 && (
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Feuille de calcul:
+                      </label>
+                      <select
+                        value={currentSheet}
+                        onChange={(e) => handleSheetChange(e.target.value)}
+                        className="border border-gray-300 rounded px-3 py-2"
+                      >
+                        {excelSheetNames.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {loadingExcel ? (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-gray-500">Chargement du fichier Excel...</p>
+                    </div>
+                  ) : (
+                    <div className="flex-1 overflow-auto border border-gray-300 rounded">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {excelData.map((row: any[], rowIndex: number) => (
+                            <tr key={rowIndex}>
+                              {row.map((cell: any, cellIndex: number) => (
+                                <td
+                                  key={cellIndex}
+                                  className={`px-4 py-2 whitespace-nowrap text-sm ${
+                                    rowIndex === 0 ? 'font-semibold bg-gray-50' : ''
+                                  } ${cellIndex === 0 && rowIndex > 0 ? 'bg-gray-50' : ''}`}
+                                >
+                                  {cell !== null && cell !== undefined ? String(cell) : ''}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ) : getFileType(viewingDocument.fichierType) === 'pdf' ? (
                 <iframe
-                  src={documentUrl}
+                  src={documentUrl || undefined}
                   className="w-full h-full border border-gray-300 rounded"
                   title={viewingDocument.nom}
                 />
               ) : getFileType(viewingDocument.fichierType) === 'image' ? (
                 <div className="flex justify-center items-center h-full overflow-auto">
                   <img
-                    src={documentUrl}
+                    src={documentUrl || undefined}
                     alt={viewingDocument.nom}
                     className="max-w-full max-h-full object-contain"
                   />
                 </div>
               ) : getFileType(viewingDocument.fichierType) === 'text' ? (
                 <iframe
-                  src={documentUrl}
+                  src={documentUrl || undefined}
                   className="w-full h-full border border-gray-300 rounded"
                   title={viewingDocument.nom}
                 />
