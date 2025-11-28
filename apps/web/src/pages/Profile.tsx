@@ -178,6 +178,12 @@ export default function Profile() {
     }
   };
 
+  // Debug: afficher l'état des favoris
+  useEffect(() => {
+    console.log('État favoris:', favoris);
+    console.log('Loading favoris:', loadingFavoris);
+  }, [favoris, loadingFavoris]);
+
   if (loading) {
     return (
       <div className="p-6">
@@ -403,8 +409,13 @@ export default function Profile() {
       </div>
 
       {/* Section Favoris - Toujours affichée */}
-      <div className="mt-6 bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-bold mb-4">Mes Favoris</h2>
+      <div className="mt-6 bg-white rounded-lg shadow p-6 border-2 border-blue-200">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold">Mes Favoris</h2>
+          <div className="text-sm text-gray-500">
+            💡 Cliquez sur l'icône ⭐ sur les pages Processus ou Documents pour ajouter des favoris
+          </div>
+        </div>
         
         {loadingFavoris ? (
           <div className="text-center py-8 text-gray-500">Chargement des favoris...</div>
