@@ -12,6 +12,7 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(''); // Effacer les erreurs précédentes au début de la soumission
     setLoading(true);
 
     try {
@@ -24,6 +25,7 @@ export default function Login() {
       console.log('Erreur de connexion:', err);
       const errorMessage = err.response?.data?.error || err.message || 'Erreur de connexion';
       setError(errorMessage);
+    } finally {
       setLoading(false);
     }
   };

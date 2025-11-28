@@ -24,9 +24,14 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
+      // Ne pas rediriger si on est déjà sur la page de login
+      // Cela permet d'afficher les messages d'erreur de connexion
+      const isLoginPage = window.location.pathname === '/login' || window.location.pathname === '/';
+      if (!isLoginPage) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+      }
     }
     // Pour les erreurs 403, on les rejette silencieusement (sans log dans la console)
     // Le message sera géré par les handlers dans les composants
