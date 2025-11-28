@@ -53,19 +53,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 ))}
               </div>
             </div>
-            <div className="flex items-center">
-              <Link
-                to="/profile"
-                className="text-sm text-blue-600 hover:text-blue-800 mr-4 font-medium"
-              >
-                {user?.prenom} {user?.nom} ({user?.role})
-              </Link>
-              <button
-                onClick={handleLogout}
-                className="text-sm text-gray-500 hover:text-gray-700"
-              >
-                Déconnexion
-              </button>
+            <div className="flex items-center gap-4">
+              <div className="flex flex-col items-end">
+                <Link
+                  to="/profile"
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  {user?.prenom} {user?.nom} ({user?.role})
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  className="text-xs text-gray-500 hover:text-gray-700 mt-1"
+                >
+                  Déconnexion
+                </button>
+              </div>
             </div>
           </div>
         </div>
