@@ -12,11 +12,12 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
 
     try {
       await login(email, password);
+      // Effacer l'erreur uniquement si la connexion réussit
+      setError('');
       navigate('/dashboard');
     } catch (err: any) {
       // Afficher le message d'erreur spécifique retourné par l'API
@@ -51,7 +52,11 @@ export default function Login() {
               type="email"
               required
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                // Effacer l'erreur quand l'utilisateur modifie l'email
+                if (error) setError('');
+              }}
               className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               placeholder="votre@email.com"
             />
@@ -65,7 +70,11 @@ export default function Login() {
               type="password"
               required
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                // Effacer l'erreur quand l'utilisateur modifie le mot de passe
+                if (error) setError('');
+              }}
               className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               placeholder="••••••••"
             />
