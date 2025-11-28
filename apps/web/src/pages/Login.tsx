@@ -21,9 +21,9 @@ export default function Login() {
       navigate('/dashboard');
     } catch (err: any) {
       // Afficher le message d'erreur spécifique retourné par l'API
-      const errorMessage = err.response?.data?.error || 'Erreur de connexion';
+      console.log('Erreur de connexion:', err);
+      const errorMessage = err.response?.data?.error || err.message || 'Erreur de connexion';
       setError(errorMessage);
-    } finally {
       setLoading(false);
     }
   };
@@ -39,8 +39,11 @@ export default function Login() {
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-              {error}
+            <div className="bg-red-50 border-2 border-red-400 text-red-700 px-4 py-3 rounded-md shadow-sm flex items-center gap-2">
+              <svg className="w-5 h-5 text-red-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+              <span className="font-medium">{error}</span>
             </div>
           )}
           <div>
@@ -52,11 +55,7 @@ export default function Login() {
               type="email"
               required
               value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                // Effacer l'erreur quand l'utilisateur modifie l'email
-                if (error) setError('');
-              }}
+              onChange={(e) => setEmail(e.target.value)}
               className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               placeholder="votre@email.com"
             />
@@ -70,11 +69,7 @@ export default function Login() {
               type="password"
               required
               value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                // Effacer l'erreur quand l'utilisateur modifie le mot de passe
-                if (error) setError('');
-              }}
+              onChange={(e) => setPassword(e.target.value)}
               className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               placeholder="••••••••"
             />
