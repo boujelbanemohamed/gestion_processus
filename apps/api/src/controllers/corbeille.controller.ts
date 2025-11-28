@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { CorbeilleService } from '../services/corbeille.service';
-import { logAccess } from '../utils/journal';
+import { logAccess } from '../middleware/logger';
 
 const corbeilleService = new CorbeilleService();
 
