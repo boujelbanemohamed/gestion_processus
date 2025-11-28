@@ -112,10 +112,15 @@ export default function Profile() {
   const loadFavoris = async () => {
     setLoadingFavoris(true);
     try {
+      console.log('Chargement des favoris...');
       const response = await api.get('/favoris');
-      setFavoris(response.data);
-    } catch (error) {
+      console.log('Favoris reçus:', response.data);
+      setFavoris(response.data || { processus: [], documents: [] });
+    } catch (error: any) {
       console.error('Erreur chargement favoris:', error);
+      console.error('Détails erreur:', error.response?.data);
+      // Initialiser avec des tableaux vides en cas d'erreur
+      setFavoris({ processus: [], documents: [] });
     } finally {
       setLoadingFavoris(false);
     }
@@ -397,12 +402,19 @@ export default function Profile() {
         )}
       </div>
 
-      {/* Section Favoris */}
+      {/* Section Favoris - Toujours affichée */}
       <div className="mt-6 bg-white rounded-lg shadow p-6">
         <h2 className="text-xl font-bold mb-4">Mes Favoris</h2>
         
         {loadingFavoris ? (
           <div className="text-center py-8 text-gray-500">Chargement des favoris...</div>
+        ) : favoris.processus.length === 0 && favoris.documents.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-gray-500 mb-2">Vous n'avez pas encore de favoris</p>
+            <p className="text-sm text-gray-400">
+              Ajoutez des processus ou documents en favoris depuis leurs pages respectives
+            </p>
+          </div>
         ) : (
           <div className="space-y-6">
             {/* Favoris Processus */}
