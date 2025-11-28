@@ -66,6 +66,9 @@ export class DocumentService {
       }
     }
 
+    // Exclure les documents supprimés (soft delete)
+    where.deletedAt = null;
+
     const documents = await prisma.document.findMany({
       where,
       include: {
@@ -129,8 +132,11 @@ export class DocumentService {
   }
 
   async findOne(id: string) {
-    const document = await prisma.document.findUnique({
-      where: { id },
+    const document = await prisma.document.findFirst({
+      where: { 
+        id,
+        deletedAt: null, // Exclure les documents supprimés
+      },
       include: {
         uploadedBy: true,
         valideBy: true,
@@ -397,18 +403,11 @@ export class DocumentService {
       console.warn(`Fichier non trouvé: ${document.fichierUrl}`);
     }
 
-    // Supprimer les versions
-    const versions = await prisma.versionDocument.findMany({ where: { documentId: id } });
-    for (const version of versions) {
-      try {
-        const versionPath = path.join(UPLOAD_DIR, version.fichierUrl);
-        await fs.unlink(versionPath);
-      } catch (error) {
-        console.warn(`Version non trouvée: ${version.fichierUrl}`);
-      }
-    }
-
-    // Supprimer le document de la base de données
-    return prisma.document.delete({ where: { id } });
+    // Soft delete : marquer comme supprimé au lieu de supprimer réellement
+    // Les fichiers physiques seront supprimés lors d'une suppression définitive depuis la corbeille
+    return prisma.document.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
   }
 }

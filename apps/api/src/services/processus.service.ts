@@ -70,6 +70,9 @@ export class ProcessusService {
       }
     }
 
+    // Exclure les processus supprimés (soft delete)
+    where.deletedAt = null;
+
     const processusList = await prisma.processus.findMany({
       where,
       include: {
@@ -143,8 +146,11 @@ export class ProcessusService {
   }
 
   async findOne(id: string) {
-    return prisma.processus.findUnique({
-      where: { id },
+    return prisma.processus.findFirst({
+      where: { 
+        id,
+        deletedAt: null, // Exclure les processus supprimés
+      },
       include: {
         proprietaire: true,
         entites: {
@@ -402,6 +408,10 @@ export class ProcessusService {
   }
 
   async delete(id: string) {
-    return prisma.processus.delete({ where: { id } });
+    // Soft delete : marquer comme supprimé au lieu de supprimer réellement
+    return prisma.processus.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
   }
 }

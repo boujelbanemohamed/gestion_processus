@@ -24,6 +24,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       { path: '/users', label: 'Utilisateurs' },
       { path: '/journal', label: 'Journal' },
       { path: '/configuration', label: 'Configuration' },
+      { path: '/corbeille', label: 'Corbeille' },
     ] : []),
   ];
 

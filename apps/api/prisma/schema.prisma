@@ -193,6 +193,7 @@ model Processus {
   dateProchaineRevision DateTime?
   createdById            String?
   createdBy              User?             @relation("ProcessusCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedAt              DateTime?         // Soft delete
   createdAt              DateTime          @default(now())
   updatedAt              DateTime          @updatedAt
   
@@ -202,6 +203,7 @@ model Processus {
   
   @@index([statut])
   @@index([codeProcessus])
+  @@index([deletedAt])
 }
 
 model ProcessusCategorie {
@@ -291,6 +293,7 @@ model Document {
   valideBy            User?       @relation("DocumentValidePar", fields: [valideById], references: [id], onDelete: SetNull)
   dateValidation      DateTime?
   tags                Json?
+  deletedAt           DateTime?   // Soft delete
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
   
@@ -302,6 +305,7 @@ model Document {
   @@index([referenceId, referenceType])
   @@index([typeDocument])
   @@index([statut])
+  @@index([deletedAt])
 }
 
 model VersionDocument {

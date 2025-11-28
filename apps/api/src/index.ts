@@ -17,6 +17,7 @@ import * as journalController from "./controllers/journal.controller";
 import * as categorieController from "./controllers/categorie.controller";
 import * as smtpController from "./controllers/smtp.controller";
 import * as projetController from "./controllers/projet.controller";
+import * as corbeilleController from "./controllers/corbeille.controller";
 
 const app = express();
 app.use(helmet());
@@ -140,6 +141,13 @@ app.post("/api/v1/smtp", smtpController.createSMTPConfig);
 app.put("/api/v1/smtp/:id", smtpController.updateSMTPConfig);
 app.delete("/api/v1/smtp/:id", smtpController.deleteSMTPConfig);
 app.post("/api/v1/smtp/:id/test", smtpController.testSMTPConfig);
+
+// Corbeille (accessible uniquement au super admin)
+app.get("/api/v1/corbeille", corbeilleController.getCorbeille);
+app.post("/api/v1/corbeille/processus/:id/restaurer", corbeilleController.restaurerProcessus);
+app.post("/api/v1/corbeille/documents/:id/restaurer", corbeilleController.restaurerDocument);
+app.delete("/api/v1/corbeille/processus/:id", corbeilleController.supprimerDefinitivementProcessus);
+app.delete("/api/v1/corbeille/documents/:id", corbeilleController.supprimerDefinitivementDocument);
 
 // Gestion des erreurs
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

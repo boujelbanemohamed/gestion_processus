@@ -17,6 +17,7 @@ import Profile from './pages/Profile';
 import Journal from './pages/Journal';
 import Configuration from './pages/Configuration';
 import ProjetDetail from './pages/ProjetDetail';
+import Corbeille from './pages/Corbeille';
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
   const { isAuthenticated, loadFromStorage, user } = useAuth();
@@ -172,6 +173,14 @@ function App() {
           element={
             <ProtectedRoute>
               <ProjetDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/corbeille"
+          element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <Corbeille />
             </ProtectedRoute>
           }
         />
