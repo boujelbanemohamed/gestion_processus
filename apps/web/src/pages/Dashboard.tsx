@@ -15,6 +15,8 @@ interface KPIs {
   utilisateursActifs: number;
   entitesTotal: number;
   entitesMembres?: Array<{ id: string; nom: string; code?: string; _count: { membres: number } }>;
+  documentsPlusVisualises?: Array<{ id: string; nom: string; typeDocument: string; uploadedBy: { nom: string; prenom: string }; nombreVisualisations: number }>;
+  documentsPlusTelecharges?: Array<{ id: string; nom: string; typeDocument: string; uploadedBy: { nom: string; prenom: string }; nombreTelechargements: number }>;
 }
 
 export default function Dashboard() {
@@ -152,6 +154,70 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Documents les plus visualisés et téléchargés */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
+        {kpis?.documentsPlusVisualises && kpis.documentsPlusVisualises.length > 0 && (
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h2 className="text-lg font-semibold mb-4">Top 5 documents les plus visualisés</h2>
+            <div className="space-y-2">
+              {kpis.documentsPlusVisualises.map((doc, index) => (
+                <div
+                  key={doc.id}
+                  className="flex items-center justify-between p-3 border border-gray-200 rounded hover:bg-gray-50"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-500">#{index + 1}</span>
+                      <span className="text-sm font-medium text-gray-900">{doc.nom}</span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {doc.uploadedBy?.prenom} {doc.uploadedBy?.nom} • {doc.typeDocument}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 ml-4">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    <span className="text-sm font-bold text-blue-600">{doc.nombreVisualisations}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {kpis?.documentsPlusTelecharges && kpis.documentsPlusTelecharges.length > 0 && (
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h2 className="text-lg font-semibold mb-4">Top 5 documents les plus téléchargés</h2>
+            <div className="space-y-2">
+              {kpis.documentsPlusTelecharges.map((doc, index) => (
+                <div
+                  key={doc.id}
+                  className="flex items-center justify-between p-3 border border-gray-200 rounded hover:bg-gray-50"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-500">#{index + 1}</span>
+                      <span className="text-sm font-medium text-gray-900">{doc.nom}</span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {doc.uploadedBy?.prenom} {doc.uploadedBy?.nom} • {doc.typeDocument}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 ml-4">
+                    <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    <span className="text-sm font-bold text-green-600">{doc.nombreTelechargements}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
