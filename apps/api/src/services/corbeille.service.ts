@@ -123,7 +123,7 @@ export class CorbeilleService {
   async supprimerDefinitivementDocument(id: string) {
     const { promises: fs } = await import('fs');
     const path = await import('path');
-    const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
+    const UPLOAD_DIR = path.default.join(process.cwd(), 'uploads');
 
     // Récupérer le document pour supprimer les fichiers
     const document = await prisma.document.findUnique({
@@ -139,7 +139,7 @@ export class CorbeilleService {
 
     // Supprimer le fichier principal
     try {
-      const filePath = path.join(UPLOAD_DIR, document.fichierUrl);
+      const filePath = path.default.join(UPLOAD_DIR, document.fichierUrl);
       await fs.unlink(filePath);
     } catch (error) {
       console.warn(`Fichier principal non trouvé: ${document.fichierUrl}`);
@@ -148,7 +148,7 @@ export class CorbeilleService {
     // Supprimer les versions
     for (const version of document.versions) {
       try {
-        const versionPath = path.join(UPLOAD_DIR, version.fichierUrl);
+        const versionPath = path.default.join(UPLOAD_DIR, version.fichierUrl);
         await fs.unlink(versionPath);
       } catch (error) {
         console.warn(`Version non trouvée: ${version.fichierUrl}`);
