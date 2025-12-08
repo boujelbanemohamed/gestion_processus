@@ -440,7 +440,7 @@ export default function ProcessusDetail() {
         const mimeType = doc.fichierType || response.headers['content-type'] || 'application/octet-stream';
         const blob = new Blob([response.data], { type: mimeType });
         const url = window.URL.createObjectURL(blob);
-        setDocumentUrl(url);
+      setDocumentUrl(url);
       }
       
       setViewingDocument(doc);
@@ -492,7 +492,7 @@ export default function ProcessusDetail() {
       if (error.response?.status === 403) {
         alert('Vous n\'avez pas accès à ce document confidentiel');
       } else {
-        alert('Erreur lors du téléchargement');
+      alert('Erreur lors du téléchargement');
       }
     }
   };
@@ -549,7 +549,7 @@ export default function ProcessusDetail() {
       if (error.response?.status === 403) {
         alert('Vous n\'avez pas accès à ce document confidentiel');
       } else {
-        alert('Erreur lors du téléchargement de la version');
+      alert('Erreur lors du téléchargement de la version');
       }
     }
   };
@@ -610,7 +610,7 @@ export default function ProcessusDetail() {
     
     // Si le document n'est pas confidentiel, les autres rôles peuvent le modifier
     if (!doc.estConfidentiel) return true;
-
+    
     // L'utilisateur qui a uploadé peut toujours modifier
     if (doc.uploadedById === currentUser.id) return true;
 
@@ -638,7 +638,7 @@ export default function ProcessusDetail() {
     
     // Si le document n'est pas confidentiel, les autres rôles peuvent supprimer/ajouter version
     if (!doc.estConfidentiel) return true;
-
+    
     // L'utilisateur qui a uploadé peut toujours supprimer/ajouter version
     if (doc.uploadedById === currentUser.id) return true;
 
@@ -826,7 +826,7 @@ export default function ProcessusDetail() {
                 Accès refusé
               </h3>
               <p className="text-sm text-yellow-700 whitespace-pre-line">
-                {error}
+          {error}
               </p>
             </div>
           </div>
@@ -846,7 +846,7 @@ export default function ProcessusDetail() {
           ← Retour à la liste
         </button>
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">{processus.nom}</h1>
+        <h1 className="text-2xl font-bold">{processus.nom}</h1>
           <button
             onClick={handleToggleFavori}
             disabled={loadingFavori}
@@ -1443,7 +1443,7 @@ export default function ProcessusDetail() {
                           <span className="text-xs text-gray-500">{new Date(c.createdAt).toLocaleString('fr-FR')}</span>
                         </div>
                         {c.contenu && (
-                          <p className="mt-1 text-gray-700 whitespace-pre-wrap">{c.contenu}</p>
+                        <p className="mt-1 text-gray-700 whitespace-pre-wrap">{c.contenu}</p>
                         )}
                         {c.pieceJointeNom && (
                           <div className="mt-2 flex items-center gap-2">
@@ -1468,13 +1468,13 @@ export default function ProcessusDetail() {
                 {!isLecteur && (
                   <div className="mt-3 space-y-2">
                     <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={newComment[doc.id] || ''}
-                        onChange={(e) => setNewComment({ ...newComment, [doc.id]: e.target.value })}
-                        placeholder="Écrire un commentaire..."
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded"
-                      />
+                  <input
+                    type="text"
+                    value={newComment[doc.id] || ''}
+                    onChange={(e) => setNewComment({ ...newComment, [doc.id]: e.target.value })}
+                    placeholder="Écrire un commentaire..."
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded"
+                  />
                       <label className="px-3 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 cursor-pointer text-sm flex items-center">
                         📎
                         <input
@@ -1486,13 +1486,13 @@ export default function ProcessusDetail() {
                           }}
                         />
                       </label>
-                      <button
-                        onClick={() => handleAddComment(doc.id)}
-                        className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                      >
-                        Publier
-                      </button>
-                    </div>
+                  <button
+                    onClick={() => handleAddComment(doc.id)}
+                    className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Publier
+                  </button>
+                </div>
                     {commentAttachments[doc.id] && (
                       <div className="flex items-center gap-2 text-xs text-gray-600">
                         <span>📎 {commentAttachments[doc.id]?.name}</span>
@@ -1786,6 +1786,479 @@ export default function ProcessusDetail() {
                   />
                 </div>
 
+                <div className="flex justify-end space-x-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowVersionModal(null)}
+                    className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    Ajouter version
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal modification document */}
+      {showEditModal && editingDocument && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto py-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 my-auto">
+            <div className="p-6 max-h-[85vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">Modifier le document</h2>
+                <button
+                  onClick={() => {
+                    setShowEditModal(null);
+                    setEditingDocument(null);
+                    setEditDocumentData({ nom: '', description: '', estConfidentiel: false });
+                    setEditPermissionUserIds([]);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={(e) => { e.preventDefault(); handleSaveDocumentEdit(); }} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nom <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editDocumentData.nom}
+                    onChange={(e) => setEditDocumentData({ ...editDocumentData, nom: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    value={editDocumentData.description}
+                    onChange={(e) => setEditDocumentData({ ...editDocumentData, description: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  />
+                </div>
+
+                <div>
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={editDocumentData.estConfidentiel}
+                      disabled={!canSetConfidentiel}
+                      onChange={(e) => {
+                        setEditDocumentData({ ...editDocumentData, estConfidentiel: e.target.checked });
+                        if (!e.target.checked) {
+                          setEditPermissionUserIds([]);
+                        }
+                      }}
+                      className="mr-2"
+                    />
+                    <span className={`text-sm ${!canSetConfidentiel ? 'text-gray-400' : 'text-gray-700'}`}>
+                      Document confidentiel
+                      {!canSetConfidentiel && ' (Seul le propriétaire ou le créateur du processus peut définir un document comme confidentiel)'}
+                    </span>
+                  </label>
+                </div>
+
+                {editDocumentData.estConfidentiel && canSetConfidentiel && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Utilisateurs autorisés <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      multiple
+                      value={editPermissionUserIds}
+                      onChange={(e) => {
+                        const selected = Array.from(e.target.selectedOptions, option => option.value);
+                        setEditPermissionUserIds(selected);
+                      }}
+                      required={editDocumentData.estConfidentiel}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md min-h-[120px]"
+                      size={5}
+                    >
+                      {usersList.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.prenom} {user.nom} ({user.email})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Sélectionnez un ou plusieurs utilisateurs autorisés à visualiser ce document. Utilisez Ctrl (Cmd sur Mac) pour sélectionner plusieurs utilisateurs.
+                    </p>
+                    {editPermissionUserIds.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {editPermissionUserIds.map((userId) => {
+                          const user = usersList.find(u => u.id === userId);
+                          return user ? (
+                            <span
+                              key={userId}
+                              className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs flex items-center gap-1"
+                            >
+                              {user.prenom} {user.nom}
+                              <button
+                                type="button"
+                                onClick={() => setEditPermissionUserIds(editPermissionUserIds.filter(id => id !== userId))}
+                                className="text-blue-600 hover:text-blue-800"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ) : null;
+                        })}
+                      </div>
+                    )}
+                    {editDocumentData.estConfidentiel && editPermissionUserIds.length === 0 && (
+                      <p className="text-xs text-red-500 mt-1">
+                        Au moins un utilisateur doit être sélectionné pour un document confidentiel
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex justify-end space-x-3 pt-4">
+                  <button
+                    type="button"
+                  onClick={() => {
+                    setShowEditModal(null);
+                    setEditingDocument(null);
+                    setEditDocumentData({ nom: '', description: '', estConfidentiel: false });
+                    setEditPermissionUserIds([]);
+                  }}
+                    className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    Enregistrer
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Historique */}
+      <div className="bg-white rounded-lg shadow mb-6">
+        <div className="p-6">
+          <h2 className="text-lg font-semibold mb-4">Historique des modifications</h2>
+          {history.length === 0 ? (
+            <p className="text-gray-500 text-center py-8">Aucun historique disponible</p>
+          ) : (
+            <div className="space-y-4">
+              {history.map((entry) => {
+                const getActionLabel = (action: string) => {
+                  const labels: { [key: string]: string } = {
+                    creation: 'Création',
+                    modification: 'Modification',
+                    suppression: 'Suppression',
+                    consultation: 'Consultation',
+                    lecture: 'Consultation',
+                    telechargement: 'Téléchargement',
+                  };
+                  return labels[action] || action;
+                };
+
+                const getActionIcon = (action: string) => {
+                  if (action === 'creation') return '➕';
+                  if (action === 'modification') return '✏️';
+                  if (action === 'suppression') return '🗑️';
+                  if (action === 'telechargement') return '⬇️';
+                  if (action === 'consultation' || action === 'lecture') return '👁️';
+                  return '📝';
+                };
+
+                const getActionColor = (action: string) => {
+                  if (action === 'creation') return 'bg-green-100 text-green-800';
+                  if (action === 'modification') return 'bg-blue-100 text-blue-800';
+                  if (action === 'suppression') return 'bg-red-100 text-red-800';
+                  if (action === 'telechargement') return 'bg-purple-100 text-purple-800';
+                  if (action === 'consultation' || action === 'lecture') return 'bg-indigo-100 text-indigo-800';
+                  return 'bg-gray-100 text-gray-800';
+                };
+
+                return (
+                  <div key={entry.id} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className={`text-2xl ${getActionColor(entry.action)} rounded-full w-10 h-10 flex items-center justify-center`}>
+                          {getActionIcon(entry.action)}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`px-2 py-1 text-xs rounded ${getActionColor(entry.action)}`}>
+                              {getActionLabel(entry.action)}
+                            </span>
+                          </div>
+                          {entry.details && typeof entry.details === 'object' && (
+                            <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                              {entry.details.changementStatut && (
+                                <div>Statut: {entry.details.changementStatut}</div>
+                              )}
+                              {entry.details.changementNom && (
+                                <div>Nom: {entry.details.changementNom}</div>
+                              )}
+                              {entry.details.changementProprietaire && (
+                                <div>Propriétaire modifié</div>
+                              )}
+                              {entry.details.changementEntite && (
+                                <div>Entité modifiée</div>
+                              )}
+                              {entry.details.changementCategorie && (
+                                <div>Catégorie modifiée</div>
+                              )}
+                              {entry.details.changementCategories && (
+                                <div>Catégories modifiées</div>
+                              )}
+                              {entry.details.version && (
+                                <div>Version: {entry.details.version}</div>
+                              )}
+                              {entry.details.ancienneVersion && entry.details.nouvelleVersion && (
+                                <div>Version: {entry.details.ancienneVersion} → {entry.details.nouvelleVersion}</div>
+                              )}
+                              {entry.details.commentaire && (
+                                <div className="italic">Commentaire: {entry.details.commentaire}</div>
+                              )}
+                              {entry.details.action === 'nouvelle_version' && (
+                                <div className="text-blue-600">Nouvelle version ajoutée</div>
+                              )}
+                            </div>
+                          )}
+                          <p className="text-sm text-gray-700 mt-2">
+                            {entry.user?.prenom} {entry.user?.nom}
+                            {entry.ressourceNom && (
+                              <span className="text-gray-500"> - {entry.ressourceNom}</span>
+                            )}
+                            {entry.ressourceType === 'document' && (
+                              <span className="text-xs text-gray-400 ml-2">(Document)</span>
+                            )}
+                            {entry.ressourceType === 'processus' && (
+                              <span className="text-xs text-gray-400 ml-2">(Processus)</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {new Date(entry.timestamp).toLocaleString('fr-FR', {
+                              dateStyle: 'short',
+                              timeStyle: 'short',
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          
+          {/* Pagination */}
+          {historyPagination.totalPages > 1 && (
+            <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4">
+              <div className="text-sm text-gray-700">
+                Affichage de {(historyPagination.page - 1) * historyPagination.limit + 1} à{' '}
+                {Math.min(historyPagination.page * historyPagination.limit, historyPagination.total)} sur{' '}
+                {historyPagination.total} entrées
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => loadHistory(historyPagination.page - 1)}
+                  disabled={historyPagination.page === 1}
+                  className={`px-4 py-2 rounded text-sm font-medium ${
+                    historyPagination.page === 1
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  Précédent
+                </button>
+                <div className="flex gap-1">
+                  {Array.from({ length: historyPagination.totalPages }, (_, i) => i + 1)
+                    .filter((pageNum) => {
+                      // Afficher la première page, la dernière page, la page actuelle et les pages adjacentes
+                      return (
+                        pageNum === 1 ||
+                        pageNum === historyPagination.totalPages ||
+                        (pageNum >= historyPagination.page - 1 && pageNum <= historyPagination.page + 1)
+                      );
+                    })
+                    .map((pageNum, index, array) => {
+                      // Ajouter des ellipses si nécessaire
+                      const showEllipsisBefore = index > 0 && pageNum - array[index - 1] > 1;
+                      return (
+                        <div key={pageNum} className="flex items-center gap-1">
+                          {showEllipsisBefore && (
+                            <span className="px-2 text-gray-500">...</span>
+                          )}
+                          <button
+                            onClick={() => loadHistory(pageNum)}
+                            className={`px-3 py-2 rounded text-sm font-medium ${
+                              historyPagination.page === pageNum
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        </div>
+                      );
+                    })}
+                </div>
+                <button
+                  onClick={() => loadHistory(historyPagination.page + 1)}
+                  disabled={historyPagination.page === historyPagination.totalPages}
+                  className={`px-4 py-2 rounded text-sm font-medium ${
+                    historyPagination.page === historyPagination.totalPages
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  Suivant
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Modal de visualisation */}
+      {viewingDocument && (documentUrl || getFileType(viewingDocument.fichierType) === 'excel') && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-[90vw] h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex justify-between items-center p-4 border-b">
+              <div>
+                <h2 className="text-xl font-bold">{viewingDocument.nom}</h2>
+                <p className="text-sm text-gray-500">
+                  Version: {viewingDocument.version || 'N/A'} | 
+                  Taille: {(viewingDocument.fichierTaille / 1024 / 1024).toFixed(2)} MB
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleDownload(viewingDocument)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Télécharger
+                </button>
+                <button
+                  onClick={closeViewer}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                >
+                  Fermer
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-hidden p-4">
+              {getFileType(viewingDocument.fichierType) === 'excel' ? (
+                <div className="h-full flex flex-col">
+                  {excelSheetNames.length > 1 && (
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Feuille de calcul:
+                      </label>
+                      <select
+                        value={currentSheet}
+                        onChange={(e) => handleSheetChange(e.target.value)}
+                        className="border border-gray-300 rounded px-3 py-2"
+                      >
+                        {excelSheetNames.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {loadingExcel ? (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-gray-500">Chargement du fichier Excel...</p>
+                    </div>
+                  ) : (
+                    <div className="flex-1 overflow-auto border border-gray-300 rounded">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {excelData.map((row: any[], rowIndex: number) => (
+                            <tr key={rowIndex}>
+                              {row.map((cell: any, cellIndex: number) => (
+                                <td
+                                  key={cellIndex}
+                                  className={`px-4 py-2 whitespace-nowrap text-sm ${
+                                    rowIndex === 0 ? 'font-semibold bg-gray-50' : ''
+                                  } ${cellIndex === 0 && rowIndex > 0 ? 'bg-gray-50' : ''}`}
+                                >
+                                  {cell !== null && cell !== undefined ? String(cell) : ''}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ) : getFileType(viewingDocument.fichierType) === 'pdf' ? (
+                <embed
+                  src={documentUrl || undefined}
+                  type="application/pdf"
+                  className="w-full h-full border border-gray-300 rounded"
+                  title={viewingDocument.nom}
+                />
+              ) : getFileType(viewingDocument.fichierType) === 'image' ? (
+                <div className="flex justify-center items-center h-full overflow-auto">
+                  <img
+                    src={documentUrl || undefined}
+                    alt={viewingDocument.nom}
+                    className="max-w-full max-h-full object-contain"
+                    loading="lazy"
+                    crossOrigin="anonymous"
+                  />
+                </div>
+              ) : getFileType(viewingDocument.fichierType) === 'text' ? (
+                <embed
+                  src={documentUrl || undefined}
+                  type="text/plain"
+                  className="w-full h-full border border-gray-300 rounded"
+                  title={viewingDocument.nom}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full">
+                  <p className="text-gray-500 mb-4">
+                    Aperçu non disponible pour ce type de fichier ({viewingDocument.fichierType})
+                  </p>
+                  <button
+                    onClick={() => handleDownload(viewingDocument)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Télécharger pour visualiser
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
                 <div className="flex justify-end space-x-3 pt-4">
                   <button
                     type="button"

@@ -586,3 +586,157 @@ export default function Profile() {
   );
 }
 
+          <div className="space-y-6">
+            {/* Favoris Processus */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">Processus favoris ({favoris.processus.length})</h3>
+              {favoris.processus.length === 0 ? (
+                <p className="text-sm text-gray-500 italic">Aucun processus en favoris</p>
+              ) : (
+                <div className="space-y-2">
+                  {favoris.processus.map((p: any) => (
+                    <div key={p.id} className="border border-gray-200 rounded p-3 flex items-center justify-between hover:bg-gray-50">
+                      <div className="flex-1">
+                        <button
+                          onClick={() => navigate(`/processus/${p.id}`)}
+                          className="text-left"
+                        >
+                          <p className="font-medium text-sm text-blue-600 hover:underline">{p.nom}</p>
+                          {p.codeProcessus && (
+                            <p className="text-xs text-gray-500">Code: {p.codeProcessus}</p>
+                          )}
+                          {p.statut && (
+                            <p className="text-xs text-gray-500 capitalize">Statut: {p.statut.replace('_', ' ')}</p>
+                          )}
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => handleRetirerProcessusFavori(p.id)}
+                        className="ml-4 px-3 py-1 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
+                        title="Retirer des favoris"
+                      >
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Favoris Documents */}
+            <div>
+              <h3 className="text-lg font-semibold mb-3">Documents favoris ({favoris.documents.length})</h3>
+              {favoris.documents.length === 0 ? (
+                <p className="text-sm text-gray-500 italic">Aucun document en favoris</p>
+              ) : (
+                <div className="space-y-2">
+                  {favoris.documents.map((d: any) => (
+                    <div key={d.id} className="border border-gray-200 rounded p-3 flex items-center justify-between hover:bg-gray-50">
+                      <div className="flex-1">
+                        <button
+                          onClick={() => navigate(`/documents`)}
+                          className="text-left"
+                        >
+                          <p className="font-medium text-sm text-blue-600 hover:underline">{d.nom}</p>
+                          {d.version && (
+                            <p className="text-xs text-gray-500">Version: {d.version}</p>
+                          )}
+                          {d.typeDocument && (
+                            <p className="text-xs text-gray-500 capitalize">Type: {d.typeDocument}</p>
+                          )}
+                          {d.processus && (
+                            <p className="text-xs text-gray-500">Processus: {d.processus.nom} ({d.processus.codeProcessus})</p>
+                          )}
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => handleRetirerDocumentFavori(d.id)}
+                        className="ml-4 px-3 py-1 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
+                        title="Retirer des favoris"
+                      >
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Modal de modification du mot de passe */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <h2 className="text-xl font-bold mb-4">Modifier mon mot de passe</h2>
+              
+              {passwordError && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                  {passwordError}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nouveau mot de passe <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={passwordData.password}
+                    onChange={(e) => setPasswordData({ ...passwordData, password: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder="Au moins 6 caractères"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Confirmer le mot de passe <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={passwordData.confirmPassword}
+                    onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder="Confirmer le mot de passe"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 mt-6 pt-4 border-t">
+                <button
+                  onClick={() => {
+                    setShowPasswordModal(false);
+                    setPasswordData({ password: '', confirmPassword: '' });
+                    setPasswordError('');
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleChangePassword}
+                  disabled={changingPassword}
+                  className="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 disabled:opacity-50"
+                >
+                  {changingPassword ? 'Modification...' : 'Modifier'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+

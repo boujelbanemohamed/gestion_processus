@@ -191,3 +191,20 @@ function App() {
 }
 
 export default App;
+          }
+        />
+        <Route
+          path="/corbeille"
+          element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <Corbeille />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+export default App;

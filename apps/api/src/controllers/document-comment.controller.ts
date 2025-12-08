@@ -48,7 +48,6 @@ export const addComment = async (req: AuthRequest, res: Response) => {
     res.status(400).json({ error: error.message });
   }
 };
-
 export const downloadAttachment = async (req: AuthRequest, res: Response) => {
   try {
     const { commentId } = req.params;
@@ -59,5 +58,25 @@ export const downloadAttachment = async (req: AuthRequest, res: Response) => {
     res.send(attachment.buffer);
   } catch (error: any) {
     res.status(404).json({ error: error.message });
+  }
+};
+
+  try {
+    if (!req.user?.userId || !req.user?.role) return res.status(401).json({ error: 'Non authentifié' });
+    
+    // Les lecteurs ne peuvent pas ajouter de commentaires
+    if (req.user.role === 'lecteur') {
+      return res.status(403).json({ error: 'Les lecteurs ne peuvent pas ajouter de commentaires' });
+    }
+    
+    const { id } = req.params; // documentId
+    const { contenu } = req.body;
+    const file = req.file;
+
+    const comment = await service.add(id, req.user.userId, contenu, file);
+    await logAccess(req, res, 'modification', 'document', id, 'Ajout commentaire');
+    res.status(201).json(comment);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
   }
 };

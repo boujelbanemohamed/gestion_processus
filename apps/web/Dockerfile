@@ -74,3 +74,42 @@ EXPOSE 80
 # Commande par défaut
 CMD ["nginx", "-g", "daemon off;"]
 
+ARG VITE_API_URL=http://172.17.5.198:4000/api/v1
+ENV VITE_API_URL=$VITE_API_URL
+
+# Afficher la variable d'environnement
+RUN echo "=== Variables d'environnement ===" && \
+    echo "VITE_API_URL=$VITE_API_URL"
+
+# Build de l'application avec logs détaillés
+RUN echo "=== Début du build ===" && \
+    npm run build 2>&1 | tee /tmp/build.log && \
+    echo "=== Vérification du résultat du build ===" && \
+    if [ ! -d "dist" ]; then \
+      echo "=== ERREUR: Le dossier dist n'existe pas ===" && \
+      echo "=== Log complet ===" && \
+      cat /tmp/build.log && \
+      echo "=== Fin du log ===" && \
+      exit 1; \
+    fi && \
+    echo "=== Build réussi ===" && \
+    echo "=== Contenu du dossier dist ===" && \
+    ls -la dist/ && \
+    echo "=== Taille du dossier dist ===" && \
+    du -sh dist/
+
+# Image de production avec Nginx
+FROM nginx:alpine
+
+# Copier les fichiers buildés
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Copier la configuration Nginx personnalisée (optionnel)
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Exposer le port 80
+EXPOSE 80
+
+# Commande par défaut
+CMD ["nginx", "-g", "daemon off;"]
+

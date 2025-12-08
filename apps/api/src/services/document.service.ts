@@ -411,3 +411,84 @@ export class DocumentService {
     });
   }
 }
+
+    statut?: DocStatut;
+    estConfidentiel?: boolean;
+    tags?: any;
+    valideById?: string;
+    permissionUserIds?: string[];
+  }) {
+    const { permissionUserIds, ...updateData } = data;
+    
+    if (data.statut === 'valide' && data.valideById) {
+      updateData.dateValidation = new Date();
+    }
+
+    const document = await prisma.document.update({
+      where: { id },
+      data: updateData,
+      include: {
+        uploadedBy: { select: { id: true, nom: true, prenom: true } },
+      },
+    });
+
+    // Gérer les permissions si le document est confidentiel
+    if (data.estConfidentiel !== undefined) {
+      // Supprimer toutes les permissions existantes
+      await prisma.documentPermission.deleteMany({
+        where: { documentId: id },
+      });
+
+      // Créer les nouvelles permissions si le document est confidentiel
+      if (data.estConfidentiel && permissionUserIds && permissionUserIds.length > 0) {
+        await prisma.documentPermission.createMany({
+          data: permissionUserIds.map(userId => ({
+            documentId: id,
+            userId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    } else if (permissionUserIds !== undefined) {
+      // Si on met à jour seulement les permissions sans changer estConfidentiel
+      // Supprimer toutes les permissions existantes
+      await prisma.documentPermission.deleteMany({
+        where: { documentId: id },
+      });
+
+      // Créer les nouvelles permissions
+      if (permissionUserIds.length > 0) {
+        await prisma.documentPermission.createMany({
+          data: permissionUserIds.map(userId => ({
+            documentId: id,
+            userId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    }
+
+    return document;
+  }
+
+  async delete(id: string) {
+    const document = await prisma.document.findUnique({ where: { id } });
+    if (!document) throw new Error('Document non trouvé');
+
+    // Supprimer le fichier physique
+    try {
+      const filePath = path.join(UPLOAD_DIR, document.fichierUrl);
+      await fs.unlink(filePath);
+    } catch (error) {
+      // Ignorer si le fichier n'existe pas
+      console.warn(`Fichier non trouvé: ${document.fichierUrl}`);
+    }
+
+    // Soft delete : marquer comme supprimé au lieu de supprimer réellement
+    // Les fichiers physiques seront supprimés lors d'une suppression définitive depuis la corbeille
+    return prisma.document.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+  }
+}

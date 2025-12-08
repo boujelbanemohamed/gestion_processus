@@ -73,3 +73,33 @@ EXPOSE 4000
 # Commande par défaut
 CMD ["npm", "start"]
 
+     echo "=== Log complet ===" && \
+     cat /tmp/build.log && \
+     echo "=== Fin du log ===" && \
+     exit 1) && \
+    echo "=== Compilation réussie ===" && \
+    ls -la dist/ 2>/dev/null || echo "Dossier dist non trouvé"
+
+# Image de production
+FROM node:20-alpine AS production
+
+WORKDIR /app
+
+# Installer uniquement les dépendances de production
+COPY package*.json ./
+COPY prisma ./prisma
+RUN npm ci --only=production
+
+# Copier les fichiers compilés depuis le builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src/generated ./src/generated
+
+# Créer le dossier pour les uploads
+RUN mkdir -p /app/uploads
+
+# Exposer le port
+EXPOSE 4000
+
+# Commande par défaut
+CMD ["npm", "start"]
+

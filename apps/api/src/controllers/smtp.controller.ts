@@ -30,9 +30,11 @@ export const createSMTPConfig = async (req: AuthRequest, res: Response) => {
   try {
     // Log de débogage
     console.log('[SMTP CREATE] req.user:', req.user ? { userId: req.user.userId, email: req.user.email, role: req.user.role } : 'undefined');
+    console.log('[SMTP CREATE] Authorization header:', req.headers.authorization ? 'présent' : 'absent');
     
     if (!req.user?.userId) {
       console.error('[SMTP CREATE] Erreur: req.user ou req.user.userId est undefined');
+      console.error('[SMTP CREATE] req.user complet:', JSON.stringify(req.user, null, 2));
       return res.status(401).json({ error: 'Non authentifié' });
     }
 
@@ -49,9 +51,11 @@ export const updateSMTPConfig = async (req: AuthRequest, res: Response) => {
   try {
     // Log de débogage
     console.log('[SMTP UPDATE] req.user:', req.user ? { userId: req.user.userId, email: req.user.email, role: req.user.role } : 'undefined');
+    console.log('[SMTP UPDATE] Authorization header:', req.headers.authorization ? 'présent' : 'absent');
     
     if (!req.user?.userId) {
       console.error('[SMTP UPDATE] Erreur: req.user ou req.user.userId est undefined');
+      console.error('[SMTP UPDATE] req.user complet:', JSON.stringify(req.user, null, 2));
       return res.status(401).json({ error: 'Non authentifié' });
     }
 
@@ -84,4 +88,3 @@ export const testSMTPConfig = async (req: AuthRequest, res: Response) => {
     res.status(400).json({ error: error.message });
   }
 };
-

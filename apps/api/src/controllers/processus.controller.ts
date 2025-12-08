@@ -294,3 +294,88 @@ export const getProcessusHistory = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ error: error.message });
   }
 };
+  } catch (error: any) {
+    if (error.code === 'P2025') {
+      return res.status(404).json({ error: 'Processus non trouvé' });
+    }
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const getProcessusHistory = async (req: AuthRequest, res: Response) => {
+  try {
+    // Récupérer les paramètres de pagination
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    // Récupérer les IDs des documents liés à ce processus
+    const documents = await prisma.document.findMany({
+      where: {
+        referenceType: 'processus',
+        referenceId: req.params.id,
+      },
+      select: { id: true },
+    });
+    const documentIds = documents.map(d => d.id);
+
+    // Compter le total d'entrées
+    const total = await prisma.journalAcces.count({
+      where: {
+        OR: [
+          {
+            ressourceType: 'processus',
+            ressourceId: req.params.id,
+          },
+          {
+            ressourceType: 'document',
+            ressourceId: { in: documentIds },
+          },
+        ],
+      },
+    });
+
+    // Récupérer l'historique du processus et de ses documents avec pagination
+    const history = await prisma.journalAcces.findMany({
+      where: {
+        OR: [
+          {
+            ressourceType: 'processus',
+            ressourceId: req.params.id,
+          },
+          {
+            ressourceType: 'document',
+            ressourceId: { in: documentIds },
+          },
+        ],
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            nom: true,
+            prenom: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: {
+        timestamp: 'desc',
+      },
+      skip,
+      take: limit,
+    });
+
+    res.json({
+      data: history,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};

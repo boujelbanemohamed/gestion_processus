@@ -1422,3 +1422,572 @@ export default function Documents() {
     </div>
   );
 }
+                    <span className="text-xs font-medium hidden sm:inline">
+                      {favorisDocuments.has(d.id) ? 'Retirer' : 'Ajouter'}
+                    </span>
+                  </button>
+                </td>
+                {isAdmin && (
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleEdit(d)}
+                        className="px-3 py-1 text-xs bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200"
+                        title="Modifier le document"
+                      >
+                        Modifier
+                      </button>
+                      <button
+                        onClick={() => handleDelete(d)}
+                        className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                        title="Supprimer le document"
+                      >
+                        Supprimer
+                      </button>
+                    </div>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {documents.length === 0 && (
+          <div className="text-center py-8 text-gray-500">Aucun document</div>
+        )}
+        {documents.length > pageSize && (
+          <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4">
+            <div className="text-sm text-gray-700">
+              Affichage {startIdx + 1}-{Math.min(startIdx + pageSize, documents.length)} sur {documents.length}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className={`px-4 py-2 rounded text-sm font-medium ${page === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+              >
+                Précédent
+              </button>
+              <div className="flex gap-1">
+                {getPageNumbers().map((p, idx) => (
+                  typeof p === 'string' ? (
+                    <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">{p}</span>
+                  ) : (
+                    <button
+                      key={p as number}
+                      onClick={() => setPage(p as number)}
+                      className={`px-3 py-2 rounded text-sm font-medium ${page === p ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                    >
+                      {p}
+                    </button>
+                  )
+                ))}
+              </div>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className={`px-4 py-2 rounded text-sm font-medium ${page === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+              >
+                Suivant
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Modal de visualisation */}
+      {viewingDocument && (documentUrl || getFileType(viewingDocument.fichierType) === 'excel') && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-[90vw] h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex justify-between items-center p-4 border-b">
+              <div>
+                <h2 className="text-xl font-bold">{viewingDocument.nom}</h2>
+                <p className="text-sm text-gray-500">
+                  Version: {viewingDocument.version || 'N/A'} | 
+                  Taille: {(viewingDocument.fichierTaille / 1024 / 1024).toFixed(2)} MB
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleDownload(viewingDocument)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Télécharger
+                </button>
+                <button
+                  onClick={closeViewer}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                >
+                  Fermer
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-hidden p-4">
+              {getFileType(viewingDocument.fichierType) === 'excel' ? (
+                <div className="h-full flex flex-col">
+                  {excelSheetNames.length > 1 && (
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Feuille de calcul:
+                      </label>
+                      <select
+                        value={currentSheet}
+                        onChange={(e) => handleSheetChange(e.target.value)}
+                        className="border border-gray-300 rounded px-3 py-2"
+                      >
+                        {excelSheetNames.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {loadingExcel ? (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-gray-500">Chargement du fichier Excel...</p>
+                    </div>
+                  ) : (
+                    <div className="flex-1 overflow-auto border border-gray-300 rounded">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {excelData.map((row: any[], rowIndex: number) => (
+                            <tr key={rowIndex}>
+                              {row.map((cell: any, cellIndex: number) => (
+                                <td
+                                  key={cellIndex}
+                                  className={`px-4 py-2 whitespace-nowrap text-sm ${
+                                    rowIndex === 0 ? 'font-semibold bg-gray-50' : ''
+                                  } ${cellIndex === 0 && rowIndex > 0 ? 'bg-gray-50' : ''}`}
+                                >
+                                  {cell !== null && cell !== undefined ? String(cell) : ''}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ) : getFileType(viewingDocument.fichierType) === 'pdf' ? (
+                <iframe
+                  src={documentUrl || undefined}
+                  className="w-full h-full border border-gray-300 rounded"
+                  title={viewingDocument.nom}
+                />
+              ) : getFileType(viewingDocument.fichierType) === 'image' ? (
+                <div className="flex justify-center items-center h-full overflow-auto">
+                  <img
+                    src={documentUrl || undefined}
+                    alt={viewingDocument.nom}
+                    className="max-w-full max-h-full object-contain"
+                  />
+                </div>
+              ) : getFileType(viewingDocument.fichierType) === 'text' ? (
+                <iframe
+                  src={documentUrl || undefined}
+                  className="w-full h-full border border-gray-300 rounded"
+                  title={viewingDocument.nom}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full">
+                  <p className="text-gray-500 mb-4">
+                    Aperçu non disponible pour ce type de fichier ({viewingDocument.fichierType})
+                  </p>
+                  <button
+                    onClick={() => handleDownload(viewingDocument)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Télécharger pour visualiser
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal commentaires */}
+      {showCommentsModalFor && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4">
+            <div className="p-6 max-h-[80vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">Commentaires — {showCommentsModalFor.nom}</h2>
+                <button
+                  onClick={() => { setShowCommentsModalFor(null); setCommentsModalItems([]); }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {commentsModalItems.length === 0 ? (
+                <div className="text-sm text-gray-500">Aucun commentaire</div>
+              ) : (
+                <div className="space-y-2">
+                  {commentsModalItems.map((c) => (
+                    <div key={c.id} className="text-sm bg-gray-50 border border-gray-200 rounded p-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{c.user?.prenom} {c.user?.nom}</span>
+                        <span className="text-xs text-gray-500">{new Date(c.createdAt).toLocaleString('fr-FR')}</span>
+                      </div>
+                      <p className="mt-1 text-gray-700 whitespace-pre-wrap">{c.contenu}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal d'upload */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto py-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 my-auto">
+            <div className="p-6 max-h-[85vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">Nouveau document</h2>
+                <button
+                    onClick={() => {
+                      setShowUploadModal(false);
+                      setError('');
+                      setFiles([]);
+                      setFileNames({});
+                      setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '' });
+                      setPermissionUserIds([]);
+                    }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {error && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded">
+                  {error}
+                </div>
+              )}
+
+              <form onSubmit={handleUpload} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Fichier(s) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="file"
+                    multiple
+                    onChange={handleFileChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  {files.length > 0 && (
+                    <div className="mt-2 space-y-2">
+                      {files.map((file) => (
+                        <div key={file.name} className="flex items-center justify-between bg-gray-50 p-2 rounded">
+                          <div className="flex-1">
+                            <input
+                              type="text"
+                              value={fileNames[file.name] || file.name}
+                              onChange={(e) => setFileNames({ ...fileNames, [file.name]: e.target.value })}
+                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                              placeholder="Nom du document"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeFile(file.name)}
+                            className="ml-2 text-red-600 hover:text-red-800"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    value={uploadData.description}
+                    onChange={(e) => setUploadData({ ...uploadData, description: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Description du document"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Processus (optionnel)
+                  </label>
+                  <select
+                    value={uploadData.processusId}
+                    onChange={(e) => setUploadData({ ...uploadData, processusId: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Aucun processus</option>
+                    {processusList.map((processus) => (
+                      <option key={processus.id} value={processus.id}>
+                        {processus.nom} ({processus.codeProcessus})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Version majeure
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={uploadData.versionMajeure}
+                      onChange={(e) => setUploadData({ ...uploadData, versionMajeure: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Version mineure
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={uploadData.versionMineure}
+                      onChange={(e) => setUploadData({ ...uploadData, versionMineure: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Version patch
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={uploadData.versionPatch}
+                      onChange={(e) => setUploadData({ ...uploadData, versionPatch: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={uploadData.estConfidentiel}
+                      onChange={(e) => {
+                        setUploadData({ ...uploadData, estConfidentiel: e.target.checked });
+                        if (!e.target.checked) {
+                          setPermissionUserIds([]);
+                        }
+                      }}
+                      className="mr-2"
+                    />
+                    <span className="text-sm text-gray-700">Document confidentiel</span>
+                  </label>
+                  {uploadData.estConfidentiel && (
+                    <div className="mt-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Utilisateurs autorisés <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        multiple
+                        value={permissionUserIds}
+                        onChange={(e) => {
+                          const selected = Array.from(e.target.selectedOptions, option => option.value);
+                          setPermissionUserIds(selected);
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        size={5}
+                      >
+                        {usersList.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.prenom} {user.nom} ({user.email})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Maintenez Ctrl (ou Cmd sur Mac) pour sélectionner plusieurs utilisateurs
+                      </p>
+                      {uploadData.estConfidentiel && permissionUserIds.length === 0 && (
+                        <p className="mt-1 text-xs text-red-500">
+                          Au moins un utilisateur doit être sélectionné pour un document confidentiel
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end space-x-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowUploadModal(false);
+                      setError('');
+                      setFiles([]);
+                      setFileNames({});
+                      setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '' });
+                      setPermissionUserIds([]);
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={uploading || files.length === 0 || (uploadData.estConfidentiel && permissionUserIds.length === 0)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {uploading ? 'Upload en cours...' : 'Uploader'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de modification */}
+      {editingDocument && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto py-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 my-auto">
+            <div className="p-6 max-h-[85vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">Modifier le document</h2>
+                <button
+                  onClick={() => {
+                    setEditingDocument(null);
+                    setEditData({ nom: '', description: '', statut: 'brouillon', estConfidentiel: false, permissionUserIds: [] });
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={(e) => { e.preventDefault(); handleSaveEdit(); }} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nom <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={editData.nom}
+                    onChange={(e) => setEditData({ ...editData, nom: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    value={editData.description}
+                    onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Statut
+                  </label>
+                  <select
+                    value={editData.statut}
+                    onChange={(e) => setEditData({ ...editData, statut: e.target.value as any })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="brouillon">Brouillon</option>
+                    <option value="en_revision">En révision</option>
+                    <option value="valide">Validé</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={editData.estConfidentiel}
+                      onChange={(e) => {
+                        setEditData({ ...editData, estConfidentiel: e.target.checked });
+                        if (!e.target.checked) {
+                          setEditData({ ...editData, estConfidentiel: false, permissionUserIds: [] });
+                        }
+                      }}
+                      className="mr-2"
+                    />
+                    <span className="text-sm text-gray-700">Document confidentiel</span>
+                  </label>
+                  {editData.estConfidentiel && (
+                    <div className="mt-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Utilisateurs autorisés <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        multiple
+                        value={editData.permissionUserIds}
+                        onChange={(e) => {
+                          const selected = Array.from(e.target.selectedOptions, option => option.value);
+                          setEditData({ ...editData, permissionUserIds: selected });
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        size={5}
+                      >
+                        {usersList.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.prenom} {user.nom} ({user.email})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Maintenez Ctrl (ou Cmd sur Mac) pour sélectionner plusieurs utilisateurs
+                      </p>
+                      {editData.estConfidentiel && editData.permissionUserIds.length === 0 && (
+                        <p className="mt-1 text-xs text-red-500">
+                          Au moins un utilisateur doit être sélectionné pour un document confidentiel
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end space-x-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingDocument(null);
+                      setEditData({ nom: '', description: '', statut: 'brouillon', estConfidentiel: false, permissionUserIds: [] });
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={editData.estConfidentiel && editData.permissionUserIds.length === 0}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Enregistrer
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
