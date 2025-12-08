@@ -42,6 +42,7 @@ api.interceptors.response.use(
 
     // Si l'erreur est 401 et qu'on n'a pas déjà tenté de rafraîchir
     if (error.response?.status === 401 && !originalRequest._retry) {
+      console.log('[Token Refresh] Erreur 401 détectée, tentative de rafraîchissement...');
       // Ne pas rediriger si on est déjà sur la page de login
       const isLoginPage = window.location.pathname === '/login' || window.location.pathname === '/';
       if (isLoginPage) {
@@ -66,8 +67,10 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       const refreshToken = localStorage.getItem('refreshToken');
+      console.log('[Token Refresh] RefreshToken présent:', !!refreshToken);
       if (!refreshToken) {
         // Pas de refresh token, déconnexion
+        console.log('[Token Refresh] Aucun refreshToken trouvé, déconnexion...');
         localStorage.removeItem('token');
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('user');
@@ -79,7 +82,11 @@ api.interceptors.response.use(
 
       try {
         // Essayer de rafraîchir le token (utiliser axios directement pour éviter la boucle)
-        const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
+        console.log('[Token Refresh] Tentative de rafraîchissement du token...');
+        const refreshUrl = `${API_BASE_URL}/auth/refresh`;
+        console.log('[Token Refresh] URL:', refreshUrl);
+        
+        const response = await axios.post(refreshUrl, {
           refreshToken,
         }, {
           headers: {
@@ -87,18 +94,32 @@ api.interceptors.response.use(
           },
         });
 
+        console.log('[Token Refresh] Réponse reçue:', response.status);
         const { token: newToken } = response.data;
+        
+        if (!newToken) {
+          throw new Error('Nouveau token non reçu');
+        }
+        
         localStorage.setItem('token', newToken);
         api.defaults.headers.common.Authorization = `Bearer ${newToken}`;
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
 
+        console.log('[Token Refresh] Token rafraîchi avec succès');
         processQueue(null, newToken);
         isRefreshing = false;
 
         // Réessayer la requête originale avec le nouveau token
         return api(originalRequest);
-      } catch (refreshError) {
+      } catch (refreshError: any) {
         // Le rafraîchissement a échoué, déconnexion
+        console.error('[Token Refresh] Erreur lors du rafraîchissement:', refreshError);
+        console.error('[Token Refresh] Détails:', {
+          message: refreshError.message,
+          response: refreshError.response?.data,
+          status: refreshError.response?.status,
+          url: refreshError.config?.url,
+        });
         processQueue(refreshError, null);
         isRefreshing = false;
         localStorage.removeItem('token');
