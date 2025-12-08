@@ -28,11 +28,11 @@ export const getSMTPConfig = async (req: AuthRequest, res: Response) => {
 
 export const createSMTPConfig = async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user?.id) {
+    if (!req.user?.userId) {
       return res.status(401).json({ error: 'Non authentifié' });
     }
 
-    const config = await smtpService.create(req.body, req.user.id);
+    const config = await smtpService.create(req.body, req.user.userId);
     await logAccess(req, res, 'creation', 'utilisateur', config.id, 'Configuration SMTP');
     res.status(201).json(config);
   } catch (error: any) {
@@ -42,11 +42,11 @@ export const createSMTPConfig = async (req: AuthRequest, res: Response) => {
 
 export const updateSMTPConfig = async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user?.id) {
+    if (!req.user?.userId) {
       return res.status(401).json({ error: 'Non authentifié' });
     }
 
-    const config = await smtpService.update(req.params.id, req.body, req.user.id);
+    const config = await smtpService.update(req.params.id, req.body, req.user.userId);
     await logAccess(req, res, 'modification', 'utilisateur', config.id, 'Configuration SMTP');
     res.json(config);
   } catch (error: any) {
