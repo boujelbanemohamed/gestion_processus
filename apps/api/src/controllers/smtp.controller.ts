@@ -28,7 +28,12 @@ export const getSMTPConfig = async (req: AuthRequest, res: Response) => {
 
 export const createSMTPConfig = async (req: AuthRequest, res: Response) => {
   try {
+    console.log('[SMTP Controller] createSMTPConfig appelé');
+    console.log('[SMTP Controller] req.user:', req.user ? { id: req.user.id, email: req.user.email, role: req.user.role } : 'undefined');
+    console.log('[SMTP Controller] req.body:', req.body);
+    
     if (!req.user?.id) {
+      console.error('[SMTP Controller] ERREUR: req.user.id est undefined');
       return res.status(401).json({ error: 'Non authentifié' });
     }
 
@@ -36,6 +41,7 @@ export const createSMTPConfig = async (req: AuthRequest, res: Response) => {
     await logAccess(req, res, 'creation', 'utilisateur', config.id, 'Configuration SMTP');
     res.status(201).json(config);
   } catch (error: any) {
+    console.error('[SMTP Controller] Erreur dans createSMTPConfig:', error);
     res.status(400).json({ error: error.message });
   }
 };

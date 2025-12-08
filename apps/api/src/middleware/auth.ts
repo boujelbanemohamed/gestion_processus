@@ -34,9 +34,12 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
     }
 
     try {
+      console.log('[AUTH] Vérification du token, longueur:', token.length);
+      console.log('[AUTH] Token (first 50 chars):', token.substring(0, 50));
       const payload = verifyAccessToken(token);
       req.user = payload;
       console.log('[AUTH] Token valide pour utilisateur:', payload.email, 'role:', payload.role);
+      console.log('[AUTH] Passage au prochain middleware/route');
       next();
     } catch (verifyError) {
       // Log détaillé côté serveur pour diagnostiquer (invalid signature, jwt expired, etc.)
@@ -45,6 +48,8 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
       console.error('[AUTH] Token (first 50 chars):', token.substring(0, 50));
       console.error('[AUTH] Token (last 50 chars):', token.substring(Math.max(0, token.length - 50)));
       console.error('[AUTH] Token length:', token.length);
+      console.error('[AUTH] URL de la requête:', req.url);
+      console.error('[AUTH] Méthode:', req.method);
       return res.status(401).json({ error: 'Token invalide ou expiré', reason });
     }
   } catch (error) {
