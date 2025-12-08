@@ -47,7 +47,8 @@ api.interceptors.response.use(
     const originalRequest = error.config;
 
     // Si l'erreur est 401 et qu'on n'a pas déjà tenté de rafraîchir
-    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+    // ET qu'on n'a pas explicitement demandé de ne pas rafraîchir
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !originalRequest._skipRefresh) {
       // Protection contre les boucles infinies
       if (refreshAttempts >= MAX_REFRESH_ATTEMPTS) {
         console.error('[Token Refresh] Trop de tentatives de rafraîchissement (' + refreshAttempts + '), déconnexion...');
@@ -96,7 +97,10 @@ api.interceptors.response.use(
       // Marquer la requête comme retry pour éviter les boucles infinies
       originalRequest._retry = true;
       isRefreshing = true;
+      
+      // Incrémenter AVANT le rafraîchissement pour compter correctement
       refreshAttempts++;
+      console.log('[Token Refresh] Compteur de tentatives:', refreshAttempts);
 
       const refreshToken = localStorage.getItem('refreshToken');
       console.log('[Token Refresh] RefreshToken présent:', !!refreshToken);
@@ -163,22 +167,28 @@ api.interceptors.response.use(
         console.log('[Token Refresh] Réessai de la requête originale:', originalRequest.url);
         console.log('[Token Refresh] Méthode:', originalRequest.method);
         
-        // Créer une nouvelle configuration pour éviter les problèmes de référence
-        // L'intercepteur de requête utilisera automatiquement le nouveau token depuis localStorage
-        const retryConfig = {
-          ...originalRequest,
+        // Créer une NOUVELLE configuration complètement indépendante
+        // Ne PAS utiliser spread car cela peut copier des références
+        const retryConfig: any = {
+          method: originalRequest.method,
+          url: originalRequest.url,
+          baseURL: originalRequest.baseURL,
+          params: originalRequest.params,
+          data: originalRequest.data,
           headers: {
             ...originalRequest.headers,
+            Authorization: `Bearer ${newToken}`, // Forcer le nouveau token
           },
         };
         
-        // Supprimer le flag _retry pour permettre un nouveau rafraîchissement si nécessaire
-        // MAIS seulement si ce n'est pas déjà la deuxième tentative
-        if (refreshAttempts < MAX_REFRESH_ATTEMPTS) {
-          delete retryConfig._retry;
-        }
+        // IMPORTANT: Garder _retry pour éviter une nouvelle boucle
+        // Si cette requête échoue encore, on ne veut PAS rafraîchir à nouveau
+        retryConfig._retry = true;
+        retryConfig._skipRefresh = true; // Flag supplémentaire pour éviter le rafraîchissement
         
-        // L'intercepteur de requête ajoutera automatiquement le nouveau token depuis localStorage
+        console.log('[Token Refresh] Configuration de retry créée avec nouveau token');
+        
+        // L'intercepteur de requête ajoutera aussi le token depuis localStorage
         return api(retryConfig);
       } catch (refreshError: any) {
         // Le rafraîchissement a échoué, déconnexion
