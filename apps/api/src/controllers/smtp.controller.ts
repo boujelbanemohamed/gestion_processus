@@ -28,7 +28,11 @@ export const getSMTPConfig = async (req: AuthRequest, res: Response) => {
 
 export const createSMTPConfig = async (req: AuthRequest, res: Response) => {
   try {
+    // Log de débogage
+    console.log('[SMTP CREATE] req.user:', req.user ? { userId: req.user.userId, email: req.user.email, role: req.user.role } : 'undefined');
+    
     if (!req.user?.userId) {
+      console.error('[SMTP CREATE] Erreur: req.user ou req.user.userId est undefined');
       return res.status(401).json({ error: 'Non authentifié' });
     }
 
@@ -36,13 +40,18 @@ export const createSMTPConfig = async (req: AuthRequest, res: Response) => {
     await logAccess(req, res, 'creation', 'utilisateur', config.id, 'Configuration SMTP');
     res.status(201).json(config);
   } catch (error: any) {
+    console.error('[SMTP CREATE] Erreur:', error);
     res.status(400).json({ error: error.message });
   }
 };
 
 export const updateSMTPConfig = async (req: AuthRequest, res: Response) => {
   try {
+    // Log de débogage
+    console.log('[SMTP UPDATE] req.user:', req.user ? { userId: req.user.userId, email: req.user.email, role: req.user.role } : 'undefined');
+    
     if (!req.user?.userId) {
+      console.error('[SMTP UPDATE] Erreur: req.user ou req.user.userId est undefined');
       return res.status(401).json({ error: 'Non authentifié' });
     }
 
@@ -50,6 +59,7 @@ export const updateSMTPConfig = async (req: AuthRequest, res: Response) => {
     await logAccess(req, res, 'modification', 'utilisateur', config.id, 'Configuration SMTP');
     res.json(config);
   } catch (error: any) {
+    console.error('[SMTP UPDATE] Erreur:', error);
     res.status(400).json({ error: error.message });
   }
 };
