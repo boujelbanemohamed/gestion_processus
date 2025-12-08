@@ -62,7 +62,8 @@ RUN npm ci --only=production
 
 # Copier les fichiers compilés depuis le builder
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/src/generated ./src/generated
+# Générer Prisma dans l'image de production (plus fiable que copier)
+RUN npx prisma generate
 
 # Créer le dossier pour les uploads
 RUN mkdir -p /app/uploads
