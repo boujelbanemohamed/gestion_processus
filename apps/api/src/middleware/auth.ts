@@ -33,14 +33,21 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
       return res.status(401).json({ error: 'Token manquant', reason: 'no authorization header or token param' });
     }
 
-    const payload = verifyAccessToken(token);
-    req.user = payload;
-    next();
+    try {
+      const payload = verifyAccessToken(token);
+      req.user = payload;
+      next();
+    } catch (verifyError) {
+      // Log détaillé côté serveur pour diagnostiquer (invalid signature, jwt expired, etc.)
+      const reason = (verifyError as any)?.message || 'invalid token';
+      console.error('[AUTH] JWT verification error:', reason);
+      console.error('[AUTH] Token (first 50 chars):', token.substring(0, 50));
+      return res.status(401).json({ error: 'Token invalide ou expiré', reason });
+    }
   } catch (error) {
-    // Log détaillé côté serveur pour diagnostiquer (invalid signature, jwt expired, etc.)
-    // En dev, on renvoie aussi la raison pour faciliter le debug côté client
+    // Erreur générale (pas de token, etc.)
     const reason = (error as any)?.message || 'invalid token';
-    console.error('[AUTH] JWT error:', reason);
+    console.error('[AUTH] General error:', reason);
     return res.status(401).json({ error: 'Token invalide ou expiré', reason });
   }
 };
