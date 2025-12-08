@@ -78,9 +78,13 @@ api.interceptors.response.use(
       }
 
       try {
-        // Essayer de rafraîchir le token
+        // Essayer de rafraîchir le token (utiliser axios directement pour éviter la boucle)
         const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
           refreshToken,
+        }, {
+          headers: {
+            'Content-Type': 'application/json',
+          },
         });
 
         const { token: newToken } = response.data;
