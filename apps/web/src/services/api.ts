@@ -41,11 +41,15 @@ api.interceptors.response.use(
     const originalRequest = error.config;
 
     // Si l'erreur est 401 et qu'on n'a pas déjà tenté de rafraîchir
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (error.response?.status === 401 && !originalRequest._retry && originalRequest) {
       console.log('[Token Refresh] Erreur 401 détectée, tentative de rafraîchissement...');
+      console.log('[Token Refresh] URL de la requête originale:', originalRequest.url);
+      console.log('[Token Refresh] Méthode:', originalRequest.method);
+      
       // Ne pas rediriger si on est déjà sur la page de login
       const isLoginPage = window.location.pathname === '/login' || window.location.pathname === '/';
       if (isLoginPage) {
+        console.log('[Token Refresh] Sur la page de login, pas de rafraîchissement');
         return Promise.reject(error);
       }
 
@@ -95,21 +99,25 @@ api.interceptors.response.use(
         });
 
         console.log('[Token Refresh] Réponse reçue:', response.status);
+        console.log('[Token Refresh] Données de réponse:', response.data);
         const { token: newToken } = response.data;
         
         if (!newToken) {
+          console.error('[Token Refresh] ERREUR: Nouveau token non reçu dans la réponse');
           throw new Error('Nouveau token non reçu');
         }
         
+        console.log('[Token Refresh] Nouveau token reçu, longueur:', newToken.length);
         localStorage.setItem('token', newToken);
         api.defaults.headers.common.Authorization = `Bearer ${newToken}`;
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
 
-        console.log('[Token Refresh] Token rafraîchi avec succès');
+        console.log('[Token Refresh] Token rafraîchi avec succès, nouvelle requête en cours...');
         processQueue(null, newToken);
         isRefreshing = false;
 
         // Réessayer la requête originale avec le nouveau token
+        console.log('[Token Refresh] Réessai de la requête originale:', originalRequest.url);
         return api(originalRequest);
       } catch (refreshError: any) {
         // Le rafraîchissement a échoué, déconnexion
@@ -136,6 +144,12 @@ api.interceptors.response.use(
       // On retourne l'erreur mais sans que axios la logge automatiquement
       return Promise.reject(error);
     }
+    
+    // Log pour les autres erreurs (sauf 401 déjà géré)
+    if (error.response?.status !== 401) {
+      console.log('[API] Erreur non-401:', error.response?.status, error.config?.url);
+    }
+    
     return Promise.reject(error);
   }
 );
