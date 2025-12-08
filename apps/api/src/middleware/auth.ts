@@ -35,6 +35,16 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
 
     const payload = verifyAccessToken(token);
     req.user = payload;
+    // Log pour les requêtes SMTP
+    if (req.path.includes('/smtp')) {
+      console.log('[AUTH] Requête SMTP authentifiée:', {
+        path: req.path,
+        method: req.method,
+        userId: payload.userId,
+        email: payload.email,
+        role: payload.role
+      });
+    }
     next();
   } catch (error) {
     // Log détaillé côté serveur pour diagnostiquer (invalid signature, jwt expired, etc.)
