@@ -18,7 +18,11 @@ RUN echo "=== Contenu package.json ===" && \
 # Installer les dépendances avec logs détaillés
 RUN echo "=== Installation des dépendances ===" && \
     npm ci --verbose 2>&1 | tee /tmp/npm-install.log || \
-    (echo "=== ERREUR INSTALLATION ===" && cat /tmp/npm-install.log && exit 1)
+    (echo "=== ERREUR INSTALLATION ===" && cat /tmp/npm-install.log && exit 1) && \
+    echo "=== Vérification de TypeScript ===" && \
+    npx tsc --version && \
+    echo "=== Vérification de Vite ===" && \
+    npx vite --version
 
 # Copier le reste du code
 COPY . .
