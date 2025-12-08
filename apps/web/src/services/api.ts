@@ -22,6 +22,8 @@ api.interceptors.request.use((config) => {
 // Variable pour éviter les boucles infinies de rafraîchissement
 let isRefreshing = false;
 let failedQueue: Array<{ resolve: (value?: any) => void; reject: (reason?: any) => void }> = [];
+let refreshAttempts = 0;
+const MAX_REFRESH_ATTEMPTS = 2;
 
 const processQueue = (error: any, token: string | null = null) => {
   failedQueue.forEach((prom) => {
@@ -41,10 +43,22 @@ api.interceptors.response.use(
     const originalRequest = error.config;
 
     // Si l'erreur est 401 et qu'on n'a pas déjà tenté de rafraîchir
-    if (error.response?.status === 401 && !originalRequest._retry && originalRequest) {
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+      // Protection contre les boucles infinies
+      if (refreshAttempts >= MAX_REFRESH_ATTEMPTS) {
+        console.error('[Token Refresh] Trop de tentatives de rafraîchissement, déconnexion...');
+        refreshAttempts = 0;
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+        return Promise.reject(error);
+      }
+      
       console.log('[Token Refresh] Erreur 401 détectée, tentative de rafraîchissement...');
       console.log('[Token Refresh] URL de la requête originale:', originalRequest.url);
       console.log('[Token Refresh] Méthode:', originalRequest.method);
+      console.log('[Token Refresh] Tentative:', refreshAttempts + 1, '/', MAX_REFRESH_ATTEMPTS);
       
       // Ne pas rediriger si on est déjà sur la page de login
       const isLoginPage = window.location.pathname === '/login' || window.location.pathname === '/';
@@ -61,10 +75,11 @@ api.interceptors.response.use(
         })
           .then((token) => {
             if (!originalRequest.headers) {
-              originalRequest.headers = {};
+              originalRequest.headers = {} as any;
             }
             originalRequest.headers.Authorization = `Bearer ${token}`;
-            delete originalRequest._retry;
+            api.defaults.headers.common.Authorization = `Bearer ${token}`;
+            // Ne pas supprimer _retry ici car on veut éviter les boucles
             return api(originalRequest);
           })
           .catch((err) => {
@@ -73,10 +88,9 @@ api.interceptors.response.use(
       }
 
       // Marquer la requête comme retry pour éviter les boucles infinies
-      if (!originalRequest._retry) {
-        originalRequest._retry = true;
-      }
+      originalRequest._retry = true;
       isRefreshing = true;
+      refreshAttempts++;
 
       const refreshToken = localStorage.getItem('refreshToken');
       console.log('[Token Refresh] RefreshToken présent:', !!refreshToken);
@@ -118,28 +132,42 @@ api.interceptors.response.use(
         console.log('[Token Refresh] Nouveau token reçu, longueur:', newToken.length);
         localStorage.setItem('token', newToken);
         
-        // Mettre à jour les headers de manière explicite
+        // Mettre à jour les headers par défaut d'axios AVANT de modifier la requête
+        api.defaults.headers.common.Authorization = `Bearer ${newToken}`;
+        
+        // Mettre à jour les headers de la requête originale de manière explicite
         if (!originalRequest.headers) {
-          originalRequest.headers = {};
+          originalRequest.headers = {} as any;
         }
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
-        
-        // Mettre à jour aussi les headers par défaut d'axios
-        api.defaults.headers.common.Authorization = `Bearer ${newToken}`;
 
-        console.log('[Token Refresh] Token rafraîchi avec succès, nouvelle requête en cours...');
+        console.log('[Token Refresh] Token rafraîchi avec succès');
         console.log('[Token Refresh] Header Authorization de la requête:', originalRequest.headers.Authorization?.substring(0, 50) + '...');
+        
+        // Traiter la queue AVANT de réessayer
         processQueue(null, newToken);
         isRefreshing = false;
+        
+        // Réinitialiser le compteur de tentatives après un rafraîchissement réussi
+        refreshAttempts = 0;
 
         // Réessayer la requête originale avec le nouveau token
         console.log('[Token Refresh] Réessai de la requête originale:', originalRequest.url);
         console.log('[Token Refresh] Méthode:', originalRequest.method);
         
-        // S'assurer que la requête n'a pas déjà été marquée comme retry pour éviter les boucles
-        delete originalRequest._retry;
+        // Créer une nouvelle configuration pour éviter les problèmes de référence
+        const retryConfig = {
+          ...originalRequest,
+          headers: {
+            ...originalRequest.headers,
+            Authorization: `Bearer ${newToken}`,
+          },
+        };
         
-        return api(originalRequest);
+        // Ne pas marquer comme retry pour permettre un nouveau rafraîchissement si nécessaire
+        delete retryConfig._retry;
+        
+        return api(retryConfig);
       } catch (refreshError: any) {
         // Le rafraîchissement a échoué, déconnexion
         console.error('[Token Refresh] Erreur lors du rafraîchissement:', refreshError);
@@ -151,6 +179,7 @@ api.interceptors.response.use(
         });
         processQueue(refreshError, null);
         isRefreshing = false;
+        refreshAttempts = 0; // Réinitialiser le compteur
         localStorage.removeItem('token');
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('user');
