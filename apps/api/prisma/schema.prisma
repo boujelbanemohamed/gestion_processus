@@ -424,3 +424,29 @@ model PasswordResetToken {
   @@index([expiresAt])
 }
 
+model FavorisProcessus {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  processusId String
+  processus   Processus @relation(fields: [processusId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, processusId])
+  @@index([userId])
+  @@index([processusId])
+}
+
+model FavorisDocument {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, documentId])
+  @@index([userId])
+  @@index([documentId])
+}
+
