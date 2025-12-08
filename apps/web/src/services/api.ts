@@ -12,9 +12,13 @@ export const api = axios.create({
 
 // Intercepteur pour ajouter le token
 api.interceptors.request.use((config) => {
+  // Toujours récupérer le token depuis localStorage pour avoir la dernière version
   const token = localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  } else if (config.headers.Authorization) {
+    // Si pas de token dans localStorage mais qu'il y en a un dans les headers, le garder
+    // (cas du rafraîchissement en cours)
   }
   return config;
 });
@@ -46,13 +50,34 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       // Protection contre les boucles infinies
       if (refreshAttempts >= MAX_REFRESH_ATTEMPTS) {
-        console.error('[Token Refresh] Trop de tentatives de rafraîchissement, déconnexion...');
+        console.error('[Token Refresh] Trop de tentatives de rafraîchissement (' + refreshAttempts + '), déconnexion...');
         refreshAttempts = 0;
+        isRefreshing = false;
         localStorage.removeItem('token');
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('user');
         window.location.href = '/login';
         return Promise.reject(error);
+      }
+      
+      // Vérifier si on est déjà en train de rafraîchir (double protection)
+      if (isRefreshing) {
+        console.log('[Token Refresh] Déjà en cours de rafraîchissement, mise en queue...');
+        // Ne pas incrémenter refreshAttempts ici car c'est déjà géré
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then((token) => {
+            if (!originalRequest.headers) {
+              originalRequest.headers = {} as any;
+            }
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+            api.defaults.headers.common.Authorization = `Bearer ${token}`;
+            return api(originalRequest);
+          })
+          .catch((err) => {
+            return Promise.reject(err);
+          });
       }
       
       console.log('[Token Refresh] Erreur 401 détectée, tentative de rafraîchissement...');
@@ -67,25 +92,6 @@ api.interceptors.response.use(
         return Promise.reject(error);
       }
 
-      // Si on est déjà en train de rafraîchir, mettre la requête en queue
-      if (isRefreshing) {
-        console.log('[Token Refresh] Rafraîchissement déjà en cours, mise en queue...');
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        })
-          .then((token) => {
-            if (!originalRequest.headers) {
-              originalRequest.headers = {} as any;
-            }
-            originalRequest.headers.Authorization = `Bearer ${token}`;
-            api.defaults.headers.common.Authorization = `Bearer ${token}`;
-            // Ne pas supprimer _retry ici car on veut éviter les boucles
-            return api(originalRequest);
-          })
-          .catch((err) => {
-            return Promise.reject(err);
-          });
-      }
 
       // Marquer la requête comme retry pour éviter les boucles infinies
       originalRequest._retry = true;
@@ -130,19 +136,21 @@ api.interceptors.response.use(
         }
         
         console.log('[Token Refresh] Nouveau token reçu, longueur:', newToken.length);
+        
+        // Sauvegarder le nouveau token dans localStorage AVANT tout
         localStorage.setItem('token', newToken);
         
-        // Mettre à jour les headers par défaut d'axios AVANT de modifier la requête
-        api.defaults.headers.common.Authorization = `Bearer ${newToken}`;
-        
-        // Mettre à jour les headers de la requête originale de manière explicite
-        if (!originalRequest.headers) {
-          originalRequest.headers = {} as any;
+        // Vérifier que le token est bien sauvegardé
+        const savedToken = localStorage.getItem('token');
+        if (savedToken !== newToken) {
+          console.error('[Token Refresh] ERREUR: Le token n\'a pas été correctement sauvegardé dans localStorage');
+          throw new Error('Échec de la sauvegarde du token');
         }
-        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        
+        // Mettre à jour les headers par défaut d'axios
+        api.defaults.headers.common.Authorization = `Bearer ${newToken}`;
 
-        console.log('[Token Refresh] Token rafraîchi avec succès');
-        console.log('[Token Refresh] Header Authorization de la requête:', originalRequest.headers.Authorization?.substring(0, 50) + '...');
+        console.log('[Token Refresh] Token rafraîchi et sauvegardé avec succès');
         
         // Traiter la queue AVANT de réessayer
         processQueue(null, newToken);
@@ -156,17 +164,21 @@ api.interceptors.response.use(
         console.log('[Token Refresh] Méthode:', originalRequest.method);
         
         // Créer une nouvelle configuration pour éviter les problèmes de référence
+        // L'intercepteur de requête utilisera automatiquement le nouveau token depuis localStorage
         const retryConfig = {
           ...originalRequest,
           headers: {
             ...originalRequest.headers,
-            Authorization: `Bearer ${newToken}`,
           },
         };
         
-        // Ne pas marquer comme retry pour permettre un nouveau rafraîchissement si nécessaire
-        delete retryConfig._retry;
+        // Supprimer le flag _retry pour permettre un nouveau rafraîchissement si nécessaire
+        // MAIS seulement si ce n'est pas déjà la deuxième tentative
+        if (refreshAttempts < MAX_REFRESH_ATTEMPTS) {
+          delete retryConfig._retry;
+        }
         
+        // L'intercepteur de requête ajoutera automatiquement le nouveau token depuis localStorage
         return api(retryConfig);
       } catch (refreshError: any) {
         // Le rafraîchissement a échoué, déconnexion
