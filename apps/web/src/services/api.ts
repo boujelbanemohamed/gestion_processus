@@ -12,13 +12,19 @@ export const api = axios.create({
 
 // Intercepteur pour ajouter le token
 api.interceptors.request.use((config) => {
-  // Toujours récupérer le token depuis localStorage pour avoir la dernière version
+  // Si le header Authorization est déjà défini (cas du retry après rafraîchissement), le garder
+  if (config.headers.Authorization && config.headers.Authorization.startsWith('Bearer ')) {
+    console.log('[Request Interceptor] Token déjà présent dans headers, conservation');
+    return config;
+  }
+  
+  // Sinon, récupérer le token depuis localStorage
   const token = localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
-  } else if (config.headers.Authorization) {
-    // Si pas de token dans localStorage mais qu'il y en a un dans les headers, le garder
-    // (cas du rafraîchissement en cours)
+    console.log('[Request Interceptor] Token ajouté depuis localStorage');
+  } else {
+    console.warn('[Request Interceptor] Aucun token trouvé dans localStorage');
   }
   return config;
 });
@@ -172,12 +178,12 @@ api.interceptors.response.use(
         const retryConfig: any = {
           method: originalRequest.method,
           url: originalRequest.url,
-          baseURL: originalRequest.baseURL,
+          baseURL: originalRequest.baseURL || API_BASE_URL,
           params: originalRequest.params,
           data: originalRequest.data,
           headers: {
-            ...originalRequest.headers,
-            Authorization: `Bearer ${newToken}`, // Forcer le nouveau token
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${newToken}`, // Forcer le nouveau token explicitement
           },
         };
         
@@ -187,8 +193,16 @@ api.interceptors.response.use(
         retryConfig._skipRefresh = true; // Flag supplémentaire pour éviter le rafraîchissement
         
         console.log('[Token Refresh] Configuration de retry créée avec nouveau token');
+        console.log('[Token Refresh] Token utilisé (premiers 50 chars):', newToken.substring(0, 50) + '...');
+        console.log('[Token Refresh] Header Authorization:', retryConfig.headers.Authorization.substring(0, 50) + '...');
+        
+        // Vérifier que le token dans localStorage correspond
+        const tokenInStorage = localStorage.getItem('token');
+        console.log('[Token Refresh] Token dans localStorage (premiers 50 chars):', tokenInStorage?.substring(0, 50) + '...');
+        console.log('[Token Refresh] Tokens correspondent:', tokenInStorage === newToken);
         
         // L'intercepteur de requête ajoutera aussi le token depuis localStorage
+        // Mais on force déjà le token dans les headers pour être sûr
         return api(retryConfig);
       } catch (refreshError: any) {
         // Le rafraîchissement a échoué, déconnexion

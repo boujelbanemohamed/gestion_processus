@@ -36,12 +36,15 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
     try {
       const payload = verifyAccessToken(token);
       req.user = payload;
+      console.log('[AUTH] Token valide pour utilisateur:', payload.email, 'role:', payload.role);
       next();
     } catch (verifyError) {
       // Log détaillé côté serveur pour diagnostiquer (invalid signature, jwt expired, etc.)
       const reason = (verifyError as any)?.message || 'invalid token';
       console.error('[AUTH] JWT verification error:', reason);
       console.error('[AUTH] Token (first 50 chars):', token.substring(0, 50));
+      console.error('[AUTH] Token (last 50 chars):', token.substring(Math.max(0, token.length - 50)));
+      console.error('[AUTH] Token length:', token.length);
       return res.status(401).json({ error: 'Token invalide ou expiré', reason });
     }
   } catch (error) {
