@@ -81,7 +81,6 @@ export default function Journal() {
     
     return details.length > 0 ? details.join(' • ') : '-';
   };
-  };
 
   if (loading) return <div className="p-6">Chargement...</div>;
 
