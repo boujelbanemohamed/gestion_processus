@@ -56,6 +56,9 @@ export default function Journal() {
   const formatDetails = (log: any) => {
     const details: string[] = [];
     
+  const formatDetails = (log: any) => {
+    const details: string[] = [];
+    
     // Ajouter le chemin si disponible
     if (log.details?.path) {
       details.push(`${log.details.method || 'GET'} ${log.details.path}`);
@@ -69,16 +72,18 @@ export default function Journal() {
     
     // Pour les autres actions avec nom de ressource
     if (log.ressourceNom && log.action !== 'connexion') {
-      const actionText = {
+      const actionText: Record<string, string> = {
         lecture: 'Consultation',
         creation: 'Création',
         modification: 'Modification',
         suppression: 'Suppression'
-      }[log.action] || log.action;
-      details.push(`${actionText} de "${log.ressourceNom}"`);
+      };
+      const actionLabel = actionText[log.action] || log.action;
+      details.push(`${actionLabel} de "${log.ressourceNom}"`);
     }
     
     return details.length > 0 ? details.join(' • ') : '-';
+  };
   };
 
   if (loading) return <div className="p-6">Chargement...</div>;
