@@ -24,7 +24,6 @@ export default function Journal() {
   useEffect(() => {
     loadLogs();
     setPage(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.search, filters.action, filters.ressourceType, filters.userId, filters.dateFrom, filters.dateTo]);
 
   const loadLogs = async () => {
@@ -52,6 +51,34 @@ export default function Journal() {
     } catch (error) {
       // silencieux
     }
+  };
+
+  const formatDetails = (log: any) => {
+    const details: string[] = [];
+    
+    // Ajouter le chemin si disponible
+    if (log.details?.path) {
+      details.push(`${log.details.method || 'GET'} ${log.details.path}`);
+    }
+    
+    // Pour les connexions, afficher l'IP
+    if (log.action === 'connexion' && log.ipAddress) {
+      const ip = log.ipAddress.replace('::ffff:', '');
+      details.push(`IP: ${ip}`);
+    }
+    
+    // Pour les autres actions avec nom de ressource
+    if (log.ressourceNom && log.action !== 'connexion') {
+      const actionText = {
+        lecture: 'Consultation',
+        creation: 'Création',
+        modification: 'Modification',
+        suppression: 'Suppression'
+      }[log.action] || log.action;
+      details.push(`${actionText} de "${log.ressourceNom}"`);
+    }
+    
+    return details.length > 0 ? details.join(' • ') : '-';
   };
 
   if (loading) return <div className="p-6">Chargement...</div>;
@@ -100,152 +127,232 @@ export default function Journal() {
               value={filters.search}
               onChange={(e) => setFilters({ ...filters, search: e.target.value })}
               placeholder="Nom ressource, détails"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full border rounded px-3 py-2 text-sm"
             />
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Action</label>
             <select
               value={filters.action}
               onChange={(e) => setFilters({ ...filters, action: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full border rounded px-3 py-2 text-sm"
             >
               <option value="">Toutes</option>
               <option value="lecture">Lecture</option>
               <option value="creation">Création</option>
               <option value="modification">Modification</option>
               <option value="suppression">Suppression</option>
-              <option value="telechargement">Téléchargement</option>
-              <option value="export">Export</option>
               <option value="connexion">Connexion</option>
-              <option value="deconnexion">Déconnexion</option>
             </select>
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Ressource</label>
             <select
               value={filters.ressourceType}
               onChange={(e) => setFilters({ ...filters, ressourceType: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full border rounded px-3 py-2 text-sm"
             >
               <option value="">Toutes</option>
               <option value="processus">Processus</option>
               <option value="document">Document</option>
-              <option value="entite">Entité</option>
+              <option value="projet">Projet</option>
               <option value="utilisateur">Utilisateur</option>
+              <option value="entite">Entité</option>
             </select>
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Utilisateur</label>
             <select
               value={filters.userId}
               onChange={(e) => setFilters({ ...filters, userId: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full border rounded px-3 py-2 text-sm"
             >
               <option value="">Tous</option>
               {users.map((u) => (
-                <option key={u.id} value={u.id}>{u.prenom} {u.nom}</option>
+                <option key={u.id} value={u.id}>
+                  {u.nom} {u.prenom}
+                </option>
               ))}
             </select>
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Du</label>
             <input
               type="date"
               value={filters.dateFrom}
               onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full border rounded px-3 py-2 text-sm"
             />
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Au</label>
             <input
               type="date"
               value={filters.dateTo}
               onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full border rounded px-3 py-2 text-sm"
             />
           </div>
         </div>
+
         <div className="flex justify-end mt-4">
           <button
-            type="button"
-            onClick={() => setFilters({ search: '', action: '', ressourceType: '', userId: '', dateFrom: '', dateTo: '' })}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+            onClick={() => {
+              setFilters({
+                search: '',
+                action: '',
+                ressourceType: '',
+                userId: '',
+                dateFrom: '',
+                dateTo: '',
+              });
+            }}
+            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
           >
             Réinitialiser
           </button>
         </div>
       </div>
+
+      {/* Tableau */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Utilisateur</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ressource</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {pagedLogs.map((log) => (
-              <tr key={log.id}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  {new Date(log.timestamp).toLocaleString('fr-FR')}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  {log.user ? `${log.user.prenom} ${log.user.nom}` : '-'}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className="px-2 py-1 text-xs rounded bg-blue-100 text-blue-800 capitalize">
-                    {log.action}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm capitalize">{log.ressourceType}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">{log.ressourceNom || '-'}</td>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Date
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Utilisateur
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Action
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Ressource
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Nom
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Détails
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {logs.length === 0 && (
-          <div className="text-center py-8 text-gray-500">Aucun log</div>
-        )}
-        {logs.length > pageSize && (
-          <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4">
-            <div className="text-sm text-gray-700">
-              Affichage {startIdx + 1}-{Math.min(startIdx + pageSize, logs.length)} sur {logs.length}
-            </div>
-            <div className="flex gap-2">
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {pagedLogs.map((log) => (
+                <tr key={log.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {new Date(log.timestamp).toLocaleString('fr-FR')}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {log.user ? `${log.user.nom} ${log.user.prenom}` : '-'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span
+                      className={`px-2 py-1 text-xs font-medium rounded-full ${
+                        log.action === 'lecture'
+                          ? 'bg-blue-100 text-blue-800'
+                          : log.action === 'creation'
+                          ? 'bg-green-100 text-green-800'
+                          : log.action === 'modification'
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : log.action === 'suppression'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-purple-100 text-purple-800'
+                      }`}
+                    >
+                      {log.action.charAt(0).toUpperCase() + log.action.slice(1)}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 capitalize">
+                    {log.ressourceType}
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-900">
+                    {log.ressourceNom || '-'}
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {formatDetails(log)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
+            <div className="flex-1 flex justify-between sm:hidden">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className={`px-4 py-2 rounded text-sm font-medium ${page === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
               >
                 Précédent
               </button>
-              <div className="flex gap-1">
-                {getPageNumbers().map((p, idx, arr) => (
-                  typeof p === 'string' ? (
-                    <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">{p}</span>
-                  ) : (
-                    <button
-                      key={p as number}
-                      onClick={() => setPage(p as number)}
-                      className={`px-3 py-2 rounded text-sm font-medium ${page === p ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                    >
-                      {p}
-                    </button>
-                  )
-                ))}
-              </div>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                className={`px-4 py-2 rounded text-sm font-medium ${page === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
               >
                 Suivant
               </button>
+            </div>
+            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm text-gray-700">
+                  Affichage de <span className="font-medium">{startIdx + 1}</span> à{' '}
+                  <span className="font-medium">{Math.min(startIdx + pageSize, logs.length)}</span> sur{' '}
+                  <span className="font-medium">{logs.length}</span> résultats
+                </p>
+              </div>
+              <div>
+                <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Préc.
+                  </button>
+                  {getPageNumbers().map((pageNum, idx) =>
+                    pageNum === '...' ? (
+                      <span
+                        key={`ellipsis-${idx}`}
+                        className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700"
+                      >
+                        ...
+                      </span>
+                    ) : (
+                      <button
+                        key={pageNum}
+                        onClick={() => setPage(pageNum as number)}
+                        className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
+                          page === pageNum
+                            ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
+                            : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    )
+                  )}
+                  <button
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Suiv.
+                  </button>
+                </nav>
+              </div>
             </div>
           </div>
         )}
