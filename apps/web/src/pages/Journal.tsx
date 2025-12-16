@@ -56,9 +56,6 @@ export default function Journal() {
   const formatDetails = (log: any) => {
     const details: string[] = [];
     
-  const formatDetails = (log: any) => {
-    const details: string[] = [];
-    
     // Ajouter le chemin si disponible
     if (log.details?.path) {
       details.push(`${log.details.method || 'GET'} ${log.details.path}`);
