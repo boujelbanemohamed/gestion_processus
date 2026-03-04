@@ -107,8 +107,8 @@ model User {
   derniereConnexion DateTime?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
-  
-  // Relations
+
+  // Relations existantes
   processusProprietaire Processus[] @relation("ProcessusProprietaire")
   processusCreatedBy    Processus[] @relation("ProcessusCreatedBy")
   documentsUploaded     Document[]
@@ -125,7 +125,13 @@ model User {
   smtpConfigsUpdated    SMTPConfig[] @relation("SMTPConfigUpdatedBy")
   favorisProcessus      FavorisProcessus[]
   favorisDocuments      FavorisDocument[]
-  
+
+  // NOUVEAU - Relations projets gouvernance
+  projetsSponsor        ProjetSponsor[]
+  projetsChefProjet     ProjetChefProjet[]
+  projetsTechLead       ProjetTechLead[]
+  projetsEquipe         ProjetEquipe[]
+
   @@index([email])
 }
 
@@ -142,12 +148,12 @@ model Entite {
   description      String?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
-  
+
   // Relations
   membres           UserEntite[]
   processus         ProcessusEntite[]
   projets           ProjetEntite[]
-  
+
   @@index([parentId])
   @@index([code])
 }
@@ -159,7 +165,7 @@ model UserEntite {
   entiteId          String
   entite            Entite      @relation(fields: [entiteId], references: [id], onDelete: Cascade)
   createdAt         DateTime    @default(now())
-  
+
   @@unique([userId, entiteId])
   @@index([userId])
   @@index([entiteId])
@@ -177,7 +183,7 @@ model CategorieProcessus {
   processus         ProcessusCategorie[]
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
-  
+
   @@index([parentId])
 }
 
@@ -195,15 +201,15 @@ model Processus {
   dateProchaineRevision DateTime?
   createdById            String?
   createdBy              User?             @relation("ProcessusCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  deletedAt              DateTime?         // Soft delete
+  deletedAt              DateTime?
   createdAt              DateTime          @default(now())
   updatedAt              DateTime          @updatedAt
-  
+
   // Relations
   entites                ProcessusEntite[]
   categories             ProcessusCategorie[]
   favoris                FavorisProcessus[]
-  
+
   @@index([statut])
   @@index([codeProcessus])
   @@index([deletedAt])
@@ -216,7 +222,7 @@ model ProcessusCategorie {
   categorieId       String
   categorie         CategorieProcessus @relation(fields: [categorieId], references: [id], onDelete: Cascade)
   createdAt         DateTime          @default(now())
-  
+
   @@unique([processusId, categorieId])
   @@index([processusId])
   @@index([categorieId])
@@ -229,7 +235,7 @@ model ProcessusEntite {
   entiteId          String
   entite            Entite    @relation(fields: [entiteId], references: [id], onDelete: Cascade)
   createdAt         DateTime  @default(now())
-  
+
   @@unique([processusId, entiteId])
   @@index([processusId])
   @@index([entiteId])
@@ -240,9 +246,18 @@ model Projet {
   nom                   String
   codeProjet            String          @unique
   description           String?
-  tags                  String[]       @default([])
-  type                  String          // interne, externe, mixte
-  statut                String          // planifie, en_cours, en_pause, termine, annule
+  tags                  String[]        @default([])
+
+  // MODIFIÉ - Type étendu : interne | client | communautaire
+  type                  String          @default("interne")
+  nomClient             String?         // NOUVEAU - Nom du client si type = client
+
+  // MODIFIÉ - Statut étendu : en_preparation | en_cours | termine | en_pause
+  statut                String          @default("en_preparation")
+
+  // NOUVEAU - Priorité : haute | moyenne | basse
+  priorite              String          @default("moyenne")
+
   dateDebut             DateTime?
   dateFinPrevue         DateTime?
   dateFinReelle         DateTime?
@@ -250,12 +265,34 @@ model Projet {
   budgetConsomme        Decimal?        @db.Decimal(15, 2)
   responsableId         String?
   gestionnaireId        String?
+
+  // NOUVEAU - Contexte et description
+  contexte              String?
+  mission               String?
+  vision                String?
+  scopeInclus           String?
+  scopeExclus           String?
+
+  // NOUVEAU - Objectifs et KPIs (stockés en JSON)
+  objectifsStrategiques String?         // JSON: string[]
+  objectifsOperationnels String?        // JSON: string[]
+  kpis                  String?         // JSON: string[]
+
+  // NOUVEAU - Parties prenantes (JSON: [{type: string, nom: string}])
+  partiesPrenantes      String?
+
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
-  
-  // Relations
+
+  // Relations existantes
   entites               ProjetEntite[]
-  
+
+  // NOUVEAU - Relations gouvernance
+  sponsors              ProjetSponsor[]
+  chefsProjet           ProjetChefProjet[]
+  techLeads             ProjetTechLead[]
+  equipe                ProjetEquipe[]
+
   @@index([statut])
   @@index([codeProjet])
 }
@@ -268,10 +305,63 @@ model ProjetEntite {
   entite            Entite    @relation(fields: [entiteId], references: [id], onDelete: Cascade)
   roleEntite        String?
   createdAt         DateTime  @default(now())
-  
+
   @@unique([projetId, entiteId])
   @@index([projetId])
   @@index([entiteId])
+}
+
+// NOUVEAU - Tables de gouvernance du projet
+model ProjetSponsor {
+  id        String   @id @default(uuid())
+  projetId  String
+  projet    Projet   @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([projetId, userId])
+  @@index([projetId])
+  @@index([userId])
+}
+
+model ProjetChefProjet {
+  id        String   @id @default(uuid())
+  projetId  String
+  projet    Projet   @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([projetId, userId])
+  @@index([projetId])
+  @@index([userId])
+}
+
+model ProjetTechLead {
+  id        String   @id @default(uuid())
+  projetId  String
+  projet    Projet   @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([projetId, userId])
+  @@index([projetId])
+  @@index([userId])
+}
+
+model ProjetEquipe {
+  id        String   @id @default(uuid())
+  projetId  String
+  projet    Projet   @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([projetId, userId])
+  @@index([projetId])
+  @@index([userId])
 }
 
 model Document {
@@ -296,16 +386,16 @@ model Document {
   valideBy            User?       @relation("DocumentValidePar", fields: [valideById], references: [id], onDelete: SetNull)
   dateValidation      DateTime?
   tags                Json?
-  deletedAt           DateTime?   // Soft delete
+  deletedAt           DateTime?
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
-  
+
   // Relations
   versions            VersionDocument[]
   permissionsUtilisateurs DocumentPermission[]
   comments            DocumentComment[]
   favoris             FavorisDocument[]
-  
+
   @@index([referenceId, referenceType])
   @@index([typeDocument])
   @@index([statut])
@@ -322,7 +412,7 @@ model VersionDocument {
   uploadedById      String
   uploadedBy        User        @relation("VersionDocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
   createdAt         DateTime    @default(now())
-  
+
   @@index([documentId])
 }
 
@@ -333,7 +423,7 @@ model DocumentPermission {
   userId            String
   user              User        @relation("DocumentPermissionUser", fields: [userId], references: [id], onDelete: Cascade)
   createdAt         DateTime    @default(now())
-  
+
   @@unique([documentId, userId])
   @@index([documentId])
   @@index([userId])
@@ -349,7 +439,7 @@ model DocumentComment {
   pieceJointeNom    String?
   pieceJointePath   String?
   pieceJointeType   String?
-  pieceJointeTaille Int?     // Taille en octets
+  pieceJointeTaille Int?
   createdAt         DateTime @default(now())
 
   @@index([documentId])
@@ -368,7 +458,7 @@ model JournalAcces {
   ipAddress         String?
   userAgent         String?
   timestamp         DateTime      @default(now())
-  
+
   @@index([userId])
   @@index([ressourceType, ressourceId])
   @@index([timestamp])
@@ -385,7 +475,7 @@ model Permission {
   grantedById      String
   grantedBy        User              @relation("PermissionGrantedBy", fields: [grantedById], references: [id], onDelete: Restrict)
   createdAt        DateTime          @default(now())
-  
+
   @@unique([userId, ressourceType, ressourceId, permission])
   @@index([userId])
   @@index([ressourceType, ressourceId])
@@ -395,19 +485,19 @@ model SMTPConfig {
   id                String      @id @default(uuid())
   host              String
   port              Int
-  secure            Boolean     @default(false) // true pour 465, false pour autres ports
+  secure            Boolean     @default(false)
   user              String
-  password          String      // Stocké en clair (à chiffrer en production si nécessaire)
+  password          String
   fromEmail         String
   fromName          String?
-  isActive          Boolean     @default(false) // Une seule config peut être active
-  lastTestResult    Json?       // Résultat du dernier test (success/error)
+  isActive          Boolean     @default(false)
+  lastTestResult    Json?
   lastTestAt        DateTime?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
-  updatedById       String?     // ID de l'utilisateur qui a modifié la config
+  updatedById       String?
   updatedBy         User?       @relation("SMTPConfigUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  
+
   @@index([isActive])
 }
 
@@ -449,4 +539,3 @@ model FavorisDocument {
   @@index([userId])
   @@index([documentId])
 }
-

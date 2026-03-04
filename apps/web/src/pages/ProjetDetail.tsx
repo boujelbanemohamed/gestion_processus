@@ -1,962 +1,523 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import { useAuth } from '../store/auth';
+
+const STATUS_COLORS: Record<string, string> = {
+  'en_preparation': 'bg-yellow-100 text-yellow-800',
+  'en_cours': 'bg-blue-100 text-blue-800',
+  'termine': 'bg-green-100 text-green-800',
+  'en_pause': 'bg-gray-100 text-gray-800',
+};
+const STATUS_LABELS: Record<string, string> = {
+  'en_preparation': 'En préparation',
+  'en_cours': 'En cours',
+  'termine': 'Terminé',
+  'en_pause': 'En pause',
+};
+const PRIORITY_COLORS: Record<string, string> = {
+  'haute': 'bg-red-100 text-red-800',
+  'moyenne': 'bg-orange-100 text-orange-800',
+  'basse': 'bg-green-100 text-green-800',
+};
+
+const PARTIES_PRENANTES_OPTIONS = [
+  'Clients', 'Partenaires', 'Fournisseurs', 'Prestataires',
+  'Utilisateurs finaux', 'Autorités réglementaires'
+];
+
+type UserOption = { id: string; nom: string; prenom: string; };
 
 export default function ProjetDetail() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useParams();
   const navigate = useNavigate();
-  const { user: currentUser } = useAuth();
-  const isLecteur = currentUser?.role === 'lecteur';
+  const printRef = useRef<HTMLDivElement>(null);
+
   const [projet, setProjet] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [entitesList, setEntitesList] = useState<any[]>([]);
-  const [tagsInput, setTagsInput] = useState('');
-  const [editData, setEditData] = useState({
-    nom: '',
-    codeProjet: '',
-    description: '',
-    type: '',
-    statut: '',
-    responsableId: '',
-    gestionnaireId: '',
-    entiteIds: [] as string[],
-    tags: [] as string[],
-  });
+  const [error, setError] = useState('');
+  const [users, setUsers] = useState<UserOption[]>([]);
+
+  // Form state
+  const [form, setForm] = useState<any>({});
+  // Stakeholders with names
+  const [partiesPrenantes, setPartiesPrenantes] = useState<{ type: string; nom: string }[]>([]);
+  const [newPartie, setNewPartie] = useState({ type: 'Clients', nom: '' });
+  // KPIs
+  const [kpis, setKpis] = useState<string[]>([]);
+  const [newKpi, setNewKpi] = useState('');
+  // Objectifs
+  const [objectifsStrategiques, setObjectifsStrategiques] = useState<string[]>([]);
+  const [newObjStrat, setNewObjStrat] = useState('');
+  const [objectifsOperationnels, setObjectifsOperationnels] = useState<string[]>([]);
+  const [newObjOp, setNewObjOp] = useState('');
 
   useEffect(() => {
-    if (id) {
-      loadProjet();
-      loadEntites();
-    }
+    loadProjet();
+    loadUsers();
   }, [id]);
-
-  useEffect(() => {
-    if (projet) {
-      const tags = projet.tags || [];
-      setEditData({
-        nom: projet.nom || '',
-        codeProjet: projet.codeProjet || '',
-        description: projet.description || '',
-        type: projet.type || 'interne',
-        statut: projet.statut || 'planifie',
-        responsableId: projet.responsableId || '',
-        gestionnaireId: projet.gestionnaireId || '',
-        entiteIds: projet.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean) || [],
-        tags: tags,
-      });
-      setTagsInput(tags.join(', '));
-    }
-  }, [projet]);
 
   const loadProjet = async () => {
     try {
-      setLoading(true);
       const response = await api.get(`/projets/${id}`);
-      setProjet(response.data);
-      setError('');
-    } catch (err: any) {
-      if (err.response?.status === 403) {
-        setError(err.response.data.error || 'Accès refusé à ce projet');
-      } else {
-        setError('Erreur lors du chargement du projet');
-      }
+      const p = response.data;
+      setProjet(p);
+      setForm({
+        nom: p.nom || '',
+        type: p.type || 'interne',
+        nomClient: p.nomClient || '',
+        dateDebut: p.dateDebut ? p.dateDebut.substring(0, 10) : '',
+        dateFinPrevue: p.dateFinPrevue ? p.dateFinPrevue.substring(0, 10) : '',
+        statut: p.statut || 'en_preparation',
+        priorite: p.priorite || 'moyenne',
+        sponsorIds: p.sponsors?.map((u: any) => u.id) || [],
+        chefProjetIds: p.chefsProjet?.map((u: any) => u.id) || [],
+        techLeadIds: p.techLeads?.map((u: any) => u.id) || [],
+        equipeIds: p.equipe?.map((u: any) => u.id) || [],
+        contexte: p.contexte || '',
+        mission: p.mission || '',
+        vision: p.vision || '',
+        scopeInclus: p.scopeInclus || '',
+        scopeExclus: p.scopeExclus || '',
+      });
+      setPartiesPrenantes(p.partiesPrenantes || []);
+      setKpis(p.kpis || []);
+      setObjectifsStrategiques(p.objectifsStrategiques || []);
+      setObjectifsOperationnels(p.objectifsOperationnels || []);
+    } catch (err) {
+      console.error('Erreur:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const loadEntites = async () => {
+  const loadUsers = async () => {
     try {
-      const response = await api.get('/entites');
-      setEntitesList(response.data);
-    } catch (error) {
-      console.error('Erreur chargement entités:', error);
+      const response = await api.get('/users');
+      setUsers(response.data.map((u: any) => ({ id: u.id, nom: u.nom, prenom: u.prenom })));
+    } catch (err) {
+      console.error('Erreur chargement users:', err);
     }
   };
 
-  const canModifyTags = () => {
-    if (!projet || !currentUser) return false;
-    return (
-      currentUser.role === 'admin' ||
-      projet.responsableId === currentUser.id ||
-      projet.gestionnaireId === currentUser.id
-    );
-  };
-
-  const handleSaveEdit = async () => {
+  const handleSave = async () => {
+    setError('');
+    if (!form.nom || !form.dateDebut) {
+      setError('Nom et date de début sont obligatoires');
+      return;
+    }
     setSaving(true);
     try {
-      const updateData: any = {};
-      
-      if (editData.nom !== projet.nom) {
-        updateData.nom = editData.nom;
-      }
-      if (editData.codeProjet !== projet.codeProjet) {
-        updateData.codeProjet = editData.codeProjet;
-      }
-      if (editData.description !== (projet.description || '')) {
-        updateData.description = editData.description || null;
-      }
-      if (editData.type !== projet.type) {
-        updateData.type = editData.type;
-      }
-      if (editData.statut !== projet.statut) {
-        updateData.statut = editData.statut;
-      }
-      if (editData.responsableId !== (projet.responsableId || '')) {
-        updateData.responsableId = editData.responsableId || null;
-      }
-      if (editData.gestionnaireId !== (projet.gestionnaireId || '')) {
-        updateData.gestionnaireId = editData.gestionnaireId || null;
-      }
-      
-      const currentEntiteIds = projet.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean).sort() || [];
-      const newEntiteIds = (editData.entiteIds || []).sort();
-      if (JSON.stringify(currentEntiteIds) !== JSON.stringify(newEntiteIds)) {
-        updateData.entiteIds = editData.entiteIds || [];
-      }
-      
-      const currentTags = (projet.tags || []).sort();
-      const newTags = (editData.tags || []).sort();
-      if (JSON.stringify(currentTags) !== JSON.stringify(newTags)) {
-        updateData.tags = editData.tags || [];
-      }
-      
-      if (Object.keys(updateData).length > 0) {
-        await api.put(`/projets/${id}`, updateData);
-      }
-
-      setIsEditing(false);
-      loadProjet();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Erreur lors de la mise à jour');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const statuts = [
-    { value: 'planifie', label: 'Planifié', color: 'bg-gray-100 text-gray-800' },
-    { value: 'en_cours', label: 'En cours', color: 'bg-blue-100 text-blue-800' },
-    { value: 'en_pause', label: 'En pause', color: 'bg-yellow-100 text-yellow-800' },
-    { value: 'termine', label: 'Terminé', color: 'bg-green-100 text-green-800' },
-    { value: 'annule', label: 'Annulé', color: 'bg-red-100 text-red-800' },
-  ];
-
-  const types = [
-    { value: 'interne', label: 'Interne' },
-    { value: 'externe', label: 'Externe' },
-    { value: 'mixte', label: 'Mixte' },
-  ];
-
-  if (loading) return <div className="p-6">Chargement...</div>;
-  
-  if (error && !projet) {
-    return (
-      <div className="p-6">
-        <button
-          onClick={() => navigate('/projets')}
-          className="text-blue-600 hover:text-blue-800 mb-4"
-        >
-          ← Retour à la liste
-        </button>
-        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-lg">
-          <div className="flex items-start">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-yellow-800 mb-2">
-                Accès refusé
-              </h3>
-              <p className="text-sm text-yellow-700 whitespace-pre-line">
-                {error}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  
-  if (!projet) return <div className="p-6">Projet non trouvé</div>;
-
-  return (
-    <div className="p-6">
-      <div className="mb-6">
-        <button
-          onClick={() => navigate('/projets')}
-          className="text-blue-600 hover:text-blue-800 mb-4"
-        >
-          ← Retour à la liste
-        </button>
-        <h1 className="text-2xl font-bold">{projet.nom}</h1>
-        <div className="text-gray-600 mt-2 space-y-1">
-          <p>Code: {projet.codeProjet}</p>
-          {projet.nombreConsultations !== undefined && (
-            <p className="text-sm">
-              Nombre de consultations: <span className="font-semibold text-blue-600">{projet.nombreConsultations || 0}</span>
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Informations générales */}
-      <div className="bg-white rounded-lg shadow mb-6 p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold">Informations générales</h2>
-          {!isEditing ? (
-            !isLecteur && (
-            <button
-              onClick={() => {
-                setIsEditing(true);
-                // Initialiser tagsInput avec les tags existants
-                setTagsInput(editData.tags.join(', '));
-              }}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
-            >
-              Modifier
-            </button>
-            )
-          ) : (
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setIsEditing(false);
-                  if (projet) {
-                    const tags = projet.tags || [];
-                    setEditData({
-                      nom: projet.nom || '',
-                      codeProjet: projet.codeProjet || '',
-                      description: projet.description || '',
-                      type: projet.type || 'interne',
-                      statut: projet.statut || 'planifie',
-                      responsableId: projet.responsableId || '',
-                      gestionnaireId: projet.gestionnaireId || '',
-                      entiteIds: projet.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean) || [],
-                      tags: tags,
-                    });
-                    setTagsInput(tags.join(', '));
-                  }
-                }}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
-              >
-                Annuler
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                disabled={saving}
-                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm disabled:opacity-50"
-              >
-                {saving ? 'Enregistrement...' : 'Enregistrer'}
-              </button>
-            </div>
-          )}
-        </div>
-
-        {isEditing ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nom</label>
-              <input
-                type="text"
-                value={editData.nom}
-                onChange={(e) => setEditData({ ...editData, nom: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Code projet</label>
-              <input
-                type="text"
-                value={editData.codeProjet}
-                onChange={(e) => setEditData({ ...editData, codeProjet: e.target.value.toUpperCase() })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-              <select
-                value={editData.type}
-                onChange={(e) => setEditData({ ...editData, type: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              >
-                {types.map((type) => (
-                  <option key={type.value} value={type.value}>
-                    {type.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Statut</label>
-              <select
-                value={editData.statut}
-                onChange={(e) => setEditData({ ...editData, statut: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              >
-                {statuts.map((statut) => (
-                  <option key={statut.value} value={statut.value}>
-                    {statut.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Entités</label>
-              <select
-                multiple
-                value={editData.entiteIds}
-                onChange={(e) => {
-                  const selectedIds = Array.from(e.target.selectedOptions, option => option.value);
-                  setEditData({ ...editData, entiteIds: selectedIds });
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 min-h-[100px]"
-                size={5}
-              >
-                {entitesList.map((entite) => (
-                  <option key={entite.id} value={entite.id}>
-                    {entite.nom} ({entite.code})
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-gray-500 mt-1">Maintenez Ctrl (ou Cmd sur Mac) pour sélectionner plusieurs entités</p>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="text-sm font-medium text-gray-500">Type</label>
-              <div className="mt-1">
-                <span className="px-3 py-1 text-sm rounded bg-gray-100 text-gray-800">
-                  {types.find(t => t.value === projet.type)?.label || projet.type}
-                </span>
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Statut</label>
-              <div className="mt-1">
-                <span className={`px-3 py-1 text-sm rounded ${
-                  statuts.find(s => s.value === projet.statut)?.color || 'bg-gray-100 text-gray-800'
-                }`}>
-                  {statuts.find(s => s.value === projet.statut)?.label || projet.statut}
-                </span>
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Entités</label>
-              <div className="mt-1">
-                {projet.entites && projet.entites.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {projet.entites.map((pe: any) => (
-                      <span
-                        key={pe.entite?.id || pe.entiteId}
-                        className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded"
-                      >
-                        {pe.entite?.nom || 'N/A'} ({pe.entite?.code || 'N/A'})
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="text-gray-500 italic">N/A</span>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Zone Description */}
-        <div className="mt-6">
-          <label className="text-sm font-medium text-gray-500 block mb-2">Description</label>
-          {isEditing ? (
-            <textarea
-              value={editData.description}
-              onChange={(e) => setEditData({ ...editData, description: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 min-h-[100px]"
-              placeholder="Description du projet"
-            />
-          ) : (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 min-h-[100px]">
-              {projet.description ? (
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{projet.description}</p>
-              ) : (
-                <p className="text-sm text-gray-400 italic">Aucune description</p>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Zone Tags */}
-        <div className="mt-6">
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-gray-500">Tags (mots-clés)</label>
-            {canModifyTags() && !isEditing && (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="text-xs text-blue-600 hover:text-blue-800"
-              >
-                Modifier
-              </button>
-            )}
-          </div>
-          {isEditing && canModifyTags() ? (
-            <div>
-              <input
-                type="text"
-                value={tagsInput}
-                onChange={(e) => {
-                  setTagsInput(e.target.value);
-                }}
-                onBlur={() => {
-                  // Traiter les tags quand on perd le focus
-                  const tagsArray = tagsInput.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
-                  setEditData({ ...editData, tags: tagsArray });
-                  setTagsInput(tagsArray.join(', '));
-                }}
-                onKeyDown={(e) => {
-                  // Traiter les tags quand on appuie sur Entrée
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const tagsArray = tagsInput.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
-                    setEditData({ ...editData, tags: tagsArray });
-                    setTagsInput(tagsArray.join(', '));
-                  }
-                }}
-                placeholder="Saisir les tags séparés par des virgules (ex: qualité, ISO, sécurité)"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">Séparez les tags par des virgules. Appuyez sur Entrée ou cliquez ailleurs pour valider.</p>
-              {editData.tags.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {editData.tags.map((tag, index) => (
-                    <span
-                      key={index}
-                      className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded flex items-center gap-1"
-                    >
-                      {tag}
-                      <button
-                        onClick={() => {
-                          const newTags = editData.tags.filter((_, i) => i !== index);
-                          setEditData({ ...editData, tags: newTags });
-                          setTagsInput(newTags.join(', '));
-                        }}
-                        className="text-blue-600 hover:text-blue-800"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              {projet.tags && projet.tags.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {projet.tags.map((tag: string, index: number) => (
-                    <span
-                      key={index}
-                      className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-gray-400 italic">Aucun tag</p>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
-import { api } from '../services/api';
-import { useAuth } from '../store/auth';
-
-export default function ProjetDetail() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const { user: currentUser } = useAuth();
-  const isLecteur = currentUser?.role === 'lecteur';
-  const [projet, setProjet] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [entitesList, setEntitesList] = useState<any[]>([]);
-  const [tagsInput, setTagsInput] = useState('');
-  const [editData, setEditData] = useState({
-    nom: '',
-    codeProjet: '',
-    description: '',
-    type: '',
-    statut: '',
-    responsableId: '',
-    gestionnaireId: '',
-    entiteIds: [] as string[],
-    tags: [] as string[],
-  });
-
-  useEffect(() => {
-    if (id) {
-      loadProjet();
-      loadEntites();
-    }
-  }, [id]);
-
-  useEffect(() => {
-    if (projet) {
-      const tags = projet.tags || [];
-      setEditData({
-        nom: projet.nom || '',
-        codeProjet: projet.codeProjet || '',
-        description: projet.description || '',
-        type: projet.type || 'interne',
-        statut: projet.statut || 'planifie',
-        responsableId: projet.responsableId || '',
-        gestionnaireId: projet.gestionnaireId || '',
-        entiteIds: projet.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean) || [],
-        tags: tags,
+      await api.put(`/projets/${id}`, {
+        ...form,
+        partiesPrenantes,
+        kpis,
+        objectifsStrategiques,
+        objectifsOperationnels,
       });
-      setTagsInput(tags.join(', '));
-    }
-  }, [projet]);
-
-  const loadProjet = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get(`/projets/${id}`);
-      setProjet(response.data);
-      setError('');
+      await loadProjet();
+      setEditing(false);
     } catch (err: any) {
-      if (err.response?.status === 403) {
-        setError(err.response.data.error || 'Accès refusé à ce projet');
-      } else {
-        setError('Erreur lors du chargement du projet');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadEntites = async () => {
-    try {
-      const response = await api.get('/entites');
-      setEntitesList(response.data);
-    } catch (error) {
-      console.error('Erreur chargement entités:', error);
-    }
-  };
-
-  const canModifyTags = () => {
-    if (!projet || !currentUser) return false;
-    return (
-      currentUser.role === 'admin' ||
-      projet.responsableId === currentUser.id ||
-      projet.gestionnaireId === currentUser.id
-    );
-  };
-
-  const handleSaveEdit = async () => {
-    setSaving(true);
-    try {
-      const updateData: any = {};
-      
-      if (editData.nom !== projet.nom) {
-        updateData.nom = editData.nom;
-      }
-      if (editData.codeProjet !== projet.codeProjet) {
-        updateData.codeProjet = editData.codeProjet;
-      }
-      if (editData.description !== (projet.description || '')) {
-        updateData.description = editData.description || null;
-      }
-      if (editData.type !== projet.type) {
-        updateData.type = editData.type;
-      }
-      if (editData.statut !== projet.statut) {
-        updateData.statut = editData.statut;
-      }
-      if (editData.responsableId !== (projet.responsableId || '')) {
-        updateData.responsableId = editData.responsableId || null;
-      }
-      if (editData.gestionnaireId !== (projet.gestionnaireId || '')) {
-        updateData.gestionnaireId = editData.gestionnaireId || null;
-      }
-      
-      const currentEntiteIds = projet.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean).sort() || [];
-      const newEntiteIds = (editData.entiteIds || []).sort();
-      if (JSON.stringify(currentEntiteIds) !== JSON.stringify(newEntiteIds)) {
-        updateData.entiteIds = editData.entiteIds || [];
-      }
-      
-      const currentTags = (projet.tags || []).sort();
-      const newTags = (editData.tags || []).sort();
-      if (JSON.stringify(currentTags) !== JSON.stringify(newTags)) {
-        updateData.tags = editData.tags || [];
-      }
-      
-      if (Object.keys(updateData).length > 0) {
-        await api.put(`/projets/${id}`, updateData);
-      }
-
-      setIsEditing(false);
-      loadProjet();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Erreur lors de la mise à jour');
+      setError(err.response?.data?.error || 'Erreur lors de la sauvegarde');
     } finally {
       setSaving(false);
     }
   };
 
-  const statuts = [
-    { value: 'planifie', label: 'Planifié', color: 'bg-gray-100 text-gray-800' },
-    { value: 'en_cours', label: 'En cours', color: 'bg-blue-100 text-blue-800' },
-    { value: 'en_pause', label: 'En pause', color: 'bg-yellow-100 text-yellow-800' },
-    { value: 'termine', label: 'Terminé', color: 'bg-green-100 text-green-800' },
-    { value: 'annule', label: 'Annulé', color: 'bg-red-100 text-red-800' },
-  ];
+  const handleDelete = async () => {
+    if (!window.confirm('Supprimer ce projet ?')) return;
+    try {
+      await api.delete(`/projets/${id}`);
+      navigate('/projets');
+    } catch (err) {
+      console.error('Erreur suppression:', err);
+    }
+  };
 
-  const types = [
-    { value: 'interne', label: 'Interne' },
-    { value: 'externe', label: 'Externe' },
-    { value: 'mixte', label: 'Mixte' },
-  ];
+  const handlePrint = () => { window.print(); };
+
+  const toggleUser = (field: string, userId: string) => {
+    const current: string[] = form[field] || [];
+    if (current.includes(userId)) {
+      setForm({ ...form, [field]: current.filter((id: string) => id !== userId) });
+    } else {
+      setForm({ ...form, [field]: [...current, userId] });
+    }
+  };
+
+  const getUserName = (userId: string) => {
+    const u = users.find(u => u.id === userId);
+    return u ? `${u.prenom} ${u.nom}` : userId;
+  };
+
+  const addPartie = () => {
+    if (!newPartie.nom.trim()) return;
+    setPartiesPrenantes([...partiesPrenantes, { ...newPartie }]);
+    setNewPartie({ type: 'Clients', nom: '' });
+  };
+
+  const removePartie = (idx: number) => setPartiesPrenantes(partiesPrenantes.filter((_, i) => i !== idx));
+
+  const addKpi = () => {
+    if (!newKpi.trim()) return;
+    setKpis([...kpis, newKpi.trim()]);
+    setNewKpi('');
+  };
+
+  const addObjStrat = () => {
+    if (!newObjStrat.trim()) return;
+    setObjectifsStrategiques([...objectifsStrategiques, newObjStrat.trim()]);
+    setNewObjStrat('');
+  };
+
+  const addObjOp = () => {
+    if (!newObjOp.trim()) return;
+    setObjectifsOperationnels([...objectifsOperationnels, newObjOp.trim()]);
+    setNewObjOp('');
+  };
+
+  // Multi-select user component
+  const UserMultiSelect = ({ field, label }: { field: string; label: string }) => (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      {editing ? (
+        <div className="border border-gray-300 rounded-md max-h-32 overflow-y-auto p-2">
+          {users.map(u => (
+            <label key={u.id} className="flex items-center gap-2 py-1 cursor-pointer hover:bg-gray-50 px-1 rounded">
+              <input
+                type="checkbox"
+                checked={(form[field] || []).includes(u.id)}
+                onChange={() => toggleUser(field, u.id)}
+                className="rounded"
+              />
+              <span className="text-sm">{u.prenom} {u.nom}</span>
+            </label>
+          ))}
+          {users.length === 0 && <p className="text-sm text-gray-400 italic">Aucun utilisateur</p>}
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2 min-h-[32px]">
+          {(projet[field === 'sponsorIds' ? 'sponsors' : field === 'chefProjetIds' ? 'chefsProjet' : field === 'techLeadIds' ? 'techLeads' : 'equipe'] || []).length === 0
+            ? <span className="text-sm text-gray-400 italic">—</span>
+            : (projet[field === 'sponsorIds' ? 'sponsors' : field === 'chefProjetIds' ? 'chefsProjet' : field === 'techLeadIds' ? 'techLeads' : 'equipe'] || []).map((u: any) => (
+              <span key={u.id} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">{u.prenom} {u.nom}</span>
+            ))
+          }
+        </div>
+      )}
+    </div>
+  );
+
+  const Field = ({ label, value, editComponent }: { label: string; value: any; editComponent?: React.ReactNode }) => (
+    <div>
+      <label className="block text-sm font-medium text-gray-500 mb-1">{label}</label>
+      {editing && editComponent ? editComponent : (
+        <p className="text-sm text-gray-900">{value || <span className="italic text-gray-400">—</span>}</p>
+      )}
+    </div>
+  );
 
   if (loading) return <div className="p-6">Chargement...</div>;
-  
-  if (error && !projet) {
-    return (
-      <div className="p-6">
-        <button
-          onClick={() => navigate('/projets')}
-          className="text-blue-600 hover:text-blue-800 mb-4"
-        >
-          ← Retour à la liste
-        </button>
-        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-lg">
-          <div className="flex items-start">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-yellow-800 mb-2">
-                Accès refusé
-              </h3>
-              <p className="text-sm text-yellow-700 whitespace-pre-line">
-                {error}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  
-  if (!projet) return <div className="p-6">Projet non trouvé</div>;
+  if (!projet) return <div className="p-6 text-red-600">Projet introuvable</div>;
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <button
-          onClick={() => navigate('/projets')}
-          className="text-blue-600 hover:text-blue-800 mb-4"
-        >
-          ← Retour à la liste
-        </button>
-        <h1 className="text-2xl font-bold">{projet.nom}</h1>
-        <div className="text-gray-600 mt-2 space-y-1">
-          <p>Code: {projet.codeProjet}</p>
-          {projet.nombreConsultations !== undefined && (
-            <p className="text-sm">
-              Nombre de consultations: <span className="font-semibold text-blue-600">{projet.nombreConsultations || 0}</span>
-            </p>
-          )}
-        </div>
-      </div>
+    <>
+      {/* Style d'impression */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          #print-zone, #print-zone * { visibility: visible !important; }
+          #print-zone { position: absolute; left: 0; top: 0; width: 100%; }
+          .no-print { display: none !important; }
+        }
+      `}</style>
 
-      {/* Informations générales */}
-      <div className="bg-white rounded-lg shadow mb-6 p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold">Informations générales</h2>
-          {!isEditing ? (
-            !isLecteur && (
-            <button
-              onClick={() => {
-                setIsEditing(true);
-                // Initialiser tagsInput avec les tags existants
-                setTagsInput(editData.tags.join(', '));
-              }}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
-            >
-              Modifier
+      <div className="p-6 max-w-5xl mx-auto">
+        {/* En-tête */}
+        <div className="flex justify-between items-start mb-6 no-print">
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate('/projets')} className="text-gray-500 hover:text-gray-700 text-sm flex items-center gap-1">
+              ← Retour
             </button>
-            )
-          ) : (
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setIsEditing(false);
-                  if (projet) {
-                    const tags = projet.tags || [];
-                    setEditData({
-                      nom: projet.nom || '',
-                      codeProjet: projet.codeProjet || '',
-                      description: projet.description || '',
-                      type: projet.type || 'interne',
-                      statut: projet.statut || 'planifie',
-                      responsableId: projet.responsableId || '',
-                      gestionnaireId: projet.gestionnaireId || '',
-                      entiteIds: projet.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean) || [],
-                      tags: tags,
-                    });
-                    setTagsInput(tags.join(', '));
-                  }
-                }}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
-              >
-                Annuler
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                disabled={saving}
-                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm disabled:opacity-50"
-              >
-                {saving ? 'Enregistrement...' : 'Enregistrer'}
-              </button>
-            </div>
-          )}
+            <h1 className="text-2xl font-bold">{projet.nom}</h1>
+            <span className={`px-2 py-1 text-xs rounded ${STATUS_COLORS[projet.statut] || ''}`}>
+              {STATUS_LABELS[projet.statut] || projet.statut}
+            </span>
+            <span className={`px-2 py-1 text-xs rounded capitalize ${PRIORITY_COLORS[projet.priorite] || ''}`}>
+              {projet.priorite}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handlePrint} className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 flex items-center gap-1">
+              🖨️ Imprimer
+            </button>
+            {editing ? (
+              <>
+                <button onClick={() => { setEditing(false); loadProjet(); }} className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Annuler</button>
+                <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm disabled:opacity-50">{saving ? 'Enregistrement...' : 'Enregistrer'}</button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => setEditing(true)} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm">Modifier</button>
+                <button onClick={handleDelete} className="px-3 py-2 text-sm border border-red-300 rounded-md text-red-600 hover:bg-red-50">Supprimer</button>
+              </>
+            )}
+          </div>
         </div>
 
-        {isEditing ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nom</label>
-              <input
-                type="text"
-                value={editData.nom}
-                onChange={(e) => setEditData({ ...editData, nom: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+        {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm no-print">{error}</div>}
+
+        {/* Zone imprimable */}
+        <div id="print-zone" ref={printRef}>
+
+          {/* En-tête impression */}
+          <div className="hidden print:block mb-6 border-b pb-4">
+            <h1 className="text-3xl font-bold">{projet.nom}</h1>
+            <div className="flex gap-3 mt-2">
+              <span className={`px-2 py-1 text-xs rounded ${STATUS_COLORS[projet.statut] || ''}`}>{STATUS_LABELS[projet.statut]}</span>
+              <span className={`px-2 py-1 text-xs rounded capitalize ${PRIORITY_COLORS[projet.priorite] || ''}`}>{projet.priorite}</span>
+            </div>
+            <p className="text-sm text-gray-500 mt-1">Fiche générée le {new Date().toLocaleDateString('fr-FR')}</p>
+          </div>
+
+          {/* ① Informations générales */}
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <span className="w-7 h-7 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center text-sm font-bold">1</span>
+              Informations générales
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              <Field
+                label="Nom du projet"
+                value={projet.nom}
+                editComponent={<input type="text" value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />}
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Code projet</label>
-              <input
-                type="text"
-                value={editData.codeProjet}
-                onChange={(e) => setEditData({ ...editData, codeProjet: e.target.value.toUpperCase() })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              <Field
+                label="Type de projet"
+                value={projet.type}
+                editComponent={
+                  <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                    <option value="interne">Interne</option>
+                    <option value="client">Client</option>
+                    <option value="communautaire">Communautaire</option>
+                  </select>
+                }
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-              <select
-                value={editData.type}
-                onChange={(e) => setEditData({ ...editData, type: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              >
-                {types.map((type) => (
-                  <option key={type.value} value={type.value}>
-                    {type.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Statut</label>
-              <select
-                value={editData.statut}
-                onChange={(e) => setEditData({ ...editData, statut: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              >
-                {statuts.map((statut) => (
-                  <option key={statut.value} value={statut.value}>
-                    {statut.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Entités</label>
-              <select
-                multiple
-                value={editData.entiteIds}
-                onChange={(e) => {
-                  const selectedIds = Array.from(e.target.selectedOptions, option => option.value);
-                  setEditData({ ...editData, entiteIds: selectedIds });
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 min-h-[100px]"
-                size={5}
-              >
-                {entitesList.map((entite) => (
-                  <option key={entite.id} value={entite.id}>
-                    {entite.nom} ({entite.code})
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-gray-500 mt-1">Maintenez Ctrl (ou Cmd sur Mac) pour sélectionner plusieurs entités</p>
+              {(editing ? form.type === 'client' : projet.type === 'client') && (
+                <Field
+                  label="Nom du client"
+                  value={projet.nomClient}
+                  editComponent={<input type="text" value={form.nomClient} onChange={(e) => setForm({ ...form, nomClient: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Nom de l'entreprise" />}
+                />
+              )}
+              <Field
+                label="Date de début"
+                value={projet.dateDebut ? new Date(projet.dateDebut).toLocaleDateString('fr-FR') : '—'}
+                editComponent={<input type="date" value={form.dateDebut} onChange={(e) => setForm({ ...form, dateDebut: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />}
+              />
+              <Field
+                label="Date de fin prévue"
+                value={projet.dateFinPrevue ? new Date(projet.dateFinPrevue).toLocaleDateString('fr-FR') : '—'}
+                editComponent={<input type="date" value={form.dateFinPrevue} onChange={(e) => setForm({ ...form, dateFinPrevue: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />}
+              />
+              <Field
+                label="Statut"
+                value={STATUS_LABELS[projet.statut] || projet.statut}
+                editComponent={
+                  <select value={form.statut} onChange={(e) => setForm({ ...form, statut: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                    <option value="en_preparation">En préparation</option>
+                    <option value="en_cours">En cours</option>
+                    <option value="termine">Terminé</option>
+                    <option value="en_pause">En pause</option>
+                  </select>
+                }
+              />
+              <Field
+                label="Priorité"
+                value={projet.priorite}
+                editComponent={
+                  <select value={form.priorite} onChange={(e) => setForm({ ...form, priorite: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                    <option value="haute">Haute</option>
+                    <option value="moyenne">Moyenne</option>
+                    <option value="basse">Basse</option>
+                  </select>
+                }
+              />
             </div>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="text-sm font-medium text-gray-500">Type</label>
-              <div className="mt-1">
-                <span className="px-3 py-1 text-sm rounded bg-gray-100 text-gray-800">
-                  {types.find(t => t.value === projet.type)?.label || projet.type}
-                </span>
-              </div>
+
+          {/* ② Gouvernance */}
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <span className="w-7 h-7 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center text-sm font-bold">2</span>
+              Gouvernance du projet
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <UserMultiSelect field="sponsorIds" label="Sponsor / Superviseur" />
+              <UserMultiSelect field="chefProjetIds" label="Chef de projet / PMO" />
+              <UserMultiSelect field="techLeadIds" label="Tech Lead" />
+              <UserMultiSelect field="equipeIds" label="Équipe projet / Intervenants" />
             </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Statut</label>
-              <div className="mt-1">
-                <span className={`px-3 py-1 text-sm rounded ${
-                  statuts.find(s => s.value === projet.statut)?.color || 'bg-gray-100 text-gray-800'
-                }`}>
-                  {statuts.find(s => s.value === projet.statut)?.label || projet.statut}
-                </span>
-              </div>
+
+            {/* Parties prenantes */}
+            <div className="mt-5">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Parties prenantes (Stakeholders)</label>
+              {partiesPrenantes.length > 0 ? (
+                <div className="space-y-2 mb-3">
+                  {partiesPrenantes.map((pp, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs">{pp.type}</span>
+                      <span className="text-sm text-gray-700">{pp.nom}</span>
+                      {editing && (
+                        <button onClick={() => removePartie(idx)} className="text-red-400 hover:text-red-600 text-xs ml-auto">✕</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 italic mb-3">Aucune partie prenante</p>
+              )}
+              {editing && (
+                <div className="flex gap-2 mt-2">
+                  <select value={newPartie.type} onChange={(e) => setNewPartie({ ...newPartie, type: e.target.value })} className="px-2 py-1 border border-gray-300 rounded text-sm">
+                    {PARTIES_PRENANTES_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
+                  <input type="text" value={newPartie.nom} onChange={(e) => setNewPartie({ ...newPartie, nom: e.target.value })} placeholder="Nom / Description" className="flex-1 px-3 py-1 border border-gray-300 rounded text-sm" onKeyDown={(e) => e.key === 'Enter' && addPartie()} />
+                  <button onClick={addPartie} className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">Ajouter</button>
+                </div>
+              )}
             </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Entités</label>
-              <div className="mt-1">
-                {projet.entites && projet.entites.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {projet.entites.map((pe: any) => (
-                      <span
-                        key={pe.entite?.id || pe.entiteId}
-                        className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded"
-                      >
-                        {pe.entite?.nom || 'N/A'} ({pe.entite?.code || 'N/A'})
-                      </span>
-                    ))}
-                  </div>
+          </div>
+
+          {/* ③ Contexte et description */}
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <span className="w-7 h-7 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-sm font-bold">3</span>
+              Contexte et description
+            </h2>
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1">Contexte du projet</label>
+                {editing ? (
+                  <textarea value={form.contexte} onChange={(e) => setForm({ ...form, contexte: e.target.value })} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Décrivez le contexte..." />
                 ) : (
-                  <span className="text-gray-500 italic">N/A</span>
+                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{projet.contexte || <span className="italic text-gray-400">—</span>}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1">Mission — Pourquoi ce projet existe</label>
+                {editing ? (
+                  <textarea value={form.mission} onChange={(e) => setForm({ ...form, mission: e.target.value })} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Quelle est la mission de ce projet ?" />
+                ) : (
+                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{projet.mission || <span className="italic text-gray-400">—</span>}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1">Vision — Résultat ou impact attendu</label>
+                {editing ? (
+                  <textarea value={form.vision} onChange={(e) => setForm({ ...form, vision: e.target.value })} rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Quel est l'impact visé ?" />
+                ) : (
+                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{projet.vision || <span className="italic text-gray-400">—</span>}</p>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">✅ Scope — Ce qui est inclus</label>
+                  {editing ? (
+                    <textarea value={form.scopeInclus} onChange={(e) => setForm({ ...form, scopeInclus: e.target.value })} rows={4} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Ce qui est dans le périmètre..." />
+                  ) : (
+                    <p className="text-sm text-gray-900 whitespace-pre-wrap">{projet.scopeInclus || <span className="italic text-gray-400">—</span>}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-1">❌ Scope — Ce qui est exclu</label>
+                  {editing ? (
+                    <textarea value={form.scopeExclus} onChange={(e) => setForm({ ...form, scopeExclus: e.target.value })} rows={4} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Ce qui est hors périmètre..." />
+                  ) : (
+                    <p className="text-sm text-gray-900 whitespace-pre-wrap">{projet.scopeExclus || <span className="italic text-gray-400">—</span>}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ④ Objectifs */}
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <span className="w-7 h-7 bg-orange-100 text-orange-700 rounded-full flex items-center justify-center text-sm font-bold">4</span>
+              Objectifs du projet
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Objectifs stratégiques */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Objectifs stratégiques</label>
+                {objectifsStrategiques.length > 0 ? (
+                  <ul className="space-y-1 mb-3">
+                    {objectifsStrategiques.map((obj, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-sm">
+                        <span className="text-blue-500 mt-0.5">•</span>
+                        <span className="flex-1 text-gray-700">{obj}</span>
+                        {editing && <button onClick={() => setObjectifsStrategiques(objectifsStrategiques.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600 text-xs">✕</button>}
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="text-sm text-gray-400 italic mb-3">Aucun objectif stratégique</p>}
+                {editing && (
+                  <div className="flex gap-2">
+                    <input type="text" value={newObjStrat} onChange={(e) => setNewObjStrat(e.target.value)} placeholder="Ajouter un objectif..." className="flex-1 px-3 py-1 border border-gray-300 rounded text-sm" onKeyDown={(e) => e.key === 'Enter' && addObjStrat()} />
+                    <button onClick={addObjStrat} className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">+</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Objectifs opérationnels */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Objectifs opérationnels</label>
+                {objectifsOperationnels.length > 0 ? (
+                  <ul className="space-y-1 mb-3">
+                    {objectifsOperationnels.map((obj, idx) => (
+                      <li key={idx} className="flex items-start gap-2 text-sm">
+                        <span className="text-green-500 mt-0.5">•</span>
+                        <span className="flex-1 text-gray-700">{obj}</span>
+                        {editing && <button onClick={() => setObjectifsOperationnels(objectifsOperationnels.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600 text-xs">✕</button>}
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="text-sm text-gray-400 italic mb-3">Aucun objectif opérationnel</p>}
+                {editing && (
+                  <div className="flex gap-2">
+                    <input type="text" value={newObjOp} onChange={(e) => setNewObjOp(e.target.value)} placeholder="Ajouter un objectif..." className="flex-1 px-3 py-1 border border-gray-300 rounded text-sm" onKeyDown={(e) => e.key === 'Enter' && addObjOp()} />
+                    <button onClick={addObjOp} className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">+</button>
+                  </div>
                 )}
               </div>
             </div>
-          </div>
-        )}
 
-        {/* Zone Description */}
-        <div className="mt-6">
-          <label className="text-sm font-medium text-gray-500 block mb-2">Description</label>
-          {isEditing ? (
-            <textarea
-              value={editData.description}
-              onChange={(e) => setEditData({ ...editData, description: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 min-h-[100px]"
-              placeholder="Description du projet"
-            />
-          ) : (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 min-h-[100px]">
-              {projet.description ? (
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{projet.description}</p>
-              ) : (
-                <p className="text-sm text-gray-400 italic">Aucune description</p>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Zone Tags */}
-        <div className="mt-6">
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-medium text-gray-500">Tags (mots-clés)</label>
-            {canModifyTags() && !isEditing && (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="text-xs text-blue-600 hover:text-blue-800"
-              >
-                Modifier
-              </button>
-            )}
-          </div>
-          {isEditing && canModifyTags() ? (
-            <div>
-              <input
-                type="text"
-                value={tagsInput}
-                onChange={(e) => {
-                  setTagsInput(e.target.value);
-                }}
-                onBlur={() => {
-                  // Traiter les tags quand on perd le focus
-                  const tagsArray = tagsInput.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
-                  setEditData({ ...editData, tags: tagsArray });
-                  setTagsInput(tagsArray.join(', '));
-                }}
-                onKeyDown={(e) => {
-                  // Traiter les tags quand on appuie sur Entrée
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const tagsArray = tagsInput.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
-                    setEditData({ ...editData, tags: tagsArray });
-                    setTagsInput(tagsArray.join(', '));
-                  }
-                }}
-                placeholder="Saisir les tags séparés par des virgules (ex: qualité, ISO, sécurité)"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">Séparez les tags par des virgules. Appuyez sur Entrée ou cliquez ailleurs pour valider.</p>
-              {editData.tags.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {editData.tags.map((tag, index) => (
-                    <span
-                      key={index}
-                      className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded flex items-center gap-1"
-                    >
-                      {tag}
-                      <button
-                        onClick={() => {
-                          const newTags = editData.tags.filter((_, i) => i !== index);
-                          setEditData({ ...editData, tags: newTags });
-                          setTagsInput(newTags.join(', '));
-                        }}
-                        className="text-blue-600 hover:text-blue-800"
-                      >
-                        ×
-                      </button>
+            {/* KPIs */}
+            <div className="mt-5">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Indicateurs de succès (KPI)</label>
+              {kpis.length > 0 ? (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {kpis.map((kpi, idx) => (
+                    <span key={idx} className="flex items-center gap-1 px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm">
+                      📊 {kpi}
+                      {editing && <button onClick={() => setKpis(kpis.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600 ml-1 text-xs">✕</button>}
                     </span>
                   ))}
                 </div>
-              )}
-            </div>
-          ) : (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              {projet.tags && projet.tags.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {projet.tags.map((tag: string, index: number) => (
-                    <span
-                      key={index}
-                      className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded"
-                    >
-                      {tag}
-                    </span>
-                  ))}
+              ) : <p className="text-sm text-gray-400 italic mb-3">Aucun KPI défini</p>}
+              {editing && (
+                <div className="flex gap-2">
+                  <input type="text" value={newKpi} onChange={(e) => setNewKpi(e.target.value)} placeholder="Ex: Réduire le temps de traitement de 30%" className="flex-1 px-3 py-1 border border-gray-300 rounded text-sm" onKeyDown={(e) => e.key === 'Enter' && addKpi()} />
+                  <button onClick={addKpi} className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">Ajouter</button>
                 </div>
-              ) : (
-                <p className="text-sm text-gray-400 italic">Aucun tag</p>
               )}
             </div>
-          )}
-        </div>
+          </div>
+
+        </div>{/* fin print-zone */}
       </div>
-    </div>
+    </>
   );
 }
-
-

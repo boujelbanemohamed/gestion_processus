@@ -16,12 +16,13 @@ import UserDetail from './pages/UserDetail';
 import Profile from './pages/Profile';
 import Journal from './pages/Journal';
 import Configuration from './pages/Configuration';
-import ProjetDetail from './pages/ProjetDetail';
+import Projets from './pages/Projets';           // ← NOUVEAU
+import ProjetDetail from './pages/ProjetDetail'; // ← NOUVEAU (déjà existant, maintenant complet)
 import Corbeille from './pages/Corbeille';
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
   const { isAuthenticated, loadFromStorage, user } = useAuth();
-  
+
   useEffect(() => {
     loadFromStorage();
   }, [loadFromStorage]);
@@ -30,7 +31,6 @@ function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode;
     return <Navigate to="/login" replace />;
   }
 
-  // Si des rôles sont spécifiés, vérifier que l'utilisateur a le bon rôle
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
     return <Navigate to="/dashboard" replace />;
   }
@@ -40,7 +40,7 @@ function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode;
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loadFromStorage } = useAuth();
-  
+
   useEffect(() => {
     loadFromStorage();
   }, [loadFromStorage]);
@@ -56,151 +56,33 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route
-          path="/login"
-          element={
-            <PublicRoute>
-              <Login />
-            </PublicRoute>
-          }
-        />
-        <Route
-          path="/forgot-password"
-          element={
-            <PublicRoute>
-              <ForgotPassword />
-            </PublicRoute>
-          }
-        />
-        <Route
-          path="/reset-password"
-          element={
-            <PublicRoute>
-              <ResetPassword />
-            </PublicRoute>
-          }
-        />
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/processus"
-          element={
-            <ProtectedRoute>
-              <Processus />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/processus/:id"
-          element={
-            <ProtectedRoute>
-              <ProcessusDetail />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/entites"
-          element={
-            <ProtectedRoute>
-              <Entites />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/entites/:id"
-          element={
-            <ProtectedRoute>
-              <EntiteDetail />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/documents"
-          element={
-            <ProtectedRoute>
-              <Documents />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/users"
-          element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <Users />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/users/:id"
-          element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <UserDetail />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute>
-              <Profile />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/journal"
-          element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <Journal />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/configuration"
-          element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <Configuration />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/projets/:id"
-          element={
-            <ProtectedRoute>
-              <ProjetDetail />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/corbeille"
-          element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <Corbeille />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
-    </BrowserRouter>
-  );
-}
+        <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+        <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+        <Route path="/reset-password" element={<PublicRoute><ResetPassword /></PublicRoute>} />
 
-export default App;
-          }
-        />
-        <Route
-          path="/corbeille"
-          element={
-            <ProtectedRoute allowedRoles={['admin']}>
-              <Corbeille />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+
+        <Route path="/processus" element={<ProtectedRoute><Processus /></ProtectedRoute>} />
+        <Route path="/processus/:id" element={<ProtectedRoute><ProcessusDetail /></ProtectedRoute>} />
+
+        <Route path="/entites" element={<ProtectedRoute><Entites /></ProtectedRoute>} />
+        <Route path="/entites/:id" element={<ProtectedRoute><EntiteDetail /></ProtectedRoute>} />
+
+        <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
+
+        {/* NOUVEAU - Routes Projets */}
+        <Route path="/projets" element={<ProtectedRoute><Projets /></ProtectedRoute>} />
+        <Route path="/projets/:id" element={<ProtectedRoute><ProjetDetail /></ProtectedRoute>} />
+
+        <Route path="/users" element={<ProtectedRoute allowedRoles={['admin']}><Users /></ProtectedRoute>} />
+        <Route path="/users/:id" element={<ProtectedRoute allowedRoles={['admin']}><UserDetail /></ProtectedRoute>} />
+
+        <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+
+        <Route path="/journal" element={<ProtectedRoute allowedRoles={['admin']}><Journal /></ProtectedRoute>} />
+        <Route path="/configuration" element={<ProtectedRoute allowedRoles={['admin']}><Configuration /></ProtectedRoute>} />
+        <Route path="/corbeille" element={<ProtectedRoute allowedRoles={['admin']}><Corbeille /></ProtectedRoute>} />
+
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </BrowserRouter>
