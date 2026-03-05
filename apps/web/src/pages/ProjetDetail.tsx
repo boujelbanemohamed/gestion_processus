@@ -52,10 +52,20 @@ export default function ProjetDetail() {
   const [newObjStrat, setNewObjStrat] = useState('');
   const [objectifsOperationnels, setObjectifsOperationnels] = useState<string[]>([]);
   const [newObjOp, setNewObjOp] = useState('');
+  // Documents
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadNom, setUploadNom] = useState('');
+  const [uploadDescription, setUploadDescription] = useState('');
+  const [viewingDocument, setViewingDocument] = useState<any>(null);
+  const [documentUrl, setDocumentUrl] = useState<string | null>(null);
 
   useEffect(() => {
     loadProjet();
     loadUsers();
+    loadDocuments();
   }, [id]);
 
   const loadProjet = async () => {
@@ -98,6 +108,83 @@ export default function ProjetDetail() {
       setUsers(response.data.map((u: any) => ({ id: u.id, nom: u.nom, prenom: u.prenom })));
     } catch (err) {
       console.error('Erreur chargement users:', err);
+    }
+  };
+  const loadDocuments = async () => {
+    try {
+      const response = await api.get('/documents', { params: { referenceType: 'projet', referenceId: id } });
+      setDocuments(response.data);
+    } catch (err) {
+      console.error('Erreur chargement documents:', err);
+    }
+  };
+  const handleUploadDocument = async () => {
+    if (uploadFiles.length === 0) { alert('Veuillez sélectionner un fichier'); return; }
+    setUploading(true);
+    try {
+      await Promise.all(uploadFiles.map(async (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('nom', uploadNom || file.name);
+        formData.append('typeDocument', 'projet');
+        formData.append('referenceType', 'projet');
+        formData.append('referenceId', id!);
+        formData.append('description', uploadDescription);
+        formData.append('estConfidentiel', 'false');
+        formData.append('versionMajeure', '1');
+        formData.append('versionMineure', '0');
+        formData.append('versionPatch', '0');
+        return api.post('/documents', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      }));
+      setShowUploadModal(false);
+      setUploadFiles([]);
+      setUploadNom('');
+      setUploadDescription('');
+      await loadDocuments();
+    } catch (err) {
+      console.error('Erreur upload:', err);
+      alert('Erreur lors de l\'upload');
+    } finally {
+      setUploading(false);
+    }
+  };
+  const handleViewDocument = async (doc: any) => {
+    try {
+      const response = await api.get(`/documents/${doc.id}/view`, { responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      setDocumentUrl(url);
+      setViewingDocument(doc);
+    } catch (err) {
+      alert('Erreur lors de la visualisation du document');
+    }
+  };
+  const closeViewer = () => {
+    if (documentUrl) URL.revokeObjectURL(documentUrl);
+    setDocumentUrl(null);
+    setViewingDocument(null);
+  };
+  const handleDeleteDocument = async (docId: string, docNom: string) => {
+    if (!confirm(`Êtes-vous sûr de vouloir supprimer "${docNom}" ?`)) return;
+    try {
+      await api.delete(`/documents/${docId}`);
+      await loadDocuments();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Erreur lors de la suppression');
+    }
+  };
+  const handleDownload = async (doc: any) => {
+    try {
+      const response = await api.get(`/documents/${doc.id}/download`, { responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', doc.fichierNomOriginal || doc.nom);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert('Erreur lors du téléchargement');
     }
   };
 
@@ -516,8 +603,96 @@ export default function ProjetDetail() {
             </div>
           </div>
 
+        {/* Section Documents */}
+        <div className="bg-white rounded-lg shadow p-6 mt-6 print:hidden">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">📎 Documents du projet</h2>
+            <button onClick={() => setShowUploadModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700">+ Ajouter un document</button>
+          </div>
+          {documents.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">Aucun document attaché à ce projet</p>
+          ) : (
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Taille</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {documents.map((doc) => (
+                  <tr key={doc.id}>
+                    <td className="px-4 py-2 text-sm text-gray-900">{doc.nom}</td>
+                    <td className="px-4 py-2 text-sm text-gray-500">{doc.fichierType}</td>
+                    <td className="px-4 py-2 text-sm text-gray-500">{doc.fichierTaille ? Math.round(doc.fichierTaille / 1024) + ' Ko' : '-'}</td>
+                    <td className="px-4 py-2 text-sm text-gray-500">{new Date(doc.createdAt).toLocaleDateString('fr-FR')}</td>
+                    <td className="px-4 py-2 text-sm">
+                      <div className="flex gap-2"><button onClick={() => handleViewDocument(doc)} className="px-3 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">👁 Visualiser</button><button onClick={() => handleDownload(doc)} className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200">⬇ Télécharger</button><button onClick={() => handleDeleteDocument(doc.id, doc.nom)} className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200">🗑 Supprimer</button></div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
         </div>{/* fin print-zone */}
+      {/* Modal Upload Document */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">Ajouter un document</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Fichier(s) <span className="text-red-500">*</span></label>
+                <input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.txt,.zip" onChange={(e) => { if (e.target.files) { const files = Array.from(e.target.files); setUploadFiles(files); if (files.length === 1) setUploadNom(files[0].name); } }} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                {uploadFiles.length > 0 && <p className="text-xs text-gray-500 mt-1">{uploadFiles.length} fichier(s) sélectionné(s)</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nom du document</label>
+                <input type="text" value={uploadNom} onChange={(e) => setUploadNom(e.target.value)} placeholder="Nom du document" className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea value={uploadDescription} onChange={(e) => setUploadDescription(e.target.value)} placeholder="Description optionnelle" rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => { setShowUploadModal(false); setUploadFiles([]); setUploadNom(''); setUploadDescription(''); }} className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50">Annuler</button>
+              <button onClick={handleUploadDocument} disabled={uploading} className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50">{uploading ? 'Upload en cours...' : 'Uploader'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
+      {/* Modal de visualisation */}
+      {viewingDocument && documentUrl && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-[90vw] h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h2 className="text-xl font-bold">{viewingDocument.nom}</h2>
+              <div className="flex gap-2">
+                <button onClick={() => handleDownload(viewingDocument)} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm">⬇ Télécharger</button>
+                <button onClick={closeViewer} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm">✕ Fermer</button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden p-4">
+              {viewingDocument.fichierType === 'application/pdf' || viewingDocument.fichierType?.includes('pdf') ? (
+                <iframe src={documentUrl} className="w-full h-full border-0" title={viewingDocument.nom} />
+              ) : viewingDocument.fichierType?.includes('image') ? (
+                <img src={documentUrl} alt={viewingDocument.nom} className="max-w-full max-h-full object-contain mx-auto" />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                  <p className="text-lg mb-4">Aperçu non disponible pour ce type de fichier</p>
+                  <button onClick={() => handleDownload(viewingDocument)} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Télécharger le fichier</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
