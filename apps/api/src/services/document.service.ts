@@ -100,6 +100,13 @@ export class DocumentService {
             select: { id: true, nom: true, codeProcessus: true },
           });
         }
+        let projet = null;
+        if (doc.referenceType === 'projet' && doc.referenceId) {
+          projet = await prisma.projet.findUnique({
+            where: { id: doc.referenceId },
+            select: { id: true, nom: true, codeProjet: true },
+          });
+        }
         
         // Compter les téléchargements et visualisations
         const [telechargements, visualisations] = await Promise.all([
@@ -122,6 +129,7 @@ export class DocumentService {
         return {
           ...doc,
           processus: processus || null,
+          projet: projet || null,
           nombreTelechargements: telechargements,
           nombreVisualisations: visualisations,
         };
@@ -208,6 +216,30 @@ export class DocumentService {
       });
       if (processus && (processus.proprietaireId === userId || processus.createdById === userId)) {
         return true;
+      }
+    }
+    // Vérifier si le document est lié à un projet et si l'utilisateur fait partie de la gouvernance
+    if (document.referenceType === 'projet' && document.referenceId) {
+      const projet = await prisma.projet.findUnique({
+        where: { id: document.referenceId },
+        include: {
+          sponsors: true,
+          chefsProjet: true,
+          techLeads: true,
+          equipe: true,
+        },
+      });
+      if (projet) {
+        if (projet.createdById === userId) return true;
+        if (projet.responsableId === userId) return true;
+        if (projet.gestionnaireId === userId) return true;
+        const gouvernanceIds = [
+          ...projet.sponsors.map((s: any) => s.userId),
+          ...projet.chefsProjet.map((s: any) => s.userId),
+          ...projet.techLeads.map((s: any) => s.userId),
+          ...projet.equipe.map((s: any) => s.userId),
+        ];
+        if (gouvernanceIds.includes(userId)) return true;
       }
     }
 

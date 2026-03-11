@@ -53,7 +53,6 @@ enum RefType {
   processus
   projet
   entite
-  clientFournisseur
 }
 
 enum DocStatut {
@@ -87,7 +86,6 @@ enum PermissionResource {
   projet
   document
   entite
-  clientFournisseur
 }
 
 enum PermissionType {
@@ -131,9 +129,6 @@ model User {
   // NOUVEAU - Relations projets gouvernance
   projetsSponsor        ProjetSponsor[]
   projetsChefProjet     ProjetChefProjet[]
-  projetsCreatedBy      Projet[]    @relation("ProjetCreatedBy")
-  projetsResponsable    Projet[]    @relation("ProjetResponsable")
-  projetsGestionnaire   Projet[]    @relation("ProjetGestionnaire")
   projetsTechLead       ProjetTechLead[]
   projetsEquipe         ProjetEquipe[]
 
@@ -270,8 +265,6 @@ model Projet {
   budgetConsomme        Decimal?        @db.Decimal(15, 2)
   responsableId         String?
   gestionnaireId        String?
-  responsable           User?           @relation("ProjetResponsable", fields: [responsableId], references: [id], onDelete: SetNull)
-  gestionnaire          User?           @relation("ProjetGestionnaire", fields: [gestionnaireId], references: [id], onDelete: SetNull)
 
   // NOUVEAU - Contexte et description
   contexte              String?
@@ -288,8 +281,6 @@ model Projet {
   // NOUVEAU - Parties prenantes (JSON: [{type: string, nom: string}])
   partiesPrenantes      String?
 
-  createdById           String?
-  createdBy             User?             @relation("ProjetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
 
@@ -301,7 +292,6 @@ model Projet {
   chefsProjet           ProjetChefProjet[]
   techLeads             ProjetTechLead[]
   equipe                ProjetEquipe[]
-  clientsFournisseurs   ClientFournisseurProjet[]
 
   @@index([statut])
   @@index([codeProjet])
@@ -548,52 +538,4 @@ model FavorisDocument {
   @@unique([userId, documentId])
   @@index([userId])
   @@index([documentId])
-}
-
-model TypeSociete {
-  id          String   @id @default(uuid())
-  nom         String   @unique
-  description String?
-  actif       Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  clientsFournisseurs ClientFournisseur[]
-}
-
-model ClientFournisseur {
-  id               String   @id @default(uuid())
-  type             String   // 'client' | 'fournisseur'
-  nom              String
-  typeSocieteId    String?
-  typeSociete      TypeSociete? @relation(fields: [typeSocieteId], references: [id], onDelete: SetNull)
-  matriculeFiscale String?
-  adresse          String?
-  pays             String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  representants    RepresentantLegal[]
-  projets          ClientFournisseurProjet[]
-}
-
-model RepresentantLegal {
-  id                  String   @id @default(uuid())
-  clientFournisseurId String
-  clientFournisseur   ClientFournisseur @relation(fields: [clientFournisseurId], references: [id], onDelete: Cascade)
-  nom                 String
-  prenom              String
-  fonction            String?
-  statut              String   @default("en_exercice") // 'en_exercice' | 'fin_exercice'
-  dateDebut           DateTime?
-  dateFin             DateTime?
-  createdAt           DateTime @default(now())
-}
-
-model ClientFournisseurProjet {
-  id                  String   @id @default(uuid())
-  clientFournisseurId String
-  clientFournisseur   ClientFournisseur @relation(fields: [clientFournisseurId], references: [id], onDelete: Cascade)
-  projetId            String
-  projet              Projet   @relation(fields: [projetId], references: [id], onDelete: Cascade)
-  createdAt           DateTime @default(now())
-  @@unique([clientFournisseurId, projetId])
 }

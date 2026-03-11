@@ -44,6 +44,10 @@ export class ProjetService {
         chefsProjet: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
         techLeads: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
         equipe: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
+        clientsFournisseurs: { include: { clientFournisseur: { include: { typeSociete: true, representants: true } } } },
+        responsable: { select: { id: true, nom: true, prenom: true } },
+        gestionnaire: { select: { id: true, nom: true, prenom: true } },
+        createdBy: { select: { id: true, nom: true, prenom: true } },
       },
       orderBy,
     });
@@ -88,6 +92,10 @@ export class ProjetService {
         chefsProjet: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
         techLeads: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
         equipe: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
+        clientsFournisseurs: { include: { clientFournisseur: { include: { typeSociete: true, representants: true } } } },
+        responsable: { select: { id: true, nom: true, prenom: true } },
+        gestionnaire: { select: { id: true, nom: true, prenom: true } },
+        createdBy: { select: { id: true, nom: true, prenom: true } },
       },
     });
 
@@ -175,6 +183,10 @@ export class ProjetService {
         chefsProjet: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
         techLeads: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
         equipe: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
+        clientsFournisseurs: { include: { clientFournisseur: { include: { typeSociete: true, representants: true } } } },
+        responsable: { select: { id: true, nom: true, prenom: true } },
+        gestionnaire: { select: { id: true, nom: true, prenom: true } },
+        createdBy: { select: { id: true, nom: true, prenom: true } },
       },
     });
   }
@@ -274,6 +286,10 @@ export class ProjetService {
         chefsProjet: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
         techLeads: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
         equipe: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
+        clientsFournisseurs: { include: { clientFournisseur: { include: { typeSociete: true, representants: true } } } },
+        responsable: { select: { id: true, nom: true, prenom: true } },
+        gestionnaire: { select: { id: true, nom: true, prenom: true } },
+        createdBy: { select: { id: true, nom: true, prenom: true } },
       },
     });
   }

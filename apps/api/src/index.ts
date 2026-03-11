@@ -19,6 +19,7 @@ import * as smtpController from "./controllers/smtp.controller";
 import * as projetController from "./controllers/projet.controller";
 import * as corbeilleController from "./controllers/corbeille.controller";
 import * as favorisController from "./controllers/favoris.controller";
+import * as clientFournisseurController from "./controllers/client-fournisseur.controller";
 
 const app = express();
 app.use(helmet());
@@ -158,6 +159,23 @@ app.post("/api/v1/favoris/documents/:id", favorisController.ajouterDocumentFavor
 app.delete("/api/v1/favoris/documents/:id", favorisController.retirerDocumentFavori);
 app.get("/api/v1/favoris/processus/:id/check", favorisController.estProcessusFavori);
 app.get("/api/v1/favoris/documents/:id/check", favorisController.estDocumentFavori);
+// Types de société
+app.get("/api/v1/types-societe", clientFournisseurController.getTypesSociete);
+app.post("/api/v1/types-societe", clientFournisseurController.createTypeSociete);
+app.put("/api/v1/types-societe/:id", clientFournisseurController.updateTypeSociete);
+app.delete("/api/v1/types-societe/:id", clientFournisseurController.deleteTypeSociete);
+// Clients / Fournisseurs
+app.get("/api/v1/clients-fournisseurs", clientFournisseurController.getClientsFournisseurs);
+app.get("/api/v1/clients-fournisseurs/:id", clientFournisseurController.getClientFournisseur);
+app.post("/api/v1/clients-fournisseurs", clientFournisseurController.createClientFournisseur);
+app.put("/api/v1/clients-fournisseurs/:id", clientFournisseurController.updateClientFournisseur);
+app.delete("/api/v1/clients-fournisseurs/:id", clientFournisseurController.deleteClientFournisseur);
+// Représentants légaux
+app.post("/api/v1/clients-fournisseurs/:id/representants", clientFournisseurController.addRepresentant);
+app.put("/api/v1/clients-fournisseurs/:id/representants/:repId", clientFournisseurController.updateRepresentant);
+app.delete("/api/v1/clients-fournisseurs/:id/representants/:repId", clientFournisseurController.deleteRepresentant);
+app.post("/api/v1/clients-fournisseurs/:id/projets", clientFournisseurController.addProjet);
+app.delete("/api/v1/clients-fournisseurs/:id/projets/:projetId", clientFournisseurController.removeProjet);
 
 // Gestion des erreurs
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

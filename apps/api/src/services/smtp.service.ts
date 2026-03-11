@@ -133,6 +133,7 @@ export class SMTPService {
       host: config.host,
       port: config.port,
       secure: config.secure, // true pour 465, false pour autres ports
+      tls: { rejectUnauthorized: false },
       auth: {
         user: config.user,
         pass: config.password,

@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
+import { useAuth } from '../store/auth';
 
 const STATUS_COLORS: Record<string, string> = {
   'en_preparation': 'bg-yellow-100 text-yellow-800',
@@ -25,11 +26,16 @@ const PARTIES_PRENANTES_OPTIONS = [
   'Utilisateurs finaux', 'Autorités réglementaires'
 ];
 
-type UserOption = { id: string; nom: string; prenom: string; };
+type UserOption = { id: string; nom: string; prenom: string; role?: string; };
 
 export default function ProjetDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user: currentUser } = useAuth();
+  const [showAccesModal, setShowAccesModal] = useState(false);
+  const [acceDoc, setAcceDoc] = useState<any>(null);
+  const [acceEstConfidentiel, setAcceEstConfidentiel] = useState(false);
+  const [accePermissionUserIds, setAccePermissionUserIds] = useState<string[]>([]);
   const printRef = useRef<HTMLDivElement>(null);
 
   const [projet, setProjet] = useState<any>(null);
@@ -43,6 +49,8 @@ export default function ProjetDetail() {
   const [form, setForm] = useState<any>({});
   // Stakeholders with names
   const [partiesPrenantes, setPartiesPrenantes] = useState<{ type: string; nom: string }[]>([]);
+  const [clientsFournisseurs, setClientsFournisseurs] = useState<any[]>([]);
+  const [newPartieCFId, setNewPartieCFId] = useState("");
   const [newPartie, setNewPartie] = useState({ type: 'Clients', nom: '' });
   // KPIs
   const [kpis, setKpis] = useState<string[]>([]);
@@ -55,10 +63,16 @@ export default function ProjetDetail() {
   // Documents
   const [documents, setDocuments] = useState<any[]>([]);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showLierModal, setShowLierModal] = useState(false);
+  const [allDocuments, setAllDocuments] = useState<any[]>([]);
+  const [searchDoc, setSearchDoc] = useState('');
+  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadNom, setUploadNom] = useState('');
   const [uploadDescription, setUploadDescription] = useState('');
+  const [uploadEstConfidentiel, setUploadEstConfidentiel] = useState(false);
+  const [uploadPermissionUserIds, setUploadPermissionUserIds] = useState<string[]>([]);
   const [viewingDocument, setViewingDocument] = useState<any>(null);
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
 
@@ -66,6 +80,7 @@ export default function ProjetDetail() {
     loadProjet();
     loadUsers();
     loadDocuments();
+    loadClientsFournisseurs();
   }, [id]);
 
   const loadProjet = async () => {
@@ -105,7 +120,7 @@ export default function ProjetDetail() {
   const loadUsers = async () => {
     try {
       const response = await api.get('/users');
-      setUsers(response.data.map((u: any) => ({ id: u.id, nom: u.nom, prenom: u.prenom })));
+      setUsers(response.data.map((u: any) => ({ id: u.id, nom: u.nom, prenom: u.prenom, role: u.role })));
     } catch (err) {
       console.error('Erreur chargement users:', err);
     }
@@ -117,6 +132,12 @@ export default function ProjetDetail() {
     } catch (err) {
       console.error('Erreur chargement documents:', err);
     }
+  };
+  const loadClientsFournisseurs = async () => {
+    try {
+      const r = await api.get("/clients-fournisseurs");
+      setClientsFournisseurs(r.data);
+    } catch (err) { console.error(err); }
   };
   const handleUploadDocument = async () => {
     if (uploadFiles.length === 0) { alert('Veuillez sélectionner un fichier'); return; }
@@ -130,7 +151,10 @@ export default function ProjetDetail() {
         formData.append('referenceType', 'projet');
         formData.append('referenceId', id!);
         formData.append('description', uploadDescription);
-        formData.append('estConfidentiel', 'false');
+        formData.append('estConfidentiel', uploadEstConfidentiel.toString());
+        if (uploadEstConfidentiel && uploadPermissionUserIds.length > 0) {
+          uploadPermissionUserIds.forEach(uid => formData.append('permissionUserIds', uid));
+        }
         formData.append('versionMajeure', '1');
         formData.append('versionMineure', '0');
         formData.append('versionPatch', '0');
@@ -140,6 +164,8 @@ export default function ProjetDetail() {
       setUploadFiles([]);
       setUploadNom('');
       setUploadDescription('');
+      setUploadEstConfidentiel(false);
+      setUploadPermissionUserIds([]);
       await loadDocuments();
     } catch (err) {
       console.error('Erreur upload:', err);
@@ -155,7 +181,7 @@ export default function ProjetDetail() {
       setDocumentUrl(url);
       setViewingDocument(doc);
     } catch (err) {
-      alert('Erreur lors de la visualisation du document');
+      alert('Fichier introuvable sur le serveur. Il a peut-être été supprimé ou uploadé dans un ancien environnement. Veuillez ré-uploader le document.');
     }
   };
   const closeViewer = () => {
@@ -185,6 +211,92 @@ export default function ProjetDetail() {
       URL.revokeObjectURL(url);
     } catch (err) {
       alert('Erreur lors du téléchargement');
+    }
+  };
+  const loadAllDocuments = async () => {
+    try {
+      const response = await api.get('/documents');
+      setAllDocuments(response.data);
+    } catch (err) {
+      console.error('Erreur chargement documents:', err);
+    }
+  };
+  const handleOpenLierModal = async () => {
+    await loadAllDocuments();
+    setSelectedDocIds([]);
+    setSearchDoc('');
+    setShowLierModal(true);
+  };
+  const handleToggleDoc = (docId: string) => {
+    setSelectedDocIds(prev =>
+      prev.includes(docId) ? prev.filter(id => id !== docId) : [...prev, docId]
+    );
+  };
+  const handleLierDocuments = async () => {
+    try {
+      await Promise.all(selectedDocIds.map(docId =>
+        api.put(`/documents/${docId}`, { referenceType: 'projet', referenceId: id })
+      ));
+      setShowLierModal(false);
+      setSelectedDocIds([]);
+      await loadDocuments();
+    } catch (err) {
+      alert('Erreur lors de la liaison des documents');
+    }
+  };
+  const handleDelierDocument = async (docId: string, docNom: string) => {
+    if (!confirm(`Délier le document "${docNom}" de ce projet ?`)) return;
+    try {
+      await api.put(`/documents/${docId}`, { referenceType: null, referenceId: null, typeDocument: 'general' });
+      await loadDocuments();
+    } catch (err) {
+      alert('Erreur lors de la déliaison du document');
+    }
+  };
+  const canModifierAcces = (doc: any) => {
+    if (!currentUser) return false;
+    if (currentUser.role === 'admin') return true;
+    if (projet && projet.createdById === currentUser.id) return true;
+    if (doc.uploadedById === currentUser.id) return true;
+    const chefIds = (projet?.chefsProjet || []).map((s: any) => s.user?.id || s.id);
+    if (chefIds.includes(currentUser.id)) return true;
+    return false;
+  };
+  const canModifierStatut = (doc: any) => {
+    if (!currentUser) return false;
+    if (currentUser.role === 'admin') return true;
+    if (projet && projet.createdById === currentUser.id) return true;
+    if (doc.uploadedById === currentUser.id) return true;
+    const chefIds = (projet?.chefsProjet || []).map((s: any) => s.user?.id || s.id);
+    if (chefIds.includes(currentUser.id)) return true;
+    return false;
+  };
+  const handleChangeStatut = async (docId: string, newStatut: string) => {
+    try {
+      await api.put(`/documents/${docId}`, { statut: newStatut });
+      await loadDocuments();
+    } catch (err) {
+      alert('Erreur lors du changement de statut');
+    }
+  };
+  const handleOpenAccesModal = (doc: any) => {
+    setAcceDoc(doc);
+    setAcceEstConfidentiel(doc.estConfidentiel || false);
+    setAccePermissionUserIds(doc.permissionsUtilisateurs?.map((p: any) => p.userId || p.user?.id).filter(Boolean) || []);
+    setShowAccesModal(true);
+  };
+  const handleSaveAcces = async () => {
+    if (!acceDoc) return;
+    try {
+      await api.put(`/documents/${acceDoc.id}`, {
+        estConfidentiel: acceEstConfidentiel,
+        permissionUserIds: acceEstConfidentiel ? accePermissionUserIds : [],
+      });
+      setShowAccesModal(false);
+      setAcceDoc(null);
+      await loadDocuments();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Erreur lors de la modification de l\'accès');
     }
   };
 
@@ -475,6 +587,38 @@ export default function ProjetDetail() {
                 </div>
               )}
             </div>
+            {/* Clients / Fournisseurs liés */}
+            <div className="mt-5">
+              <label className="block text-sm font-medium text-gray-700 mb-2">🏢 Clients / Fournisseurs liés</label>
+              {projet?.clientsFournisseurs?.length > 0 ? (
+                <div className="space-y-1 mb-3">
+                  {projet.clientsFournisseurs.map((cfp: any) => (
+                    <div key={cfp.clientFournisseurId} className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${cfp.clientFournisseur?.type === 'client' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}>
+                        {cfp.clientFournisseur?.type === 'client' ? '👤 Client' : '🏭 Fournisseur'}
+                      </span>
+                      <span className="text-sm text-gray-700">{cfp.clientFournisseur?.nom}</span>
+                      {editing && (
+                        <button onClick={async () => { await api.delete(`/clients-fournisseurs/${cfp.clientFournisseurId}/projets/${id}`); loadProjet(); }} className="text-red-400 hover:text-red-600 text-xs ml-auto">✕</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 italic mb-3">Aucun client/fournisseur lié</p>
+              )}
+              {editing && (
+                <div className="flex gap-2 mt-2">
+                  <select value={newPartieCFId} onChange={(e) => setNewPartieCFId(e.target.value)} className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm">
+                    <option value="">— Sélectionner un client/fournisseur —</option>
+                    {clientsFournisseurs.filter((cf: any) => !projet?.clientsFournisseurs?.some((cfp: any) => cfp.clientFournisseurId === cf.id)).map((cf: any) => (
+                      <option key={cf.id} value={cf.id}>[{cf.type === 'client' ? 'Client' : 'Fournisseur'}] {cf.nom}</option>
+                    ))}
+                  </select>
+                  <button onClick={async () => { if (!newPartieCFId) return; await api.post(`/clients-fournisseurs/${newPartieCFId}/projets`, { projetId: id }); setNewPartieCFId(""); loadProjet(); loadClientsFournisseurs(); }} className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">Lier</button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* ③ Contexte et description */}
@@ -607,7 +751,7 @@ export default function ProjetDetail() {
         <div className="bg-white rounded-lg shadow p-6 mt-6 print:hidden">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-gray-900">📎 Documents du projet</h2>
-            <button onClick={() => setShowUploadModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700">+ Ajouter un document</button>
+            <div className="flex gap-2"><button onClick={() => setShowUploadModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700">+ Ajouter un document</button><button onClick={handleOpenLierModal} className="px-4 py-2 bg-gray-600 text-white rounded-md text-sm hover:bg-gray-700">🔗 Lier un document existant</button></div>
           </div>
           {documents.length === 0 ? (
             <p className="text-sm text-gray-400 italic">Aucun document attaché à ce projet</p>
@@ -619,6 +763,8 @@ export default function ProjetDetail() {
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Taille</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Accès</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
@@ -630,7 +776,72 @@ export default function ProjetDetail() {
                     <td className="px-4 py-2 text-sm text-gray-500">{doc.fichierTaille ? Math.round(doc.fichierTaille / 1024) + ' Ko' : '-'}</td>
                     <td className="px-4 py-2 text-sm text-gray-500">{new Date(doc.createdAt).toLocaleDateString('fr-FR')}</td>
                     <td className="px-4 py-2 text-sm">
-                      <div className="flex gap-2"><button onClick={() => handleViewDocument(doc)} className="px-3 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">👁 Visualiser</button><button onClick={() => handleDownload(doc)} className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200">⬇ Télécharger</button><button onClick={() => handleDeleteDocument(doc.id, doc.nom)} className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200">🗑 Supprimer</button></div>
+                      {canModifierStatut(doc) ? (
+                        <select value={doc.statut} onChange={(e) => handleChangeStatut(doc.id, e.target.value)} className="text-xs border border-gray-300 rounded px-1 py-0.5 cursor-pointer">
+                          <option value="brouillon">brouillon</option>
+                          <option value="en_revision">en_revision</option>
+                          <option value="valide">valide</option>
+                          <option value="archive">archive</option>
+                        </select>
+                      ) : (
+                        <span className={`px-2 py-1 text-xs rounded ${
+                          doc.statut === 'valide' ? 'bg-green-100 text-green-800' :
+                          doc.statut === 'en_revision' ? 'bg-yellow-100 text-yellow-800' :
+                          doc.statut === 'archive' ? 'bg-red-100 text-red-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>{doc.statut}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-sm">
+                      {doc.estConfidentiel ? (
+                        <div>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">🔒 Accès restreint</span>
+                          <div className="mt-1 text-xs text-gray-600 space-y-0.5">
+                            {(() => {
+                              const ayantsDroit: {nom: string, droits: string}[] = [];
+                              const addPerson = (id: string, nom: string, droits: string) => {
+                                if (!ayantsDroit.find(a => a.nom === nom)) ayantsDroit.push({ nom, droits });
+                              };
+                              users.filter(u => u.role === 'admin').forEach(u => addPerson(u.id, `${u.prenom} ${u.nom}`, 'Admin : modification statut + accès + lecture'));
+                              if (doc.uploadedBy) addPerson(doc.uploadedBy.id, `${doc.uploadedBy.prenom} ${doc.uploadedBy.nom}`, 'Uploadeur : modification statut + accès + lecture');
+                              if (projet?.createdBy) addPerson(projet.createdBy.id, `${projet.createdBy.prenom} ${projet.createdBy.nom}`, 'Créateur : modification statut + accès + lecture');
+                              (doc.permissionsUtilisateurs || []).forEach((p: any) => { if (p.user) addPerson(p.user.id, `${p.user.prenom} ${p.user.nom}`, 'Accès explicite : lecture'); });
+                              if (ayantsDroit.length === 0) return <span className="italic text-gray-400">Aucun utilisateur défini</span>;
+                              return ayantsDroit.map((a, i) => (
+                                <div key={i}><span className="font-medium">{a.nom}</span> <span className="text-gray-400">({a.droits})</span></div>
+                              ));
+                            })()}
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">🌐 Accès libre</span>
+                          <div className="mt-1 text-xs text-gray-600 space-y-0.5">
+                            {(() => {
+                              const ayantsDroit: {nom: string, droits: string}[] = [];
+                              const addPerson = (id: string, nom: string, droits: string) => {
+                                if (!ayantsDroit.find(a => a.nom === nom)) ayantsDroit.push({ nom, droits });
+                              };
+                              users.filter(u => u.role === 'admin').forEach(u => addPerson(u.id, `${u.prenom} ${u.nom}`, 'Admin : modification statut + accès + lecture'));
+                              if (doc.uploadedBy) addPerson(doc.uploadedBy.id, `${doc.uploadedBy.prenom} ${doc.uploadedBy.nom}`, 'Uploadeur : modification statut + accès + lecture');
+                              if (projet?.createdBy) addPerson(projet.createdBy.id, `${projet.createdBy.prenom} ${projet.createdBy.nom}`, 'Créateur : modification statut + accès + lecture');
+                              (projet?.chefsProjet || []).forEach((s: any) => { const u = s.user || s; addPerson(u.id, `${u.prenom} ${u.nom}`, 'Chef de projet : modification statut + lecture'); });
+                              if (projet?.responsable) addPerson(projet.responsable.id, `${projet.responsable.prenom} ${projet.responsable.nom}`, 'Responsable : lecture');
+                              if (projet?.gestionnaire) addPerson(projet.gestionnaire.id, `${projet.gestionnaire.prenom} ${projet.gestionnaire.nom}`, 'Gestionnaire : lecture');
+                              (projet?.sponsors || []).forEach((s: any) => { const u = s.user || s; addPerson(u.id, `${u.prenom} ${u.nom}`, 'Sponsor : lecture'); });
+                              (projet?.techLeads || []).forEach((s: any) => { const u = s.user || s; addPerson(u.id, `${u.prenom} ${u.nom}`, 'Tech Lead : lecture'); });
+                              (projet?.equipe || []).forEach((s: any) => { const u = s.user || s; addPerson(u.id, `${u.prenom} ${u.nom}`, 'Équipe : lecture'); });
+                              if (ayantsDroit.length === 0) return <span className="italic text-gray-400">Aucune gouvernance définie</span>;
+                              return ayantsDroit.map((a, i) => (
+                                <div key={i}><span className="font-medium">{a.nom}</span> <span className="text-gray-400">({a.droits})</span></div>
+                              ));
+                            })()}
+                          </div>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-sm">
+                      <div className="flex gap-2"><button onClick={() => handleViewDocument(doc)} className="px-3 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">👁 Visualiser</button><button onClick={() => handleDownload(doc)} className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200">⬇ Télécharger</button>{doc.typeDocument !== 'projet' && <button onClick={() => handleDelierDocument(doc.id, doc.nom)} className="px-3 py-1 bg-orange-100 text-orange-700 rounded text-xs hover:bg-orange-200">🔗 Délier</button>}{canModifierAcces(doc) && <button onClick={() => handleOpenAccesModal(doc)} className="px-3 py-1 bg-purple-100 text-purple-700 rounded text-xs hover:bg-purple-200">🔑 Accès</button>}<button onClick={() => handleDeleteDocument(doc.id, doc.nom)} className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200">🗑 Supprimer</button></div>
                     </td>
                   </tr>
                 ))}
@@ -639,6 +850,87 @@ export default function ProjetDetail() {
           )}
         </div>
         </div>{/* fin print-zone */}
+      {/* Modal Modifier Accès */}
+      {showAccesModal && acceDoc && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">🔑 Modifier l'accès — {acceDoc.nom}</h3>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="acceConfidentiel" checked={acceEstConfidentiel} onChange={(e) => { setAcceEstConfidentiel(e.target.checked); if (!e.target.checked) setAccePermissionUserIds([]); }} />
+                <label htmlFor="acceConfidentiel" className="text-sm text-gray-700">Accès restreint (document confidentiel)</label>
+              </div>
+              {acceEstConfidentiel && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Utilisateurs autorisés :</label>
+                  <select multiple value={accePermissionUserIds} onChange={(e) => setAccePermissionUserIds(Array.from(e.target.selectedOptions, o => o.value))} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm h-40">
+                    {users.map(u => <option key={u.id} value={u.id}>{u.prenom} {u.nom}</option>)}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">Maintenez Ctrl (Cmd sur Mac) pour sélectionner plusieurs utilisateurs</p>
+                  {accePermissionUserIds.length > 0 && <p className="text-xs text-blue-600 mt-1">{accePermissionUserIds.length} utilisateur(s) sélectionné(s)</p>}
+                </div>
+              )}
+              {!acceEstConfidentiel && (
+                <p className="text-sm text-green-600">🌐 Le document sera accessible à tous les utilisateurs</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => { setShowAccesModal(false); setAcceDoc(null); }} className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50">Annuler</button>
+              <button onClick={handleSaveAcces} className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700">Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal Lier Document Existant */}
+      {showLierModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <h3 className="text-lg font-semibold mb-4">🔗 Lier un document existant</h3>
+            <input
+              type="text"
+              value={searchDoc}
+              onChange={(e) => setSearchDoc(e.target.value)}
+              placeholder="Rechercher un document..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-4"
+            />
+            <div className="overflow-y-auto flex-1 border border-gray-200 rounded-md">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500"></th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Lié à</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {allDocuments
+                    .filter(d => d.nom.toLowerCase().includes(searchDoc.toLowerCase()))
+                    .map(d => (
+                      <tr key={d.id} onClick={() => handleToggleDoc(d.id)} className="cursor-pointer hover:bg-blue-50">
+                        <td className="px-3 py-2">
+                          <input type="checkbox" checked={selectedDocIds.includes(d.id)} onChange={() => handleToggleDoc(d.id)} onClick={e => e.stopPropagation()} />
+                        </td>
+                        <td className="px-3 py-2 text-sm font-medium text-gray-900">{d.nom}</td>
+                        <td className="px-3 py-2 text-sm text-gray-500">{d.typeDocument}</td>
+                        <td className="px-3 py-2 text-sm text-gray-500">
+                          {d.processus ? d.processus.nom : d.projet ? d.projet.nom : 'Général'}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+            {selectedDocIds.length > 0 && (
+              <p className="text-sm text-blue-600 mt-2">{selectedDocIds.length} document(s) sélectionné(s)</p>
+            )}
+            <div className="flex justify-end gap-3 mt-4">
+              <button onClick={() => setShowLierModal(false)} className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50">Annuler</button>
+              <button onClick={handleLierDocuments} disabled={selectedDocIds.length === 0} className="px-4 py-2 bg-gray-600 text-white rounded-md text-sm hover:bg-gray-700 disabled:opacity-50">Lier ({selectedDocIds.length})</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Modal Upload Document */}
       {showUploadModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -657,6 +949,23 @@ export default function ProjetDetail() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
                 <textarea value={uploadDescription} onChange={(e) => setUploadDescription(e.target.value)} placeholder="Description optionnelle" rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Accès</label>
+                <div className="flex items-center gap-2 mb-2">
+                  <input type="checkbox" id="estConfidentiel" checked={uploadEstConfidentiel} onChange={(e) => { setUploadEstConfidentiel(e.target.checked); if (!e.target.checked) setUploadPermissionUserIds([]); }} />
+                  <label htmlFor="estConfidentiel" className="text-sm text-gray-700">Accès restreint (document confidentiel)</label>
+                </div>
+                {uploadEstConfidentiel && (
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Sélectionner les utilisateurs autorisés :</label>
+                    <select multiple value={uploadPermissionUserIds} onChange={(e) => setUploadPermissionUserIds(Array.from(e.target.selectedOptions, o => o.value))} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm h-32">
+                      {users.map(u => <option key={u.id} value={u.id}>{u.prenom} {u.nom}</option>)}
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">Maintenez Ctrl (Cmd sur Mac) pour sélectionner plusieurs utilisateurs</p>
+                    {uploadPermissionUserIds.length > 0 && <p className="text-xs text-blue-600 mt-1">{uploadPermissionUserIds.length} utilisateur(s) sélectionné(s)</p>}
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">

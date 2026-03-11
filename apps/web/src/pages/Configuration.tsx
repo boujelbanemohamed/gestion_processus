@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
 
-type TabType = 'categories' | 'smtp';
+type TabType = 'categories' | 'smtp' | 'typesSociete';
 
 export default function Configuration() {
   const [activeTab, setActiveTab] = useState<TabType>('categories');
@@ -25,6 +25,11 @@ export default function Configuration() {
   // SMTP
   const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
   const [smtpLoading, setSmtpLoading] = useState(true);
+  const [typesSocieteList, setTypesSocieteList] = useState<any[]>([]);
+  const [tsLoading, setTsLoading] = useState(false);
+  const [showTsModal, setShowTsModal] = useState(false);
+  const [editingTs, setEditingTs] = useState<any>(null);
+  const [tsForm, setTsForm] = useState({ nom: '', description: '' });
   const [showSmtpModal, setShowSmtpModal] = useState(false);
   const [editingSmtp, setEditingSmtp] = useState<any>(null);
   const [smtpFormData, setSmtpFormData] = useState({
@@ -45,11 +50,29 @@ export default function Configuration() {
   useEffect(() => {
     if (activeTab === 'categories') {
       loadCategories();
+    } else if (activeTab === 'typesSociete') {
+      loadTypesSociete();
     } else if (activeTab === 'smtp') {
       loadSmtpConfigs();
     }
   }, [activeTab]);
 
+  const loadTypesSociete = async () => {
+    setTsLoading(true);
+    try { const r = await api.get("/types-societe"); setTypesSocieteList(r.data); } catch(e) { console.error(e); }
+    setTsLoading(false);
+  };
+  const handleSaveTs = async () => {
+    try {
+      if (editingTs) await api.put(`/types-societe/${editingTs.id}`, tsForm);
+      else await api.post("/types-societe", tsForm);
+      setShowTsModal(false); setEditingTs(null); setTsForm({ nom: "", description: "" }); loadTypesSociete();
+    } catch(e) { alert("Erreur"); }
+  };
+  const handleDeleteTs = async (id: string, nom: string) => {
+    if (!confirm(`Supprimer "${nom}" ?`)) return;
+    await api.delete(`/types-societe/${id}`); loadTypesSociete();
+  };
   const loadCategories = async () => {
     try {
       const response = await api.get('/categories');
@@ -276,6 +299,16 @@ export default function Configuration() {
             }`}
           >
             Configuration SMTP
+          </button>
+          <button
+            onClick={() => setActiveTab('typesSociete')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'typesSociete'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Types de société
           </button>
         </nav>
       </div>
@@ -851,6 +884,52 @@ export default function Configuration() {
             )}
           </div>
         </>
+      )}
+      {activeTab === 'typesSociete' && (
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Types de société</h2>
+            <button onClick={() => { setEditingTs(null); setTsForm({ nom: '', description: '' }); setShowTsModal(true); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">+ Ajouter</button>
+          </div>
+          {tsLoading ? <div className="text-gray-400">Chargement...</div> : (
+            <div className="space-y-2">
+              {typesSocieteList.length === 0 && <div className="text-gray-400 text-sm">Aucun type de société défini</div>}
+              {typesSocieteList.map(ts => (
+                <div key={ts.id} className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-4 py-3">
+                  <div>
+                    <span className="font-medium text-gray-900">{ts.nom}</span>
+                    {ts.description && <span className="ml-3 text-sm text-gray-500">{ts.description}</span>}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setEditingTs(ts); setTsForm({ nom: ts.nom, description: ts.description || '' }); setShowTsModal(true); }} className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">✏️ Modifier</button>
+                    <button onClick={() => handleDeleteTs(ts.id, ts.nom)} className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">🗑 Supprimer</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {showTsModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-4">{editingTs ? '✏️ Modifier' : '+ Ajouter'} un type de société</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Nom *</label>
+                    <input type="text" value={tsForm.nom} onChange={e => setTsForm({...tsForm, nom: e.target.value})} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm" placeholder="Ex: SARL, SA, SAS..." />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <input type="text" value={tsForm.description} onChange={e => setTsForm({...tsForm, description: e.target.value})} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm" />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 mt-4">
+                  <button onClick={() => setShowTsModal(false)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Annuler</button>
+                  <button onClick={handleSaveTs} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">Enregistrer</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

@@ -38,6 +38,10 @@ export default function Documents() {
   const [permissionUserIds, setPermissionUserIds] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [showAccesModal, setShowAccesModal] = useState(false);
+  const [acceDoc, setAcceDoc] = useState<any>(null);
+  const [acceEstConfidentiel, setAcceEstConfidentiel] = useState(false);
+  const [accePermissionUserIds, setAccePermissionUserIds] = useState<string[]>([]);
   const [filters, setFilters] = useState({
     search: '',
     typeDocument: '',
@@ -398,6 +402,33 @@ export default function Documents() {
     }
   };
 
+  const canModifierAcces = (doc: any) => {
+    if (!currentUser) return false;
+    if (currentUser.role === 'admin') return true;
+    if (doc.uploadedById === currentUser.id) return true;
+    if (doc.permissionsUtilisateurs?.some((p: any) => p.userId === currentUser.id || p.user?.id === currentUser.id)) return true;
+    return false;
+  };
+  const handleOpenAccesModal = (doc: any) => {
+    setAcceDoc(doc);
+    setAcceEstConfidentiel(doc.estConfidentiel || false);
+    setAccePermissionUserIds(doc.permissionsUtilisateurs?.map((p: any) => p.userId || p.user?.id).filter(Boolean) || []);
+    setShowAccesModal(true);
+  };
+  const handleSaveAcces = async () => {
+    if (!acceDoc) return;
+    try {
+      await api.put(`/documents/${acceDoc.id}`, {
+        estConfidentiel: acceEstConfidentiel,
+        permissionUserIds: acceEstConfidentiel ? accePermissionUserIds : [],
+      });
+      setShowAccesModal(false);
+      setAcceDoc(null);
+      await loadDocuments();
+    } catch (err: any) {
+      alert(err.response?.data?.error || "Erreur lors de la modification de l'accès");
+    }
+  };
   const handleDelete = async (doc: any) => {
     if (!window.confirm(`Êtes-vous sûr de vouloir supprimer le document "${doc.nom}" ?`)) {
       return;
@@ -671,7 +702,7 @@ export default function Documents() {
                   )}
                 </div>
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processus</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processus / Projet</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
               <th 
                 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
@@ -684,6 +715,7 @@ export default function Documents() {
                   )}
                 </div>
               </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Accès</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Commentaires</th>
               <th 
                 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
@@ -756,7 +788,13 @@ export default function Documents() {
                       </button>
                     )
                   ) : (
-                    <span className="text-gray-500 italic">N/A</span>
+                    d.referenceType === 'projet' && d.referenceId ? (
+                      <button onClick={() => navigate(`/projets/${d.referenceId}`)} className="text-blue-600 hover:text-blue-800 hover:underline">
+                        {d.projet ? `${d.projet.nom} (${d.projet.codeProjet})` : 'Voir le projet'}
+                      </button>
+                    ) : (
+                      <span className="text-gray-500 italic">N/A</span>
+                    )
                   )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">{d.version || '-'}</td>
@@ -801,6 +839,35 @@ export default function Documents() {
                           );
                         })()
                       }
+                    </div>
+                  )}
+                </td>
+                <td className="px-6 py-4 text-sm">
+                  {d.estConfidentiel ? (
+                    <div>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">🔒 Accès restreint</span>
+                      <div className="mt-1 text-xs text-gray-600 space-y-0.5">
+                        {(() => {
+                          const ayantsDroit: {nom: string, roles: string[]}[] = [];
+                          const addPerson = (id: string, nom: string, role: string) => {
+                            const existing = ayantsDroit.find(a => a.nom === nom);
+                            if (existing) { if (!existing.roles.includes(role)) existing.roles.push(role); }
+                            else ayantsDroit.push({ nom, roles: [role] });
+                          };
+                          usersList.filter(u => u.role === 'admin').forEach(u => addPerson(u.id, `${u.prenom} ${u.nom}`, 'Admin'));
+                          if (d.uploadedBy) addPerson(d.uploadedBy.id, `${d.uploadedBy.prenom} ${d.uploadedBy.nom}`, 'Uploadeur');
+                          (d.permissionsUtilisateurs || []).forEach((p: any) => { if (p.user) addPerson(p.user.id, `${p.user.prenom} ${p.user.nom}`, 'Accès explicite'); });
+                          if (ayantsDroit.length === 0) return <span className="italic text-gray-400">Aucun utilisateur défini</span>;
+                          return ayantsDroit.map((a, i) => (
+                            <div key={i}><span className="font-medium">{a.nom}</span> <span className="text-gray-400">({a.roles.join(', ')})</span></div>
+                          ));
+                        })()}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">🌐 Accès libre</span>
+                      <div className="mt-1 text-xs text-gray-400 italic">Tous les utilisateurs</div>
                     </div>
                   )}
                 </td>
@@ -868,6 +935,15 @@ export default function Documents() {
                       >
                         Modifier
                       </button>
+                      {canModifierAcces(d) && (
+                        <button
+                          onClick={() => handleOpenAccesModal(d)}
+                          className="px-3 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
+                          title="Modifier l'accès"
+                        >
+                          🔑 Accès
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDelete(d)}
                         className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
@@ -1415,6 +1491,37 @@ export default function Documents() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal Modifier Accès */}
+      {showAccesModal && acceDoc && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">🔑 Modifier l'accès — {acceDoc.nom}</h3>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="acceConfidentielDocs" checked={acceEstConfidentiel} onChange={(e) => { setAcceEstConfidentiel(e.target.checked); if (!e.target.checked) setAccePermissionUserIds([]); }} />
+                <label htmlFor="acceConfidentielDocs" className="text-sm text-gray-700">Accès restreint (document confidentiel)</label>
+              </div>
+              {acceEstConfidentiel && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Utilisateurs autorisés :</label>
+                  <select multiple value={accePermissionUserIds} onChange={(e) => setAccePermissionUserIds(Array.from(e.target.selectedOptions, o => o.value))} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm h-40">
+                    {usersList.map(u => <option key={u.id} value={u.id}>{u.prenom} {u.nom}</option>)}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">Maintenez Ctrl (Cmd sur Mac) pour sélectionner plusieurs utilisateurs</p>
+                  {accePermissionUserIds.length > 0 && <p className="text-xs text-blue-600 mt-1">{accePermissionUserIds.length} utilisateur(s) sélectionné(s)</p>}
+                </div>
+              )}
+              {!acceEstConfidentiel && (
+                <p className="text-sm text-green-600">🌐 Le document sera accessible à tous les utilisateurs</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => { setShowAccesModal(false); setAcceDoc(null); }} className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50">Annuler</button>
+              <button onClick={handleSaveAcces} className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700">Enregistrer</button>
             </div>
           </div>
         </div>

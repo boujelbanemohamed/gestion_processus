@@ -75,11 +75,9 @@ export class DashboardService {
         where: whereClause,
         _count: true,
       }),
-      prisma.processus.count({
-        where: { 
-          ...whereClause,
-          statut: 'actif',
-        },
+      prisma.projet.groupBy({
+        by: ['statut'],
+        _count: true,
       }),
       prisma.document.findMany({
         take: 5,
@@ -125,6 +123,10 @@ export class DashboardService {
     const parStatut: Record<string, number> = {};
     processusParStatut.forEach((item) => {
       parStatut[item.statut] = item._count;
+    });
+    const projetsParStatutMap: Record<string, number> = {};
+    projetsActifs.forEach((item: any) => {
+      projetsParStatutMap[item.statut] = item._count;
     });
 
     const documentsVisualisesIds = documentsPlusVisualises.map((item) => item.ressourceId).filter(Boolean) as string[];
@@ -173,7 +175,7 @@ export class DashboardService {
 
     return {
       processus: { total: processusTotal, parStatut },
-      projets: { actifs: projetsActifs },
+      projets: { actifs: Object.values(projetsParStatutMap).reduce((a, b) => a + b, 0), parStatut: projetsParStatutMap },
       documentsRecents: documentsRecents.map((d) => ({
         id: d.id,
         nom: d.nom,

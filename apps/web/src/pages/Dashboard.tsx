@@ -10,6 +10,7 @@ interface KPIs {
   };
   projets: {
     actifs: number;
+    parStatut: Record<string, number>;
   };
   documentsRecents: any[];
   utilisateursActifs: number;
@@ -113,6 +114,31 @@ export default function Dashboard() {
           <div className="bg-white p-4 rounded-lg shadow">
             <h2 className="text-lg font-semibold mb-4">Répartition des statuts (en %)</h2>
             <PieChart parStatut={kpis.processus.parStatut} />
+          </div>
+        </div>
+      )}
+      {kpis && kpis.projets.parStatut && Object.keys(kpis.projets.parStatut).length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h2 className="text-lg font-semibold mb-4">Projets par statut</h2>
+            <div className="space-y-2">
+              {Object.entries(kpis.projets.parStatut).map(([statut, count]) => (
+                <button
+                  key={statut}
+                  type="button"
+                  onClick={() => navigate(`/projets?statut=${encodeURIComponent(statut)}`)}
+                  className="w-full flex justify-between items-center px-3 py-2 rounded hover:bg-blue-50 transition capitalize text-left text-blue-600 hover:underline"
+                  title={`Voir les projets avec le statut ${statut}`}
+                >
+                  <span>{statut.replace(/_/g, ' ')}</span>
+                  <span className="font-bold">{count as number}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h2 className="text-lg font-semibold mb-4">Répartition des projets par statut (en %)</h2>
+            <PieChart parStatut={kpis.projets.parStatut} />
           </div>
         </div>
       )}
