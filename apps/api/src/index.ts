@@ -19,6 +19,7 @@ import * as smtpController from "./controllers/smtp.controller";
 import * as projetController from "./controllers/projet.controller";
 import * as corbeilleController from "./controllers/corbeille.controller";
 import * as favorisController from "./controllers/favoris.controller";
+import * as contratController from "./controllers/contrat.controller";
 import * as clientFournisseurController from "./controllers/client-fournisseur.controller";
 
 const app = express();
@@ -56,7 +57,11 @@ app.use(
     exposedHeaders: ["Authorization"],
   })
 );
-app.use(express.json());
+app.use((req, res, next) => {
+  const ct = req.headers['content-type'] || '';
+  if (ct.includes('multipart/form-data')) return next();
+  express.json()(req, res, next);
+});
 
 // Health check (sans auth)
 app.get("/api/v1/health", (_req, res) => {
@@ -176,6 +181,19 @@ app.put("/api/v1/clients-fournisseurs/:id/representants/:repId", clientFournisse
 app.delete("/api/v1/clients-fournisseurs/:id/representants/:repId", clientFournisseurController.deleteRepresentant);
 app.post("/api/v1/clients-fournisseurs/:id/projets", clientFournisseurController.addProjet);
 app.delete("/api/v1/clients-fournisseurs/:id/projets/:projetId", clientFournisseurController.removeProjet);
+
+// Routes Contrats
+app.get("/api/v1/contrats", contratController.getContrats);
+app.get("/api/v1/contrats/:id", contratController.getContrat);
+app.post("/api/v1/contrats", contratController.uploadContrat, contratController.createContrat);
+app.put("/api/v1/contrats/:id", contratController.updateContrat);
+app.delete("/api/v1/contrats/:id", contratController.deleteContrat);
+app.post("/api/v1/contrats/:id/permissions", contratController.addPermission);
+app.delete("/api/v1/contrats/:id/permissions/:userId", contratController.removePermission);
+app.post("/api/v1/contrats/:id/documents", contratController.addDocumentToContrat);
+app.post("/api/v1/contrats/:id/link-document", contratController.linkDocument);
+app.post("/api/v1/contrats/:id/upload", contratController.uploadContrat, contratController.uploadAndLinkDocument);
+app.delete("/api/v1/contrats/:id/documents/:documentId", contratController.removeDocumentFromContrat);
 
 // Gestion des erreurs
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

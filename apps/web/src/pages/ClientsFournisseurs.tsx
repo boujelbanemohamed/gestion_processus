@@ -14,6 +14,7 @@ export default function ClientsFournisseurs() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<any>(null);
+  const [showProjetSelect, setShowProjetSelect] = useState<string | null>(null);
   const [typesSociete, setTypesSociete] = useState<any[]>([]);
   const [projets, setProjets] = useState<any[]>([]);
   const [showRepModal, setShowRepModal] = useState(false);
@@ -141,15 +142,32 @@ export default function ClientsFournisseurs() {
                     </div>
                   )}
                   {/* Projets liés */}
-                  {item.projets?.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {item.projets.map((p: any) => (
-                        <span key={p.id} onClick={() => navigate(`/projets/${p.projet?.id}`)} className="cursor-pointer px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs hover:bg-purple-200">
-                          📁 {p.projet?.nom}
-                        </span>
+                  <div className="mt-3">
+                    <p className="text-xs font-medium text-gray-500 uppercase mb-1">Projets liés</p>
+                    <div className="flex flex-wrap gap-1 mb-1">
+                      {item.projets?.map((p: any) => (
+                        <div key={p.id} className="flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">
+                          <span className="cursor-pointer hover:underline" onClick={() => navigate(`/projets/${p.projet?.id}`)}>📁 {p.projet?.nom}</span>
+                          {canEdit && <button onClick={async () => { await api.delete(`/clients-fournisseurs/${item.id}/projets/${p.projet?.id}`); load(); }} className="text-red-400 hover:text-red-600 ml-1 font-bold">✕</button>}
+                        </div>
                       ))}
+                      {canEdit && showProjetSelect !== item.id && (
+                        <button onClick={() => setShowProjetSelect(item.id)} className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200">+ Lier projet</button>
+                      )}
                     </div>
-                  )}
+                    {canEdit && showProjetSelect === item.id && (
+                      <div className="flex gap-2 mt-1">
+                        <select id={`projetSel-${item.id}`} className="flex-1 border border-gray-300 rounded px-2 py-1 text-xs">
+                          <option value="">— Sélectionner —</option>
+                          {projets.filter((pr: any) => !item.projets?.some((p: any) => p.projet?.id === pr.id)).map((pr: any) => (
+                            <option key={pr.id} value={pr.id}>{pr.nom} ({pr.codeProjet})</option>
+                          ))}
+                        </select>
+                        <button onClick={async () => { const sel = document.getElementById(`projetSel-${item.id}`) as HTMLSelectElement; if (!sel?.value) return; await api.post(`/clients-fournisseurs/${item.id}/projets`, { projetId: sel.value }); setShowProjetSelect(null); load(); }} className="px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">Lier</button>
+                        <button onClick={() => setShowProjetSelect(null)} className="px-2 py-1 border border-gray-300 rounded text-xs hover:bg-gray-50">✕</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {canEdit && (
                   <div className="flex gap-2 ml-4">

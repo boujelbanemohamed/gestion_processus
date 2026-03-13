@@ -32,6 +32,7 @@ export default function Documents() {
     versionMineure: '0',
     versionPatch: '0',
     processusId: '',
+    typeDocument: 'general',
   });
   const [processusList, setProcessusList] = useState<any[]>([]);
   const [usersList, setUsersList] = useState<any[]>([]);
@@ -510,7 +511,7 @@ export default function Documents() {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('nom', fileNames[file.name] || file.name);
-        formData.append('typeDocument', uploadData.processusId ? 'processus' : 'general');
+        formData.append('typeDocument', uploadData.processusId ? 'processus' : (uploadData.typeDocument || 'general'));
         if (uploadData.processusId) {
           formData.append('referenceType', 'processus');
           formData.append('referenceId', uploadData.processusId);
@@ -536,7 +537,7 @@ export default function Documents() {
       setShowUploadModal(false);
       setFiles([]);
       setFileNames({});
-      setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '' });
+      setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '', typeDocument: 'general' });
       setPermissionUserIds([]);
       loadDocuments();
     } catch (err: any) {
@@ -589,7 +590,7 @@ export default function Documents() {
               setError('');
               setFiles([]);
               setFileNames({});
-              setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '' });
+              setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '', typeDocument: 'general' });
               setPermissionUserIds([]);
             }}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -622,6 +623,11 @@ export default function Documents() {
               <option value="">Tous</option>
               <option value="general">Général</option>
               <option value="processus">Processus</option>
+              <option value="projet">Projet</option>
+              <option value="contrat">Contrat</option>
+              <option value="client_fournisseur">Client / Fournisseur</option>
+              <option value="template">Template</option>
+              <option value="autre">Autre</option>
             </select>
           </div>
           <div>
@@ -702,7 +708,7 @@ export default function Documents() {
                   )}
                 </div>
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processus / Projet</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processus / Projet / Contrat</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
               <th 
                 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
@@ -792,6 +798,10 @@ export default function Documents() {
                       <button onClick={() => navigate(`/projets/${d.referenceId}`)} className="text-blue-600 hover:text-blue-800 hover:underline">
                         {d.projet ? `${d.projet.nom} (${d.projet.codeProjet})` : 'Voir le projet'}
                       </button>
+                    ) : d.typeDocument === 'contrat' ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-xs font-medium">
+                        📄 {d.contrats?.[0]?.contrat?.nom || 'Contrat lié'}
+                      </span>
                     ) : (
                       <span className="text-gray-500 italic">N/A</span>
                     )
@@ -1165,7 +1175,7 @@ export default function Documents() {
                       setError('');
                       setFiles([]);
                       setFileNames({});
-                      setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '' });
+                      setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '', typeDocument: 'general' });
                       setPermissionUserIds([]);
                     }}
                   className="text-gray-500 hover:text-gray-700"
@@ -1229,8 +1239,24 @@ export default function Documents() {
                     placeholder="Description du document"
                   />
                 </div>
-
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Type de document</label>
+                  <select
+                    value={uploadData.typeDocument || 'general'}
+                    onChange={(e) => setUploadData({ ...uploadData, typeDocument: e.target.value, processusId: e.target.value !== 'processus' ? '' : uploadData.processusId })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="general">Général</option>
+                    <option value="processus">Processus</option>
+                    <option value="projet">Projet</option>
+                    <option value="contrat">Contrat</option>
+                    <option value="client_fournisseur">Client / Fournisseur</option>
+                    <option value="template">Template</option>
+                    <option value="autre">Autre</option>
+                  </select>
+                </div>
+
+                {uploadData.typeDocument === 'processus' && <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Processus (optionnel)
                   </label>
@@ -1246,7 +1272,7 @@ export default function Documents() {
                       </option>
                     ))}
                   </select>
-                </div>
+                </div>}
 
                 <div className="grid grid-cols-3 gap-4">
                   <div>
@@ -1343,7 +1369,7 @@ export default function Documents() {
                       setError('');
                       setFiles([]);
                       setFileNames({});
-                      setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '' });
+                      setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '', typeDocument: 'general' });
                       setPermissionUserIds([]);
                     }}
                     className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"

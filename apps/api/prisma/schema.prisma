@@ -47,6 +47,10 @@ enum DocType {
   general
   procedure
   formulaire
+  contrat
+  client_fournisseur
+  template
+  autre
 }
 
 enum RefType {
@@ -138,6 +142,8 @@ model User {
   projetsEquipe         ProjetEquipe[]
 
   @@index([email])
+  contratsCreated       Contrat[]              @relation("ContratCreatedBy")
+  contratPermissions    ContratPermission[]    @relation("ContratPermission")
 }
 
 model Entite {
@@ -305,6 +311,7 @@ model Projet {
 
   @@index([statut])
   @@index([codeProjet])
+  contrats              ContratProjet[]
 }
 
 model ProjetEntite {
@@ -410,6 +417,7 @@ model Document {
   @@index([typeDocument])
   @@index([statut])
   @@index([deletedAt])
+  contrats              ContratDocument[]      @relation("DocumentContrat")
 }
 
 model VersionDocument {
@@ -596,4 +604,62 @@ model ClientFournisseurProjet {
   projet              Projet   @relation(fields: [projetId], references: [id], onDelete: Cascade)
   createdAt           DateTime @default(now())
   @@unique([clientFournisseurId, projetId])
+}
+
+model Contrat {
+  id                String   @id @default(uuid())
+  nom               String
+  dateSignature     DateTime?
+  dateEnregistrement DateTime?
+  dateExpiration    DateTime?
+  statut            String   @default("actif") // actif | expire | resilie | suspendu
+  tags              String?  // JSON array
+  createdById       String
+  createdBy         User     @relation("ContratCreatedBy", fields: [createdById], references: [id])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  partiesPrenantes  ContratPartiePrenante[]
+  projets           ContratProjet[]
+  documents         ContratDocument[]
+  permissions       ContratPermission[]
+}
+
+model ContratPartiePrenante {
+  id                  String   @id @default(uuid())
+  contratId           String
+  contrat             Contrat  @relation(fields: [contratId], references: [id], onDelete: Cascade)
+  nom                 String   // saisie manuelle OU nom du CF
+  clientFournisseurId String?  // optionnel si sélectionné depuis la liste
+  createdAt           DateTime @default(now())
+}
+
+model ContratProjet {
+  id        String   @id @default(uuid())
+  contratId String
+  contrat   Contrat  @relation(fields: [contratId], references: [id], onDelete: Cascade)
+  projetId  String
+  projet    Projet   @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@unique([contratId, projetId])
+}
+
+model ContratDocument {
+  id         String   @id @default(uuid())
+  contratId  String
+  contrat    Contrat  @relation(fields: [contratId], references: [id], onDelete: Cascade)
+  documentId String
+  document   Document @relation("DocumentContrat", fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  @@unique([contratId, documentId])
+}
+
+model ContratPermission {
+  id        String   @id @default(uuid())
+  contratId String
+  contrat   Contrat  @relation(fields: [contratId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("ContratPermission", fields: [userId], references: [id], onDelete: Cascade)
+  niveau    String   // lecture | modification | suppression
+  createdAt DateTime @default(now())
+  @@unique([contratId, userId])
 }

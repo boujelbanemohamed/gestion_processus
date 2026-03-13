@@ -107,6 +107,11 @@ export class DocumentService {
             select: { id: true, nom: true, codeProjet: true },
           });
         }
+        // Récupérer les contrats liés
+        const contrats = await prisma.contratDocument.findMany({
+          where: { documentId: doc.id },
+          include: { contrat: { select: { id: true, nom: true } } },
+        });
         
         // Compter les téléchargements et visualisations
         const [telechargements, visualisations] = await Promise.all([
@@ -130,6 +135,7 @@ export class DocumentService {
           ...doc,
           processus: processus || null,
           projet: projet || null,
+          contrats: contrats || [],
           nombreTelechargements: telechargements,
           nombreVisualisations: visualisations,
         };
