@@ -18,6 +18,7 @@ import Journal from './pages/Journal';
 import Configuration from './pages/Configuration';
 import ClientsFournisseurs from './pages/ClientsFournisseurs';
 import Contrats from './pages/Contrats';
+import OCR from './pages/OCR';
 import Projets from './pages/Projets';           // ← NOUVEAU
 import ProjetDetail from './pages/ProjetDetail'; // ← NOUVEAU (déjà existant, maintenant complet)
 import Corbeille from './pages/Corbeille';
@@ -77,6 +78,7 @@ function App() {
         <Route path="/projets/:id" element={<ProtectedRoute><ProjetDetail /></ProtectedRoute>} />
         <Route path="/clients-fournisseurs" element={<ProtectedRoute><ClientsFournisseurs /></ProtectedRoute>} />
         <Route path="/contrats" element={<ProtectedRoute><Contrats /></ProtectedRoute>} />
+              <Route path="/ocr" element={<ProtectedRoute><OCR /></ProtectedRoute>} />
 
         <Route path="/users" element={<ProtectedRoute allowedRoles={['admin']}><Users /></ProtectedRoute>} />
         <Route path="/users/:id" element={<ProtectedRoute allowedRoles={['admin']}><UserDetail /></ProtectedRoute>} />

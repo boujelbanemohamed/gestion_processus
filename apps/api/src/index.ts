@@ -20,6 +20,7 @@ import * as projetController from "./controllers/projet.controller";
 import * as corbeilleController from "./controllers/corbeille.controller";
 import * as favorisController from "./controllers/favoris.controller";
 import * as contratController from "./controllers/contrat.controller";
+import * as ocrController from "./controllers/ocr.controller";
 import * as clientFournisseurController from "./controllers/client-fournisseur.controller";
 
 const app = express();
@@ -192,6 +193,12 @@ app.post("/api/v1/contrats/:id/permissions", contratController.addPermission);
 app.delete("/api/v1/contrats/:id/permissions/:userId", contratController.removePermission);
 app.post("/api/v1/contrats/:id/documents", contratController.addDocumentToContrat);
 app.post("/api/v1/contrats/:id/link-document", contratController.linkDocument);
+// Routes OCR
+app.get("/api/v1/ocr/documents", authenticate, ocrController.getDocumentsOcr);
+app.post("/api/v1/ocr/scan/:id", authenticate, ocrController.scanDocument);
+app.post("/api/v1/ocr/scan-all", authenticate, ocrController.scanAll);
+app.get("/api/v1/ocr/search", authenticate, ocrController.searchOcr);
+
 app.post("/api/v1/contrats/:id/upload", contratController.uploadContrat, contratController.uploadAndLinkDocument);
 app.delete("/api/v1/contrats/:id/documents/:documentId", contratController.removeDocumentFromContrat);
 

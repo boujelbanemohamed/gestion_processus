@@ -66,7 +66,18 @@ COPY --from=builder /app/dist ./dist
 RUN npx prisma generate
 
 # Créer le dossier pour les uploads
-RUN mkdir -p /app/uploads
+# Installer Tesseract OCR + langues + outils PDF
+RUN apk add --no-cache \
+    tesseract-ocr \
+    tesseract-ocr-data-fra \
+    tesseract-ocr-data-eng \
+    tesseract-ocr-data-ara \
+    poppler-utils \
+    ghostscript \
+    imagemagick \
+    && rm -rf /var/cache/apk/*
+# Créer les dossiers pour les uploads et OCR
+RUN mkdir -p /app/uploads /app/uploads/ocr
 
 # Exposer le port
 EXPOSE 4000

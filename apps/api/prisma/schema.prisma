@@ -403,6 +403,9 @@ model Document {
   valideBy            User?       @relation("DocumentValidePar", fields: [valideById], references: [id], onDelete: SetNull)
   dateValidation      DateTime?
   tags                Json?
+  texteOcr            String?  @db.Text
+  ocrTraite           Boolean  @default(false)
+  ocrDate             DateTime?
   deletedAt           DateTime?
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
