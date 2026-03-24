@@ -625,6 +625,7 @@ export default function Documents() {
               <option value="processus">Processus</option>
               <option value="projet">Projet</option>
               <option value="contrat">Contrat</option>
+              <option value="tache">Tâche</option>
               <option value="client_fournisseur">Client / Fournisseur</option>
               <option value="template">Template</option>
               <option value="autre">Autre</option>
@@ -708,7 +709,7 @@ export default function Documents() {
                   )}
                 </div>
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processus / Projet / Contrat</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processus / Projet / Contrat / Tâche</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
               <th 
                 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
@@ -775,7 +776,9 @@ export default function Documents() {
                     {d.nom}
                   </button>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">{d.typeDocument}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm capitalize">
+                  {d.typeDocument === 'autre' && d.tacheDocuments?.length > 0 ? 'tâche' : d.typeDocument}
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                   {d.referenceType === 'processus' && d.referenceId ? (
                     d.processus ? (
@@ -802,6 +805,10 @@ export default function Documents() {
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-xs font-medium">
                         📄 {d.contrats?.[0]?.contrat?.nom || 'Contrat lié'}
                       </span>
+                    ) : d.typeDocument === 'tache' || d.typeDocument === 'autre' ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 text-orange-700 rounded text-xs font-medium">
+                        📋 {d.tacheDocuments?.[0]?.tache?.nom || 'Tâche'}
+                      </span>
                     ) : (
                       <span className="text-gray-500 italic">N/A</span>
                     )
@@ -809,13 +816,16 @@ export default function Documents() {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">{d.version || '-'}</td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`px-2 py-1 text-xs rounded ${
-                    d.statut === 'valide' ? 'bg-green-100 text-green-800' :
-                    d.statut === 'en_revision' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-gray-100 text-gray-800'
-                  }`}>
-                    {d.statut}
-                  </span>
+                  {(() => {
+                    const statut = d.typeDocument === 'contrat' && d.contrats?.[0]?.contrat?.statut
+                      ? d.contrats[0].contrat.statut
+                      : d.statut;
+                    const color = statut === 'valide' || statut === 'actif' ? 'bg-green-100 text-green-800' :
+                      statut === 'en_revision' || statut === 'suspendu' ? 'bg-yellow-100 text-yellow-800' :
+                      statut === 'expire' || statut === 'resilie' ? 'bg-red-100 text-red-800' :
+                      'bg-gray-100 text-gray-800';
+                    return <span className={`px-2 py-1 text-xs rounded ${color}`}>{statut}</span>;
+                  })()}
                   {d.estConfidentiel && (
                     <div className="mt-2 text-xs text-gray-700 space-y-1">
                       <span className="inline-block px-2 py-0.5 bg-red-100 text-red-800 rounded">Confidentiel</span>

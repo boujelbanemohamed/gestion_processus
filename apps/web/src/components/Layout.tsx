@@ -1,4 +1,5 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import NotificationBell from './NotificationBell';
 import { useAuth } from '../store/auth';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -17,6 +18,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { path: '/dashboard', label: 'Dashboard' },
     { path: '/processus', label: 'Processus' },
     { path: '/projets', label: 'Projets' },
+    { path: '/taches', label: 'Tâches' },
     { path: '/clients-fournisseurs', label: 'Clients / Fournisseurs' },
     { path: '/contrats', label: 'Contrats' },
     { path: '/ocr', label: 'OCR' },
@@ -37,7 +39,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           {/* Ligne 1 : Titre + Profil */}
           <div className="flex justify-between items-center py-2 border-b border-gray-100">
             <h1 className="text-lg font-bold text-blue-700 tracking-wide">PMO - HUB</h1>
-            <div className="relative group">
+            <NotificationBell />
+              <div className="relative group">
               <button className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-gray-100 transition-colors">
                 <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold uppercase">
                   {user?.prenom?.[0]}{user?.nom?.[0]}
@@ -67,7 +70,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 className={`whitespace-nowrap py-3 px-3 border-b-2 text-sm font-medium flex-shrink-0 ${
                   location.pathname === item.path ||
                   (item.path === '/projets' && location.pathname.startsWith('/projets')) ||
-                  (item.path === '/clients-fournisseurs' && location.pathname.startsWith('/clients-fournisseurs'))
+                  (item.path === '/clients-fournisseurs' && location.pathname.startsWith('/clients-fournisseurs')) ||
+                  (item.path === '/taches' && location.pathname.startsWith('/taches'))
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}

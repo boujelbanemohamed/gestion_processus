@@ -50,6 +50,7 @@ enum DocType {
   contrat
   client_fournisseur
   template
+  tache
   autre
 }
 
@@ -144,6 +145,10 @@ model User {
   @@index([email])
   contratsCreated       Contrat[]              @relation("ContratCreatedBy")
   contratPermissions    ContratPermission[]    @relation("ContratPermission")
+  tachesCreees          Tache[]                @relation("TacheCreateur")
+  tachesAssignees       TacheUser[]            @relation("TacheAssigneUser")
+  tacheCommentaires     TacheCommentaire[]     @relation("TacheCommentaireUser")
+  notifications         Notification[]         @relation("NotificationUser")
 }
 
 model Entite {
@@ -164,6 +169,7 @@ model Entite {
   membres           UserEntite[]
   processus         ProcessusEntite[]
   projets           ProjetEntite[]
+  tachesAssignees   TacheEntite[]
 
   @@index([parentId])
   @@index([code])
@@ -312,6 +318,7 @@ model Projet {
   @@index([statut])
   @@index([codeProjet])
   contrats              ContratProjet[]
+  taches                Tache[]
 }
 
 model ProjetEntite {
@@ -415,6 +422,7 @@ model Document {
   permissionsUtilisateurs DocumentPermission[]
   comments            DocumentComment[]
   favoris             FavorisDocument[]
+  tacheDocuments      TacheDocument[]    @relation("DocumentTache")
 
   @@index([referenceId, referenceType])
   @@index([typeDocument])
@@ -665,4 +673,137 @@ model ContratPermission {
   niveau    String   // lecture | modification | suppression
   createdAt DateTime @default(now())
   @@unique([contratId, userId])
+}
+
+// ── TACHES ────────────────────────────────────────────────────────────────────
+
+enum TacheStatut {
+  cree
+  a_faire
+  en_cours
+  en_attente
+  bloque
+  termine
+  archive
+}
+
+enum LiaisonType {
+  concatenation
+  simple
+}
+
+model Tache {
+  id                  String        @id @default(uuid())
+  nom                 String
+  statut              TacheStatut   @default(cree)
+  dateDebut           DateTime?
+  dateFinApprox       DateTime?
+  description         String?
+  scenarioExecution   String?
+  critereAcceptation  String?
+  projetId            String?
+  projet              Projet?       @relation(fields: [projetId], references: [id], onDelete: SetNull)
+  createurId          String?
+  createur            User?         @relation("TacheCreateur", fields: [createurId], references: [id], onDelete: SetNull)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  assignesUtilisateurs TacheUser[]
+  assignesEntites      TacheEntite[]
+  liaisons             TacheLiaison[] @relation("TacheLiaisonSource")
+  liaisonsVersMoi      TacheLiaison[] @relation("TacheLiaisonCible")
+  commentaires         TacheCommentaire[]
+  documents            TacheDocument[]
+
+  @@index([statut])
+  @@index([projetId])
+  @@index([createurId])
+}
+
+model TacheUser {
+  id        String   @id @default(uuid())
+  tacheId   String
+  tache     Tache    @relation(fields: [tacheId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("TacheAssigneUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([tacheId, userId])
+  @@index([tacheId])
+  @@index([userId])
+}
+
+model TacheEntite {
+  id        String   @id @default(uuid())
+  tacheId   String
+  tache     Tache    @relation(fields: [tacheId], references: [id], onDelete: Cascade)
+  entiteId  String
+  entite    Entite   @relation(fields: [entiteId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([tacheId, entiteId])
+  @@index([tacheId])
+  @@index([entiteId])
+}
+
+model TacheLiaison {
+  id          String      @id @default(uuid())
+  tacheId     String
+  tache       Tache       @relation("TacheLiaisonSource", fields: [tacheId], references: [id], onDelete: Cascade)
+  tacheLieeId String
+  tacheLiee   Tache       @relation("TacheLiaisonCible", fields: [tacheLieeId], references: [id], onDelete: Cascade)
+  type        LiaisonType @default(simple)
+  createdAt   DateTime    @default(now())
+
+  @@unique([tacheId, tacheLieeId])
+  @@index([tacheId])
+}
+
+model TacheCommentaire {
+  id              String   @id @default(uuid())
+  tacheId         String
+  tache           Tache    @relation(fields: [tacheId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation("TacheCommentaireUser", fields: [userId], references: [id], onDelete: Cascade)
+  contenu         String
+  pieceJointeNom  String?
+  pieceJointePath String?
+  pieceJointeType String?
+  createdAt       DateTime @default(now())
+
+  @@index([tacheId])
+  @@index([userId])
+}
+
+// ── NOTIFICATIONS ─────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation("NotificationUser", fields: [userId], references: [id], onDelete: Cascade)
+  type      String   @default("mention")
+  titre     String
+  contenu   String
+  lienType  String?
+  lienId    String?
+  lue       Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([lue])
+}
+
+// ── TACHE DOCUMENTS ───────────────────────────────────────────────────────────
+
+model TacheDocument {
+  id         String   @id @default(uuid())
+  tacheId    String
+  tache      Tache    @relation(fields: [tacheId], references: [id], onDelete: Cascade)
+  documentId String
+  document   Document @relation("DocumentTache", fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([tacheId, documentId])
+  @@index([tacheId])
+  @@index([documentId])
 }

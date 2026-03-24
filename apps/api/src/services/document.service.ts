@@ -85,6 +85,11 @@ export class DocumentService {
             user: { select: { id: true, nom: true, prenom: true, email: true } },
           },
         },
+        tacheDocuments: {
+          include: {
+            tache: { select: { id: true, nom: true } },
+          },
+        },
         _count: { select: { versions: true } },
       },
       orderBy,
@@ -110,7 +115,7 @@ export class DocumentService {
         // Récupérer les contrats liés
         const contrats = await prisma.contratDocument.findMany({
           where: { documentId: doc.id },
-          include: { contrat: { select: { id: true, nom: true } } },
+          include: { contrat: { select: { id: true, nom: true, statut: true } } },
         });
         
         // Compter les téléchargements et visualisations

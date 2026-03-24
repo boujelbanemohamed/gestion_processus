@@ -1,7 +1,116 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
 
-type TabType = 'categories' | 'smtp' | 'typesSociete';
+type TabType = 'categories' | 'smtp' | 'typesSociete' | 'notifications';
+
+
+function NotificationsTab() {
+  const [openTemplate, setOpenTemplate] = React.useState<string | null>(null);
+
+  const notifications = [
+    { id: 'mention', icon: '📌', titre: 'Mention dans un commentaire', description: 'Envoye lorsque un utilisateur est mentionne via @Prenom Nom dans un commentaire.', destinataire: 'La personne mentionnee', declencheur: 'Ajout commentaire avec @mention', sujet: 'Vous avez ete mentionne dans une tache : [Nom tache]', template: 'Bonjour [Prenom Nom],
+
+[Auteur] vous a mentionne dans un commentaire de la tache :
+
+[Nom de la tache]
+
+"[Contenu du commentaire]"
+
+PMO Hub' },
+    { id: 'assignation', icon: '✅', titre: 'Assignation a une tache', description: 'Envoye lorsque un utilisateur est assigne a une tache.', destinataire: 'Utilisateur assigne', declencheur: 'Creation ou modification avec assignation', sujet: 'Nouvelle assignation : [Nom tache]', template: 'Bonjour [Prenom Nom],
+
+[Auteur] vous a assigne a la tache :
+
+[Nom de la tache]
+
+PMO Hub' },
+    { id: 'statut', icon: '🔄', titre: 'Changement de statut', description: 'Envoye lorsque le statut est modifie.', destinataire: 'Createur et utilisateurs assignes', declencheur: 'Modification du statut', sujet: 'Statut modifie : [Nom tache]', template: 'Bonjour [Prenom Nom],
+
+[Auteur] a modifie le statut de [Nom tache] :
+
+[Ancien statut] => [Nouveau statut]
+
+PMO Hub' },
+    { id: 'retard', icon: '⚠️', titre: 'Tache en retard', description: 'Envoye chaque matin a 8h pour les taches dont la date de fin est depassee.', destinataire: 'Createur et utilisateurs assignes', declencheur: 'Job automatique a 8h00', sujet: 'Tache en retard : [Nom tache]', template: 'Bonjour [Prenom Nom],
+
+La tache suivante est en retard de [N] jour(s) :
+
+[Nom de la tache]
+
+PMO Hub' },
+    { id: 'nouvelle_tache', icon: '📋', titre: 'Nouvelle tache liee a un projet', description: 'Envoye aux membres du projet lorsque une nouvelle tache y est liee.', destinataire: 'Membres du projet', declencheur: 'Creation tache avec projet associe', sujet: 'Nouvelle tache dans [Nom projet]', template: 'Bonjour [Prenom Nom],
+
+[Auteur] a cree une nouvelle tache dans [Nom projet] :
+
+[Nom de la tache]
+
+PMO Hub' },
+    { id: 'commentaire', icon: '💬', titre: 'Nouveau commentaire', description: 'Envoye lorsque un commentaire est ajoute sur une tache.', destinataire: 'Createur et assignes (hors auteur)', declencheur: 'Ajout commentaire sur une tache', sujet: 'Nouveau commentaire : [Nom tache]', template: 'Bonjour [Prenom Nom],
+
+[Auteur] a commente la tache [Nom tache] :
+
+"[Contenu]"
+
+PMO Hub' },
+    { id: 'document', icon: '📎', titre: 'Document uploade', description: 'Envoye lorsque un document est uploade sur une tache.', destinataire: 'Createur et assignes (hors auteur)', declencheur: 'Upload document sur une tache', sujet: 'Nouveau document : [Nom tache]', template: 'Bonjour [Prenom Nom],
+
+[Auteur] a uploade un document sur [Nom tache] :
+
+[Nom du document]
+
+PMO Hub' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-lg font-semibold mb-2">Notifications par email</h2>
+        <p className="text-sm text-gray-500 mb-6">Liste des notifications automatiques envoyees par application.</p>
+        <div className="space-y-3">
+          {notifications.map(n => (
+            <div key={n.id} className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="flex items-start gap-4 p-4 hover:bg-gray-50">
+                <div className="text-2xl shrink-0">{n.icon}</div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold text-gray-800 mb-1">{n.titre}</h3>
+                  <p className="text-sm text-gray-600 mb-2">{n.description}</p>
+                  <div className="flex flex-wrap gap-4 text-xs text-gray-500">
+                    <span>Destinataire : {n.destinataire}</span>
+                    <span>Declencheur : {n.declencheur}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">Actif</span>
+                  <button onClick={() => setOpenTemplate(openTemplate === n.id ? null : n.id)} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 text-gray-600">
+                    {openTemplate === n.id ? 'Masquer' : 'Voir template'}
+                  </button>
+                </div>
+              </div>
+              {openTemplate === n.id && (
+                <div className="border-t border-gray-100 bg-gray-50 p-4">
+                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden max-w-2xl">
+                    <div className="bg-blue-600 text-white px-4 py-3">
+                      <p className="text-xs font-medium opacity-75 mb-1">Sujet :</p>
+                      <p className="text-sm font-semibold">{n.sujet}</p>
+                    </div>
+                    <div className="p-4">
+                      <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">{n.template}</pre>
+                      <p className="text-xs text-gray-400 mt-3">PMO Hub — Notification automatique</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">Les valeurs entre [crochets] sont remplacees automatiquement.</p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <p className="text-sm text-blue-700">Les notifications par email necessitent une configuration SMTP active.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Configuration() {
   const [activeTab, setActiveTab] = useState<TabType>('categories');
@@ -309,6 +418,16 @@ export default function Configuration() {
             }`}
           >
             Types de société
+          </button>
+          <button
+            onClick={() => setActiveTab('notifications')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'notifications'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            🔔 Notifications
           </button>
         </nav>
       </div>
@@ -930,6 +1049,11 @@ export default function Configuration() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Contenu Notifications */}
+      {activeTab === 'notifications' && (
+        <NotificationsTab />
       )}
     </div>
   );

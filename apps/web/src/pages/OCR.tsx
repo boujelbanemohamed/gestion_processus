@@ -10,7 +10,7 @@ export default function OCR() {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [activeTab, setActiveTab] = useState<'scanner' | 'resultats' | 'recherche'>('scanner');
-  const [filter, setFilter] = useState<'all' | 'traite' | 'non_traite'>('all');
+  const [filter, setFilter] = useState<'all' | 'traite' | 'non_traite' | 'non_supporte'>('all');
   const [progress, setProgress] = useState({ done: 0, total: 0, actif: false });
 
   useEffect(() => { loadDocuments(); }, []);
@@ -39,8 +39,12 @@ export default function OCR() {
     setScanningAll(true);
     try {
       const res = await api.post('/ocr/scan-all');
-      const ids: string[] = res.data.ids || [];
-      if (ids.length === 0) { alert('Tous les documents sont déjà traités !'); setScanningAll(false); return; }
+      const allIds: string[] = res.data.ids || [];
+      const ids = allIds.filter(id => {
+        const doc = documents.find(d => d.id === id);
+        return doc ? isSupported(doc) : true;
+      });
+      if (ids.length === 0) { alert('Tous les documents supportés sont déjà traités !'); setScanningAll(false); return; }
       setProgress({ done: 0, total: ids.length, actif: true });
       for (let i = 0; i < ids.length; i++) {
         try { await api.post(`/ocr/scan/${ids[i]}`); } catch (e) { /* continuer */ }
@@ -63,21 +67,40 @@ export default function OCR() {
     setSearching(false);
   };
 
+
+  const isSupported = (doc: any) => {
+    const mime = doc.fichierType || '';
+    const url = doc.fichierUrl || '';
+    const ext = url.split('.').pop()?.toLowerCase() || '';
+    const unsupportedMimes = ['sheet', 'excel', 'csv', 'presentation', 'powerpoint', 'zip', 'rar', 'archive', 'video', 'audio', 'message', 'mail'];
+    const unsupportedExts = ['xlsx', 'xls', 'csv', 'pptx', 'ppt', 'zip', 'rar', '7z', 'tar', 'gz', 'mp4', 'avi', 'mkv', 'mov', 'mp3', 'wav', 'msg', 'eml'];
+    return !unsupportedMimes.some(m => mime.includes(m)) && !unsupportedExts.includes(ext);
+  };
+
   const filteredDocs = documents.filter(d => {
     if (filter === 'traite') return d.ocrTraite;
-    if (filter === 'non_traite') return !d.ocrTraite;
+    if (filter === 'non_traite') return !d.ocrTraite && isSupported(d);
+    if (filter === 'non_supporte') return !isSupported(d);
     return true;
   });
 
   const traites = documents.filter(d => d.ocrTraite).length;
-  const nonTraites = documents.filter(d => !d.ocrTraite).length;
+  const nonSupportes = documents.filter(d => !isSupported(d)).length;
+  const nonTraites = documents.filter(d => !d.ocrTraite && isSupported(d)).length;
 
   const getFileIcon = (type: string) => {
     if (type?.includes('pdf')) return '📕';
     if (type?.includes('image')) return '🖼️';
     if (type?.includes('word')) return '📘';
+    if (type?.includes('sheet') || type?.includes('excel') || type?.includes('csv')) return '📊';
+    if (type?.includes('presentation') || type?.includes('powerpoint')) return '📑';
+    if (type?.includes('zip') || type?.includes('rar') || type?.includes('archive')) return '🗜️';
+    if (type?.includes('video')) return '🎥';
+    if (type?.includes('audio')) return '🎵';
+    if (type?.includes('message') || type?.includes('mail')) return '📧';
     return '📄';
   };
+
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
@@ -89,7 +112,7 @@ export default function OCR() {
         </div>
         <button onClick={scanAll} disabled={scanningAll || nonTraites === 0}
           className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50 flex items-center gap-2">
-          {scanningAll ? '⏳ Traitement en cours...' : `⚡ Tout scanner (${nonTraites} restants)`}
+          {scanningAll ? '⏳ Traitement en cours...' : `⚡ Tout scanner (${nonTraites} en attente)`}
         </button>
       </div>
 
@@ -121,6 +144,12 @@ export default function OCR() {
           <div className="text-xs text-orange-600 mt-1">⏳ En attente</div>
         </div>
       </div>
+      <div className="grid grid-cols-1 gap-4 mb-6">
+        <div className="bg-gray-100 border border-gray-300 rounded-lg p-4 text-center">
+          <div className="text-2xl font-bold text-gray-500">{nonSupportes}</div>
+          <div className="text-xs text-gray-500 mt-1">⛔ Non supportés</div>
+        </div>
+      </div>
 
       {/* Onglets */}
       <div className="flex border-b border-gray-200 mb-5">
@@ -136,7 +165,7 @@ export default function OCR() {
       {activeTab === 'scanner' && (
         <div>
           <div className="flex gap-3 mb-4">
-            {[{ v: 'all', l: 'Tous' }, { v: 'traite', l: '✅ Traités' }, { v: 'non_traite', l: '⏳ Non traités' }].map(f => (
+            {[{ v: 'all', l: 'Tous' }, { v: 'traite', l: '✅ Traités' }, { v: 'non_traite', l: '⏳ En attente' }, { v: 'non_supporte', l: '⛔ Non supportés' }].map(f => (
               <button key={f.v} onClick={() => setFilter(f.v as any)}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium ${filter === f.v ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                 {f.l}
@@ -153,6 +182,7 @@ export default function OCR() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut OCR</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date traitement</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Aperçu</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Accès</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
                   </tr>
                 </thead>
@@ -162,12 +192,28 @@ export default function OCR() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <span>{getFileIcon(doc.fichierType)}</span>
-                          <span className="font-medium text-gray-800 truncate max-w-48">{doc.nom}</span>
+                          {isSupported(doc) ? (<a
+                            
+                              href={`http://172.17.5.198:4000/api/v1/documents/${doc.id}/view?token=${localStorage.getItem("token")}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-medium text-blue-600 hover:underline truncate max-w-48"
+                              title="Cliquez pour prévisualiser"
+                            >
+                              {doc.nom}
+                            </a>
+                          ) : (
+                            <span className="font-medium text-gray-400 truncate max-w-48 cursor-not-allowed" title="Prévisualisation non disponible pour ce type de fichier">
+                              {doc.nom}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-gray-500">{doc.typeDocument}</td>
                       <td className="px-4 py-3">
-                        {doc.ocrTraite
+                        {!isSupported(doc)
+                          ? <span className="px-2 py-0.5 bg-gray-200 text-gray-500 rounded-full text-xs font-medium">⛔ Non supporté</span>
+                          : doc.ocrTraite
                           ? <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">✅ Traité</span>
                           : <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-xs font-medium">⏳ En attente</span>}
                       </td>
@@ -178,9 +224,34 @@ export default function OCR() {
                         {doc.texteOcr ? doc.texteOcr.substring(0, 80) + '...' : '—'}
                       </td>
                       <td className="px-4 py-3">
-                        <button onClick={() => scanDocument(doc.id)} disabled={scanning === doc.id}
-                          className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 text-xs font-medium disabled:opacity-50">
-                          {scanning === doc.id ? '⏳ Scan...' : doc.ocrTraite ? '🔄 Re-scanner' : '🔍 Scanner'}
+                        <div className="flex flex-col gap-0.5 max-w-48">
+                          {/* Badge accès */}
+                          {(() => {
+                            const estRestreint = doc.permissionsUtilisateurs?.length > 0 || doc.estConfidentiel;
+                            return (
+                              <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium w-fit ${estRestreint ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                {estRestreint ? '🔒 Restreint' : '🌐 Libre'}
+                              </span>
+                            );
+                          })()}
+                          {/* Uploadé par */}
+                          {doc.uploadedBy && (
+                            <div className="text-xs text-gray-600 font-medium">{doc.uploadedBy.prenom} {doc.uploadedBy.nom} <span className="text-gray-400">(auteur)</span></div>
+                          )}
+                          {/* Permissions */}
+                          {doc.permissionsUtilisateurs?.map((p: any) => (
+                            <div key={p.id} className="text-xs text-gray-500">
+                              {p.user?.prenom} {p.user?.nom} <span className="text-gray-400">({p.niveauAcces || p.niveau})</span>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button onClick={() => scanDocument(doc.id)} 
+                          disabled={scanning === doc.id || !isSupported(doc)}
+                          title={!isSupported(doc) ? 'Type de fichier non supporté par l&apos;OCR' : ''}
+                          className={`px-3 py-1 rounded text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed ${!isSupported(doc) ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'}`}>
+                          {scanning === doc.id ? '⏳ Scan...' : !isSupported(doc) ? '⛔ Non supporté' : doc.ocrTraite ? '🔄 Re-scanner' : '🔍 Scanner'}
                         </button>
                       </td>
                     </tr>
@@ -228,7 +299,28 @@ export default function OCR() {
                   <div className="flex justify-between items-start mb-2">
                     <div className="flex items-center gap-2">
                       <span>{getFileIcon(doc.fichierType)}</span>
-                      <span className="font-semibold text-gray-800">{doc.nom}</span>
+                      <a
+                        href={`http://172.17.5.198:4000/api/v1/documents/${doc.id}/view?token=${localStorage.getItem("token")}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold text-blue-600 hover:underline"
+                        title="Cliquer pour prévisualiser"
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          try {
+                            const res = await fetch(`http://172.17.5.198:4000/api/v1/documents/${doc.id}/view?token=${localStorage.getItem("token")}`, { method: 'HEAD' });
+                            if (res.status === 403) {
+                              alert("Accès refusé : vous n'avez pas les droits pour consulter ce document.");
+                            } else {
+                              window.open(`http://172.17.5.198:4000/api/v1/documents/${doc.id}/view?token=${localStorage.getItem("token")}`, '_blank');
+                            }
+                          } catch {
+                            alert("Erreur lors de la vérification des droits d'accès.");
+                          }
+                        }}
+                      >
+                        {doc.nom}
+                      </a>
                       <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{doc.typeDocument}</span>
                     </div>
                     <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-medium">

@@ -67,8 +67,23 @@ export const getDocumentsOcr = async (req: AuthRequest, res: Response) => {
       select: {
         id: true, nom: true, fichierUrl: true, fichierType: true,
         fichierTaille: true, typeDocument: true, ocrTraite: true,
-        ocrDate: true, texteOcr: true, createdAt: true,
-        uploadedBy: { select: { nom: true, prenom: true } }
+        ocrDate: true, texteOcr: true, createdAt: true, estConfidentiel: true,
+        uploadedBy: { select: { id: true, nom: true, prenom: true } },
+        permissionsUtilisateurs: {
+          include: { user: { select: { id: true, nom: true, prenom: true } } }
+        },
+        contrats: {
+          include: {
+            contrat: {
+              select: {
+                id: true, nom: true,
+                permissions: {
+                  include: { user: { select: { id: true, nom: true, prenom: true } } }
+                }
+              }
+            }
+          }
+        }
       },
       orderBy: { createdAt: 'desc' }
     });

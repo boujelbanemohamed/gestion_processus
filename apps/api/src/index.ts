@@ -22,6 +22,8 @@ import * as favorisController from "./controllers/favoris.controller";
 import * as contratController from "./controllers/contrat.controller";
 import * as ocrController from "./controllers/ocr.controller";
 import * as clientFournisseurController from "./controllers/client-fournisseur.controller";
+import * as tacheController from "./controllers/tache.controller";
+import * as notificationController from "./controllers/notification.controller";
 
 const app = express();
 app.use(helmet());
@@ -201,6 +203,30 @@ app.get("/api/v1/ocr/search", authenticate, ocrController.searchOcr);
 
 app.post("/api/v1/contrats/:id/upload", contratController.uploadContrat, contratController.uploadAndLinkDocument);
 app.delete("/api/v1/contrats/:id/documents/:documentId", contratController.removeDocumentFromContrat);
+
+
+// Tâches
+app.get("/api/v1/taches", tacheController.getAllTaches);
+// Documents de tâches
+app.get("/api/v1/taches/documents-liables", tacheController.getDocumentsLiables);
+app.get("/api/v1/taches/:id", tacheController.getTache);
+app.post("/api/v1/taches", tacheController.createTache);
+app.put("/api/v1/taches/:id", tacheController.updateTache);
+app.delete("/api/v1/taches/:id", tacheController.deleteTache);
+app.get("/api/v1/taches/:id/commentaires", tacheController.getCommentaires);
+app.post("/api/v1/taches/:id/commentaires", tacheController.uploadMiddleware, tacheController.addCommentaire);
+app.get("/api/v1/taches/:id/commentaires/:commentaireId/fichier", tacheController.downloadCommentaireFichier);
+app.post("/api/v1/taches/:id/documents/lier", tacheController.lierDocument);
+app.delete("/api/v1/taches/:id/documents/:documentId", tacheController.delierDocument);
+app.post("/api/v1/taches/:id/documents", tacheController.uploadMiddleware, tacheController.uploadDocument);
+
+
+
+// Notifications
+app.get("/api/v1/notifications", notificationController.getNotifications);
+app.get("/api/v1/notifications/count", notificationController.countNonLues);
+app.patch("/api/v1/notifications/:id/lue", notificationController.marquerLue);
+app.patch("/api/v1/notifications/toutes-lues", notificationController.marquerToutesLues);
 
 // Gestion des erreurs
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
