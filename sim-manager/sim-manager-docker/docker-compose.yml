@@ -1,0 +1,109 @@
+#version: '3.8'
+
+# ── Répertoires hôte utilisés ───────────────────────
+#
+#   /data/sim-manager/
+#   ├── db/          → données PostgreSQL (persistance)
+#   ├── logs/
+#   │   ├── backend/ → logs Node.js (app.log, error.log)
+#   │   ├── nginx/   → logs Nginx  (access.log, error.log)
+#   │   └── db/      → logs PostgreSQL
+#   └── backups/     → sauvegardes automatiques (optionnel)
+#
+# Créer les dossiers avant le premier démarrage :
+#   sudo mkdir -p /data/sim-manager/{db,logs/backend,logs/nginx,logs/db,backups}
+#   sudo chown -R 1000:1000 /data/sim-manager/logs
+#   sudo chown -R 999:999   /data/sim-manager/db
+
+services:
+
+  # ── Base de données PostgreSQL ──────────────────────
+  sim_db:
+    image: postgres:16-alpine
+    container_name: sim_manager_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       sim_manager
+      POSTGRES_USER:     sim_user
+      POSTGRES_PASSWORD: sim_pass_2025
+    volumes:
+      - /data/sim-manager/db:/var/lib/postgresql/data
+      - ./postgres/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
+    networks:
+      - sim_manager_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sim_user -d sim_manager"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5435:5432"   # accès direct DB si besoin (ex: DBeaver/pgAdmin)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "7"
+
+  # ── Backend Node.js / Express ───────────────────────
+  sim_backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sim_manager_backend
+    restart: unless-stopped
+    environment:
+      DB_HOST:     sim_db
+      DB_PORT:     5432
+      DB_NAME:     sim_manager
+      DB_USER:     sim_user
+      DB_PASSWORD: sim_pass_2025
+      PORT:        3003
+      NODE_ENV:    production
+      LOG_DIR:     /var/log/sim-manager
+      JWT_SECRET:  changez_ce_secret_jwt_en_production_2025
+      JWT_EXPIRES: 8h
+    volumes:
+      - /data/sim-manager/logs/backend:/var/log/sim-manager
+    depends_on:
+      sim_db:
+        condition: service_healthy
+    networks:
+      - sim_manager_network
+    healthcheck:
+      #test: ["CMD-SHELL", "wget -qO- http://localhost:3003/api/health || exit 1"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3003/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "7"
+
+  # ── Frontend Nginx ──────────────────────────────────
+  sim_frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sim_manager_frontend
+    restart: unless-stopped
+    ports:
+      - "3002:80"
+    volumes:
+      - /data/sim-manager/logs/nginx:/var/log/nginx
+    depends_on:
+      - sim_backend
+    networks:
+      - sim_manager_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "7"
+
+# ── Réseau isolé dédié ──────────────────────────────
+networks:
+  sim_manager_network:
+    name: sim_manager_network
+    driver: bridge

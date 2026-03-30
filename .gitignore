@@ -1,4 +1,16 @@
+# Environnement
 .env
-apps/web/node_modules/
-apps/api/node_modules/
+
+# Node modules pour toutes les apps
+**/node_modules/
+
+# Dossiers de build
+**/dist/
+**/build/
+
+# Backups
 *.backup
+.backups/
+
+# Logs
+*.log
