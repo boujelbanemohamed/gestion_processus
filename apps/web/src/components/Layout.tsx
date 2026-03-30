@@ -22,6 +22,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { path: '/clients-fournisseurs', label: 'Clients / Fournisseurs' },
     { path: '/contrats', label: 'Contrats' },
     { path: '/ocr', label: 'OCR' },
+    { path: '/licences', label: 'Licences' },
     { path: '/entites', label: 'Entités' },
     { path: '/documents', label: 'Documents' },
     ...(isAdmin ? [
