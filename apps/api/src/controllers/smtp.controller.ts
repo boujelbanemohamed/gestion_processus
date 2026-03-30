@@ -88,3 +88,48 @@ export const testSMTPConfig = async (req: AuthRequest, res: Response) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+export const testNotification = async (req: any, res: any) => {
+  try {
+    const { notificationId, testEmail, sujet, template } = req.body;
+    if (!testEmail || !sujet || !template) {
+      return res.status(400).json({ error: 'Email, sujet et template requis' });
+    }
+    const config = await smtpService.findActive();
+    if (!config) {
+      return res.status(400).json({ error: 'Aucune configuration SMTP active. Veuillez configurer le SMTP d\'abord.' });
+    }
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host: config.host,
+      port: config.port,
+      secure: config.secure,
+      tls: { rejectUnauthorized: false },
+      auth: { user: config.user, pass: config.password },
+    });
+    await transporter.sendMail({
+      from: `"${config.fromName || 'PMO Hub'}" <${config.fromEmail}>`,
+      to: testEmail,
+      subject: `[TEST] ${sujet}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #2563eb; color: white; padding: 16px 24px; border-radius: 8px 8px 0 0;">
+            <h2 style="margin:0; font-size:16px;">📧 Test de notification — PMO Hub</h2>
+            <p style="margin:4px 0 0; font-size:12px; opacity:0.8;">Notification : ${notificationId}</p>
+          </div>
+          <div style="background: #fff8e1; border: 1px solid #f59e0b; padding: 12px 24px;">
+            <p style="margin:0; font-size:12px; color:#92400e;">⚠️ Ceci est un email de test. Les valeurs entre [crochets] sont des variables remplacées automatiquement.</p>
+          </div>
+          <div style="background: white; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+            <p style="font-size:13px; color:#374151; white-space:pre-wrap;">${template.replace(/\n/g, '<br>')}</p>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;">
+            <p style="font-size:11px; color:#9ca3af;">PMO Hub — Notification automatique | Envoyé le ${new Date().toLocaleString('fr-FR')}</p>
+          </div>
+        </div>
+      `,
+    });
+    res.json({ success: true, message: `Email de test envoyé à ${testEmail}` });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};

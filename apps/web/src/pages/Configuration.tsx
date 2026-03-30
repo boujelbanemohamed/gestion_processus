@@ -5,10 +5,29 @@ type TabType = 'categories' | 'smtp' | 'typesSociete' | 'notifications';
 
 
 function NotificationsTab() {
-  const [openTemplate, setOpenTemplate] = React.useState<string | null>(null);
+  const [openTemplate, setOpenTemplate] = useState<string | null>(null);
+  const [testEmailMap, setTestEmailMap] = useState<Record<string, string>>({});
+  const [testingMap, setTestingMap] = useState<Record<string, boolean>>({});
+  const [testResultMap, setTestResultMap] = useState<Record<string, {success: boolean, message: string} | null>>({});
+
+  const sendTestNotification = async (n: any) => {
+    const email = testEmailMap[n.id];
+    if (!email) return;
+    setTestingMap(prev => ({ ...prev, [n.id]: true }));
+    setTestResultMap(prev => ({ ...prev, [n.id]: null }));
+    try {
+      const res = await api.post('/smtp/test-notification', {
+        notificationId: n.id, testEmail: email, sujet: n.sujet, template: n.template,
+      });
+      setTestResultMap(prev => ({ ...prev, [n.id]: { success: true, message: res.data.message } }));
+    } catch (e: any) {
+      setTestResultMap(prev => ({ ...prev, [n.id]: { success: false, message: e?.response?.data?.error || 'Erreur envoi' } }));
+    }
+    setTestingMap(prev => ({ ...prev, [n.id]: false }));
+  };
 
   const notifications = [
-    { id: 'mention', icon: '📌', titre: 'Mention dans un commentaire', description: 'Envoye lorsque un utilisateur est mentionne via @Prenom Nom dans un commentaire.', destinataire: 'La personne mentionnee', declencheur: 'Ajout commentaire avec @mention', sujet: 'Vous avez ete mentionne dans une tache : [Nom tache]', template: 'Bonjour [Prenom Nom],
+    { id: 'mention', icon: '📌', pages: ['Tâches', 'Processus', 'Projets', 'Documents', 'Contrats'], titre: 'Mention dans un commentaire', description: 'Envoye lorsque un utilisateur est mentionne via @Prenom Nom dans un commentaire.', destinataire: 'La personne mentionnee', declencheur: 'Ajout commentaire avec @mention', sujet: 'Vous avez ete mentionne dans une tache : [Nom tache]', template: `Bonjour [Prenom Nom],
 
 [Auteur] vous a mentionne dans un commentaire de la tache :
 
@@ -16,49 +35,49 @@ function NotificationsTab() {
 
 "[Contenu du commentaire]"
 
-PMO Hub' },
-    { id: 'assignation', icon: '✅', titre: 'Assignation a une tache', description: 'Envoye lorsque un utilisateur est assigne a une tache.', destinataire: 'Utilisateur assigne', declencheur: 'Creation ou modification avec assignation', sujet: 'Nouvelle assignation : [Nom tache]', template: 'Bonjour [Prenom Nom],
+PMO Hub` },
+    { id: 'assignation', icon: '✅', pages: ['Tâches', 'Projets'], titre: 'Assignation a une tache', description: 'Envoye lorsque un utilisateur est assigne a une tache.', destinataire: 'Utilisateur assigne', declencheur: 'Creation ou modification avec assignation', sujet: 'Nouvelle assignation : [Nom tache]', template: `Bonjour [Prenom Nom],
 
 [Auteur] vous a assigne a la tache :
 
 [Nom de la tache]
 
-PMO Hub' },
-    { id: 'statut', icon: '🔄', titre: 'Changement de statut', description: 'Envoye lorsque le statut est modifie.', destinataire: 'Createur et utilisateurs assignes', declencheur: 'Modification du statut', sujet: 'Statut modifie : [Nom tache]', template: 'Bonjour [Prenom Nom],
+PMO Hub` },
+    { id: 'statut', icon: '🔄', pages: ['Tâches', 'Processus', 'Projets'], titre: 'Changement de statut', description: 'Envoye lorsque le statut est modifie.', destinataire: 'Createur et utilisateurs assignes', declencheur: 'Modification du statut', sujet: 'Statut modifie : [Nom tache]', template: `Bonjour [Prenom Nom],
 
 [Auteur] a modifie le statut de [Nom tache] :
 
 [Ancien statut] => [Nouveau statut]
 
-PMO Hub' },
-    { id: 'retard', icon: '⚠️', titre: 'Tache en retard', description: 'Envoye chaque matin a 8h pour les taches dont la date de fin est depassee.', destinataire: 'Createur et utilisateurs assignes', declencheur: 'Job automatique a 8h00', sujet: 'Tache en retard : [Nom tache]', template: 'Bonjour [Prenom Nom],
+PMO Hub` },
+    { id: 'retard', icon: '⚠️', pages: ['Tâches', 'Projets'], titre: 'Tache en retard', description: 'Envoye chaque matin a 8h pour les taches dont la date de fin est depassee.', destinataire: 'Createur et utilisateurs assignes', declencheur: 'Job automatique a 8h00', sujet: 'Tache en retard : [Nom tache]', template: `Bonjour [Prenom Nom],
 
 La tache suivante est en retard de [N] jour(s) :
 
 [Nom de la tache]
 
-PMO Hub' },
-    { id: 'nouvelle_tache', icon: '📋', titre: 'Nouvelle tache liee a un projet', description: 'Envoye aux membres du projet lorsque une nouvelle tache y est liee.', destinataire: 'Membres du projet', declencheur: 'Creation tache avec projet associe', sujet: 'Nouvelle tache dans [Nom projet]', template: 'Bonjour [Prenom Nom],
+PMO Hub` },
+    { id: 'nouvelle_tache', icon: '📋', pages: ['Tâches', 'Projets'], titre: 'Nouvelle tache liee a un projet', description: 'Envoye aux membres du projet lorsque une nouvelle tache y est liee.', destinataire: 'Membres du projet', declencheur: 'Creation tache avec projet associe', sujet: 'Nouvelle tache dans [Nom projet]', template: `Bonjour [Prenom Nom],
 
 [Auteur] a cree une nouvelle tache dans [Nom projet] :
 
 [Nom de la tache]
 
-PMO Hub' },
-    { id: 'commentaire', icon: '💬', titre: 'Nouveau commentaire', description: 'Envoye lorsque un commentaire est ajoute sur une tache.', destinataire: 'Createur et assignes (hors auteur)', declencheur: 'Ajout commentaire sur une tache', sujet: 'Nouveau commentaire : [Nom tache]', template: 'Bonjour [Prenom Nom],
+PMO Hub` },
+    { id: 'commentaire', icon: '💬', pages: ['Tâches', 'Processus', 'Projets', 'Documents'], titre: 'Nouveau commentaire', description: 'Envoye lorsque un commentaire est ajoute sur une tache.', destinataire: 'Createur et assignes (hors auteur)', declencheur: 'Ajout commentaire sur une tache', sujet: 'Nouveau commentaire : [Nom tache]', template: `Bonjour [Prenom Nom],
 
 [Auteur] a commente la tache [Nom tache] :
 
 "[Contenu]"
 
-PMO Hub' },
-    { id: 'document', icon: '📎', titre: 'Document uploade', description: 'Envoye lorsque un document est uploade sur une tache.', destinataire: 'Createur et assignes (hors auteur)', declencheur: 'Upload document sur une tache', sujet: 'Nouveau document : [Nom tache]', template: 'Bonjour [Prenom Nom],
+PMO Hub` },
+    { id: 'document', icon: '📎', pages: ['Documents', 'Tâches', 'Processus', 'Projets', 'Contrats'], titre: 'Document uploade', description: 'Envoye lorsque un document est uploade sur une tache.', destinataire: 'Createur et assignes (hors auteur)', declencheur: 'Upload document sur une tache', sujet: 'Nouveau document : [Nom tache]', template: `Bonjour [Prenom Nom],
 
 [Auteur] a uploade un document sur [Nom tache] :
 
 [Nom du document]
 
-PMO Hub' },
+PMO Hub` },
   ];
 
   return (
@@ -74,9 +93,17 @@ PMO Hub' },
                 <div className="flex-1">
                   <h3 className="text-sm font-semibold text-gray-800 mb-1">{n.titre}</h3>
                   <p className="text-sm text-gray-600 mb-2">{n.description}</p>
-                  <div className="flex flex-wrap gap-4 text-xs text-gray-500">
+                  <div className="flex flex-wrap gap-4 text-xs text-gray-500 mb-2">
                     <span>Destinataire : {n.destinataire}</span>
                     <span>Declencheur : {n.declencheur}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1 items-center">
+                    <span className="text-xs text-gray-400 font-medium mr-1">Pages concernées :</span>
+                    {(n as any).pages?.map((p: string) => (
+                      <span key={p} className="px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full text-xs font-medium border border-indigo-100">
+                        {p}
+                      </span>
+                    ))}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -97,6 +124,25 @@ PMO Hub' },
                       <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">{n.template}</pre>
                       <p className="text-xs text-gray-400 mt-3">PMO Hub — Notification automatique</p>
                     </div>
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-lg p-4 max-w-2xl mt-3">
+                    <p className="text-sm font-semibold text-gray-700 mb-3">📧 Tester l'envoi de cette notification</p>
+                    <div className="flex gap-2 mb-2">
+                      <input type="email" placeholder="Entrez votre adresse email..."
+                        value={testEmailMap[n.id] || ''}
+                        onChange={e => setTestEmailMap(prev => ({ ...prev, [n.id]: e.target.value }))}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500" />
+                      <button onClick={() => sendTestNotification(n)}
+                        disabled={testingMap[n.id] || !testEmailMap[n.id]}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                        {testingMap[n.id] ? '⏳ Envoi...' : '📤 Envoyer le test'}
+                      </button>
+                    </div>
+                    {testResultMap[n.id] && (
+                      <div className={`px-3 py-2 rounded text-sm ${testResultMap[n.id]!.success ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                        {testResultMap[n.id]!.success ? '✅ ' : '❌ '}{testResultMap[n.id]!.message}
+                      </div>
+                    )}
                   </div>
                   <p className="text-xs text-gray-400 mt-2">Les valeurs entre [crochets] sont remplacees automatiquement.</p>
                 </div>

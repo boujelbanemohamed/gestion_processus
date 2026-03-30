@@ -151,6 +151,7 @@ app.post("/api/v1/smtp", smtpController.createSMTPConfig);
 app.put("/api/v1/smtp/:id", smtpController.updateSMTPConfig);
 app.delete("/api/v1/smtp/:id", smtpController.deleteSMTPConfig);
 app.post("/api/v1/smtp/:id/test", smtpController.testSMTPConfig);
+app.post("/api/v1/smtp/test-notification", authenticate, smtpController.testNotification);
 
 // Corbeille (accessible uniquement au super admin)
 app.get("/api/v1/corbeille", corbeilleController.getCorbeille);
