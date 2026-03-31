@@ -24,6 +24,7 @@ import * as ocrController from "./controllers/ocr.controller";
 import * as clientFournisseurController from "./controllers/client-fournisseur.controller";
 import * as tacheController from "./controllers/tache.controller";
 import * as notificationController from "./controllers/notification.controller";
+import * as licenceController from "./controllers/licence.controller";
 
 const app = express();
 app.use(helmet());
@@ -220,6 +221,11 @@ app.get("/api/v1/taches/:id/commentaires/:commentaireId/fichier", tacheControlle
 app.post("/api/v1/taches/:id/documents/lier", tacheController.lierDocument);
 app.delete("/api/v1/taches/:id/documents/:documentId", tacheController.delierDocument);
 app.post("/api/v1/taches/:id/documents", tacheController.uploadMiddleware, tacheController.uploadDocument);
+
+
+// Licences
+app.get("/api/v1/licences", licenceController.getLicences);
+app.get("/api/v1/types-licence", licenceController.getTypesLicence);
 
 
 

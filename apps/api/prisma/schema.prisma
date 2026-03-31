@@ -807,3 +807,10 @@ model TacheDocument {
   @@index([tacheId])
   @@index([documentId])
 }
+
+// ── TYPE LICENCE ─────────────────────────────────────────────────────────────
+model TypeLicence {
+  id        String   @id @default(uuid())
+  nom       String   @unique
+  createdAt DateTime @default(now())
+}
