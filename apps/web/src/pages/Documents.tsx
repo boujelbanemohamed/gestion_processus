@@ -218,6 +218,8 @@ export default function Documents() {
     // Récupérer l'utilisateur actuel
     const user = currentUser || JSON.parse(localStorage.getItem('user') || '{}');
     if (!user.id) return false;
+
+    if (user.role === 'admin') return true;
     
     // L'utilisateur qui a uploadé peut toujours accéder
     if (doc.uploadedById === user.id) return true;
@@ -240,6 +242,18 @@ export default function Documents() {
         // Si on ne peut pas charger le processus, on laisse le backend décider
         // On retourne true pour permettre la requête, le backend vérifiera
         return true;
+      }
+    }
+
+    if (doc.referenceType === 'licence' && doc.referenceId) {
+      try {
+        const licRes = await api.get(`/licences/${doc.referenceId}`);
+        const lic = licRes.data;
+        if (!lic) return false;
+        if (lic.createdById === user.id) return true;
+        if (lic.permissions?.some((p: any) => p.userId === user.id)) return true;
+      } catch {
+        return false;
       }
     }
 
@@ -625,6 +639,7 @@ export default function Documents() {
               <option value="processus">Processus</option>
               <option value="projet">Projet</option>
               <option value="contrat">Contrat</option>
+              <option value="licence">Licence</option>
               <option value="tache">Tâche</option>
               <option value="client_fournisseur">Client / Fournisseur</option>
               <option value="template">Template</option>
@@ -709,7 +724,7 @@ export default function Documents() {
                   )}
                 </div>
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processus / Projet / Contrat / Tâche</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processus / Projet / Contrat / Licence / Tâche</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
               <th 
                 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
@@ -766,7 +781,10 @@ export default function Documents() {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {pagedDocuments.map((d) => (
+            {pagedDocuments.map((d) => {
+              const isLicenceLinkedDoc = d.typeDocument === 'licence' || d.referenceType === 'licence';
+              const showRestrictedAccess = d.estConfidentiel || isLicenceLinkedDoc;
+              return (
               <tr key={d.id} className="hover:bg-gray-50">
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                   <button
@@ -777,7 +795,7 @@ export default function Documents() {
                   </button>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm capitalize">
-                  {d.typeDocument === 'autre' && d.tacheDocuments?.length > 0 ? 'tâche' : d.typeDocument}
+                  {d.typeDocument === 'autre' && d.tacheDocuments?.length > 0 ? 'tâche' : d.typeDocument === 'licence' ? 'Licence' : d.typeDocument}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                   {d.referenceType === 'processus' && d.referenceId ? (
@@ -805,6 +823,11 @@ export default function Documents() {
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-xs font-medium">
                         📄 {d.contrats?.[0]?.contrat?.nom || 'Contrat lié'}
                       </span>
+                    ) : d.referenceType === 'licence' && (d.licence || d.referenceId) ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-800 rounded text-xs font-medium">
+                        🔑 {d.licence?.nom || 'Licence'}
+                        {d.licence?.reference ? ` (#${d.licence.reference})` : ''}
+                      </span>
                     ) : d.typeDocument === 'tache' || d.typeDocument === 'autre' ? (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 text-orange-700 rounded text-xs font-medium">
                         📋 {d.tacheDocuments?.[0]?.tache?.nom || 'Tâche'}
@@ -826,9 +849,11 @@ export default function Documents() {
                       'bg-gray-100 text-gray-800';
                     return <span className={`px-2 py-1 text-xs rounded ${color}`}>{statut}</span>;
                   })()}
-                  {d.estConfidentiel && (
+                  {showRestrictedAccess && (
                     <div className="mt-2 text-xs text-gray-700 space-y-1">
-                      <span className="inline-block px-2 py-0.5 bg-red-100 text-red-800 rounded">Confidentiel</span>
+                      <span className="inline-block px-2 py-0.5 bg-red-100 text-red-800 rounded">
+                        {isLicenceLinkedDoc ? 'Confidentiel (licence)' : 'Confidentiel'}
+                      </span>
                       {
                         (() => {
                           const selectedUsers = (d.permissionsUtilisateurs || [])
@@ -837,6 +862,10 @@ export default function Documents() {
                           const viewers: string[] = [];
                           selectedUsers.forEach((u: any) => viewers.push(`${u.prenom} ${u.nom}`));
                           if (d.uploadedBy) viewers.push(`${d.uploadedBy.prenom} ${d.uploadedBy.nom}`);
+                          if (d.licence?.createdBy) viewers.push(`${d.licence.createdBy.prenom} ${d.licence.createdBy.nom}`);
+                          (d.licence?.permissions || []).forEach((lp: any) => {
+                            if (lp.user) viewers.push(`${lp.user.prenom} ${lp.user.nom}`);
+                          });
                           if (d.processus?.proprietaire) viewers.push(`${d.processus.proprietaire.prenom} ${d.processus.proprietaire.nom}`);
                           if (d.processus?.createdBy) viewers.push(`${d.processus.createdBy.prenom} ${d.processus.createdBy.nom}`);
                           const editors: string[] = [];
@@ -863,9 +892,12 @@ export default function Documents() {
                   )}
                 </td>
                 <td className="px-6 py-4 text-sm">
-                  {d.estConfidentiel ? (
+                  {showRestrictedAccess ? (
                     <div>
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">🔒 Accès restreint</span>
+                      {isLicenceLinkedDoc && (
+                        <p className="mt-1 text-xs text-amber-800">Aligné sur les droits de la licence</p>
+                      )}
                       <div className="mt-1 text-xs text-gray-600 space-y-0.5">
                         {(() => {
                           const ayantsDroit: {nom: string, roles: string[]}[] = [];
@@ -876,7 +908,16 @@ export default function Documents() {
                           };
                           usersList.filter(u => u.role === 'admin').forEach(u => addPerson(u.id, `${u.prenom} ${u.nom}`, 'Admin'));
                           if (d.uploadedBy) addPerson(d.uploadedBy.id, `${d.uploadedBy.prenom} ${d.uploadedBy.nom}`, 'Uploadeur');
-                          (d.permissionsUtilisateurs || []).forEach((p: any) => { if (p.user) addPerson(p.user.id, `${p.user.prenom} ${p.user.nom}`, 'Accès explicite'); });
+                          (d.permissionsUtilisateurs || []).forEach((p: any) => { if (p.user) addPerson(p.user.id, `${p.user.prenom} ${p.user.nom}`, 'Accès document'); });
+                          if (d.licence?.createdBy) {
+                            addPerson(d.licence.createdBy.id, `${d.licence.createdBy.prenom} ${d.licence.createdBy.nom}`, 'Créateur licence');
+                          }
+                          (d.licence?.permissions || []).forEach((lp: any) => {
+                            if (lp.user) {
+                              const niveau = lp.niveau === 'lecture' ? 'Lecture' : lp.niveau === 'modification' ? 'Modification' : lp.niveau === 'suppression' ? 'Suppression' : lp.niveau;
+                              addPerson(lp.user.id, `${lp.user.prenom} ${lp.user.nom}`, `Licence (${niveau})`);
+                            }
+                          });
                           if (ayantsDroit.length === 0) return <span className="italic text-gray-400">Aucun utilisateur défini</span>;
                           return ayantsDroit.map((a, i) => (
                             <div key={i}><span className="font-medium">{a.nom}</span> <span className="text-gray-400">({a.roles.join(', ')})</span></div>
@@ -975,7 +1016,8 @@ export default function Documents() {
                   </td>
                 )}
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         {documents.length === 0 && (

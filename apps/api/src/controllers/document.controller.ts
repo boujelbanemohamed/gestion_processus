@@ -211,8 +211,24 @@ export const createVersion = async (req: AuthRequest, res: Response) => {
             error: 'Vous n\'avez pas les permissions pour créer une nouvelle version de ce document. Seuls le propriétaire ou le créateur du processus peuvent créer une nouvelle version.' 
           });
         }
+      } else if (oldDocument.referenceType === 'licence' && oldDocument.referenceId) {
+        const { prisma } = await import('../utils/prisma');
+        const { canEditLicenceContent } = await import('../services/licence.service');
+        const licence = await prisma.licence.findUnique({
+          where: { id: oldDocument.referenceId },
+          include: { permissions: true },
+        });
+        if (!licence || licence.deletedAt) {
+          return res.status(404).json({ error: 'Licence non trouvée' });
+        }
+        if (!canEditLicenceContent(req.user.userId, req.user.role, licence)) {
+          return res.status(403).json({
+            error:
+              'Vous n\'avez pas les permissions pour créer une nouvelle version de ce document. Un niveau Modification ou Suppression sur la licence est requis.',
+          });
+        }
       } else {
-        // Si le document n'est pas lié à un processus, seuls les admins peuvent créer une version
+        // Si le document n'est pas lié à un processus ni à une licence, seuls les admins peuvent créer une version
         return res.status(403).json({ 
           error: 'Vous n\'avez pas les permissions pour créer une nouvelle version de ce document.' 
         });
@@ -222,7 +238,7 @@ export const createVersion = async (req: AuthRequest, res: Response) => {
     // Vérifier les permissions pour les documents confidentiels
     // Pour ajouter une version, seuls les utilisateurs explicitement autorisés peuvent ajouter une version
     if (oldDocument.estConfidentiel) {
-      const canAddVersion = await documentService.canUserDeleteOrAddVersion(oldDocument.id, req.user!.userId);
+      const canAddVersion = await documentService.canUserDeleteOrAddVersion(oldDocument.id, req.user!.userId, req.user!.role);
       if (!canAddVersion) {
         return res.status(403).json({ error: 'Seuls les utilisateurs autorisés peuvent ajouter une version à ce document confidentiel' });
       }
@@ -256,7 +272,7 @@ export const viewDocument = async (req: AuthRequest, res: Response) => {
     }
 
     // Vérifier les permissions pour les documents confidentiels
-    const canAccess = await documentService.canUserAccessDocument(document.id, req.user!.userId);
+    const canAccess = await documentService.canUserAccessDocument(document.id, req.user!.userId, req.user!.role);
     if (!canAccess) {
       return res.status(403).json({ error: 'Accès non autorisé à ce document confidentiel' });
     }
@@ -301,7 +317,7 @@ export const downloadDocument = async (req: AuthRequest, res: Response) => {
     }
 
     // Vérifier les permissions pour les documents confidentiels
-    const canAccess = await documentService.canUserAccessDocument(document.id, req.user!.userId);
+    const canAccess = await documentService.canUserAccessDocument(document.id, req.user!.userId, req.user!.role);
     if (!canAccess) {
       return res.status(403).json({ error: 'Accès non autorisé à ce document confidentiel' });
     }
@@ -329,7 +345,7 @@ export const downloadVersion = async (req: AuthRequest, res: Response) => {
     }
 
     // Vérifier les permissions pour les documents confidentiels
-    const canAccess = await documentService.canUserAccessDocument(document.id, req.user!.userId);
+    const canAccess = await documentService.canUserAccessDocument(document.id, req.user!.userId, req.user!.role);
     if (!canAccess) {
       return res.status(403).json({ error: 'Accès non autorisé à ce document confidentiel' });
     }
@@ -380,8 +396,24 @@ export const updateDocument = async (req: AuthRequest, res: Response) => {
             error: 'Vous n\'avez pas les permissions pour modifier ce document. Seuls le propriétaire ou le créateur du processus peuvent modifier un document.' 
           });
         }
+      } else if (oldDocument.referenceType === 'licence' && oldDocument.referenceId) {
+        const { prisma } = await import('../utils/prisma');
+        const { canEditLicenceContent } = await import('../services/licence.service');
+        const licence = await prisma.licence.findUnique({
+          where: { id: oldDocument.referenceId },
+          include: { permissions: true },
+        });
+        if (!licence || licence.deletedAt) {
+          return res.status(404).json({ error: 'Licence non trouvée' });
+        }
+        if (!canEditLicenceContent(req.user.userId, req.user.role, licence)) {
+          return res.status(403).json({
+            error:
+              'Vous n\'avez pas les permissions pour modifier ce document. Un niveau Modification ou Suppression sur la licence est requis.',
+          });
+        }
       } else {
-        // Si le document n'est pas lié à un processus, seuls les admins peuvent le modifier
+        // Si le document n'est pas lié à un processus ni à une licence, seuls les admins peuvent le modifier
         return res.status(403).json({ 
           error: 'Vous n\'avez pas les permissions pour modifier ce document.' 
         });
@@ -418,7 +450,11 @@ export const updateDocument = async (req: AuthRequest, res: Response) => {
 
     // Vérifier les permissions pour modifier un document confidentiel
     if (oldDocument.estConfidentiel) {
-      const canModify = await documentService.canUserAccessDocument(oldDocument.id, req.user!.userId);
+      const canModify = await documentService.canUserModifyConfidentialDocument(
+        oldDocument.id,
+        req.user!.userId,
+        req.user!.role,
+      );
       if (!canModify) {
         return res.status(403).json({ error: 'Seuls les utilisateurs autorisés peuvent modifier ce document confidentiel' });
       }
@@ -475,8 +511,24 @@ export const deleteDocument = async (req: AuthRequest, res: Response) => {
             error: 'Vous n\'avez pas les permissions pour supprimer ce document. Seuls le propriétaire ou le créateur du processus peuvent supprimer un document.' 
           });
         }
+      } else if (document.referenceType === 'licence' && document.referenceId) {
+        const { prisma } = await import('../utils/prisma');
+        const { canEditLicenceContent } = await import('../services/licence.service');
+        const licence = await prisma.licence.findUnique({
+          where: { id: document.referenceId },
+          include: { permissions: true },
+        });
+        if (!licence || licence.deletedAt) {
+          return res.status(404).json({ error: 'Licence non trouvée' });
+        }
+        if (!canEditLicenceContent(req.user.userId, req.user.role, licence)) {
+          return res.status(403).json({
+            error:
+              'Vous n\'avez pas les permissions pour supprimer ce document. Un niveau Modification ou Suppression sur la licence est requis.',
+          });
+        }
       } else {
-        // Si le document n'est pas lié à un processus, seuls les admins peuvent le supprimer
+        // Si le document n'est pas lié à un processus ni à une licence, seuls les admins peuvent le supprimer
         return res.status(403).json({ 
           error: 'Vous n\'avez pas les permissions pour supprimer ce document.' 
         });
@@ -486,7 +538,7 @@ export const deleteDocument = async (req: AuthRequest, res: Response) => {
     // Vérifier les permissions pour les documents confidentiels
     // Pour la suppression, seuls les utilisateurs explicitement autorisés peuvent supprimer
     if (document.estConfidentiel) {
-      const canDelete = await documentService.canUserDeleteOrAddVersion(document.id, req.user!.userId);
+      const canDelete = await documentService.canUserDeleteOrAddVersion(document.id, req.user!.userId, req.user!.role);
       if (!canDelete) {
         return res.status(403).json({ error: 'Seuls les utilisateurs autorisés peuvent supprimer ce document confidentiel' });
       }

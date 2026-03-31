@@ -289,6 +289,7 @@ export class LicenceService {
       create: { licenceId, userId, niveau },
       update: { niveau },
     });
+    await this.syncDocumentsPermissionsFromLicence(licenceId);
     return this.findOne(licenceId, actorId, role);
   }
 
@@ -300,6 +301,7 @@ export class LicenceService {
     if (!licence || licence.deletedAt) throw new Error('Licence non trouvée');
     if (!canManagePermissions(actorId, role, licence)) throw new Error('Accès refusé');
     await prisma.licencePermission.deleteMany({ where: { licenceId, userId: targetUserId } });
+    await this.syncDocumentsPermissionsFromLicence(licenceId);
     return this.findOne(licenceId, actorId, role);
   }
 
@@ -339,6 +341,37 @@ export class LicenceService {
     return this.findOne(licenceId, actorId, role);
   }
 
+  /** Aligne DocumentPermission de tous les documents liés sur créateur + utilisateurs autorisés sur la licence. */
+  async syncDocumentsPermissionsFromLicence(licenceId: string) {
+    await prisma.document.updateMany({
+      where: { referenceType: 'licence', referenceId: licenceId, deletedAt: null },
+      data: { estConfidentiel: true },
+    });
+
+    const licence = await prisma.licence.findUnique({
+      where: { id: licenceId },
+      include: { permissions: true },
+    });
+    if (!licence || licence.deletedAt) return;
+    const userIds = new Set<string>();
+    if (licence.createdById) userIds.add(licence.createdById);
+    for (const p of licence.permissions) userIds.add(p.userId);
+    const ids = [...userIds];
+    const docs = await prisma.document.findMany({
+      where: { referenceType: 'licence', referenceId: licenceId, deletedAt: null },
+      select: { id: true },
+    });
+    for (const d of docs) {
+      await prisma.documentPermission.deleteMany({ where: { documentId: d.id } });
+      if (ids.length > 0) {
+        await prisma.documentPermission.createMany({
+          data: ids.map((userId) => ({ documentId: d.id, userId })),
+          skipDuplicates: true,
+        });
+      }
+    }
+  }
+
   async attachUploadedFile(
     licenceId: string,
     actorId: string,
@@ -371,12 +404,18 @@ export class LicenceService {
         fichierType: file.mimetype,
         uploadedById: actorId,
         statut: 'valide',
+        estConfidentiel: true,
+        version: '1.0.0',
+        versionMajeure: 1,
+        versionMineure: 0,
       },
     });
 
     await prisma.licenceDocument.create({
       data: { licenceId, documentId: doc.id },
     });
+
+    await this.syncDocumentsPermissionsFromLicence(licenceId);
 
     return this.findOne(licenceId, actorId, role);
   }

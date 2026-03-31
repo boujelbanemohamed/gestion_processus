@@ -1,5 +1,6 @@
 import { prisma } from '../utils/prisma';
 import { DocType, DocStatut, RefType } from '@prisma/client';
+import { canEditLicenceContent, canReadLicence } from './licence.service';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 
@@ -69,6 +70,16 @@ export class DocumentService {
     // Exclure les documents supprimés (soft delete)
     where.deletedAt = null;
 
+    // Pièces liées à une licence : toujours confidentielles (rattrapage + cohérence métier)
+    await prisma.document.updateMany({
+      where: {
+        deletedAt: null,
+        estConfidentiel: false,
+        OR: [{ typeDocument: 'licence' }, { referenceType: 'licence' }],
+      },
+      data: { estConfidentiel: true },
+    });
+
     const documents = await prisma.document.findMany({
       where,
       include: {
@@ -96,6 +107,16 @@ export class DocumentService {
     });
 
     // Enrichir avec les informations du processus et les statistiques
+    const licenceCache = new Map<
+      string,
+      {
+        id: string;
+        nom: string;
+        reference: string;
+        createdBy: { id: string; prenom: string; nom: string; email: string } | null;
+        permissions: { niveau: string; user: { id: string; prenom: string; nom: string; email: string } }[];
+      } | null
+    >();
     const documentsWithProcessus = await Promise.all(
       documents.map(async (doc) => {
         let processus = null;
@@ -111,6 +132,31 @@ export class DocumentService {
             where: { id: doc.referenceId },
             select: { id: true, nom: true, codeProjet: true },
           });
+        }
+        let licence = null;
+        const licenceRefId =
+          doc.referenceId && (doc.referenceType === 'licence' || doc.typeDocument === 'licence')
+            ? doc.referenceId
+            : null;
+        if (licenceRefId) {
+          if (!licenceCache.has(licenceRefId)) {
+            licenceCache.set(
+              licenceRefId,
+              await prisma.licence.findUnique({
+                where: { id: licenceRefId },
+                select: {
+                  id: true,
+                  nom: true,
+                  reference: true,
+                  createdBy: { select: { id: true, prenom: true, nom: true, email: true } },
+                  permissions: {
+                    include: { user: { select: { id: true, prenom: true, nom: true, email: true } } },
+                  },
+                },
+              }),
+            );
+          }
+          licence = licenceCache.get(licenceRefId) ?? null;
         }
         // Récupérer les contrats liés
         const contrats = await prisma.contratDocument.findMany({
@@ -140,6 +186,7 @@ export class DocumentService {
           ...doc,
           processus: processus || null,
           projet: projet || null,
+          licence: licence || null,
           contrats: contrats || [],
           nombreTelechargements: telechargements,
           nombreVisualisations: visualisations,
@@ -202,7 +249,7 @@ export class DocumentService {
     };
   }
 
-  async canUserAccessDocument(documentId: string, userId: string): Promise<boolean> {
+  async canUserAccessDocument(documentId: string, userId: string, role?: string): Promise<boolean> {
     const document = await prisma.document.findUnique({
       where: { id: documentId },
       include: {
@@ -213,11 +260,23 @@ export class DocumentService {
 
     if (!document) return false;
 
+    if (role === 'admin') return true;
+
     // Si le document n'est pas confidentiel, tout le monde peut y accéder
     if (!document.estConfidentiel) return true;
 
     // L'utilisateur qui a uploadé peut toujours accéder
     if (document.uploadedById === userId) return true;
+
+    if (document.referenceType === 'licence' && document.referenceId) {
+      const licence = await prisma.licence.findUnique({
+        where: { id: document.referenceId },
+        include: { permissions: true },
+      });
+      if (licence && !licence.deletedAt && canReadLicence(userId, role || 'lecteur', licence)) {
+        return true;
+      }
+    }
 
     // Vérifier si le document est lié à un processus et si l'utilisateur est propriétaire ou créateur
     if (document.referenceType === 'processus' && document.referenceId) {
@@ -265,7 +324,26 @@ export class DocumentService {
     return !!hasPermission;
   }
 
-  async canUserDeleteOrAddVersion(documentId: string, userId: string): Promise<boolean> {
+  /** Métadonnées d'un document confidentiel : licence = droit de modification sur la fiche licence ; sinon = accès lecture du document. */
+  async canUserModifyConfidentialDocument(documentId: string, userId: string, role?: string): Promise<boolean> {
+    const document = await prisma.document.findUnique({
+      where: { id: documentId },
+      select: { estConfidentiel: true, referenceType: true, referenceId: true },
+    });
+    if (!document) return false;
+    if (!document.estConfidentiel) return true;
+    if (role === 'admin') return true;
+    if (document.referenceType === 'licence' && document.referenceId) {
+      const licence = await prisma.licence.findUnique({
+        where: { id: document.referenceId },
+        include: { permissions: true },
+      });
+      return !!(licence && !licence.deletedAt && canEditLicenceContent(userId, role || 'lecteur', licence));
+    }
+    return this.canUserAccessDocument(documentId, userId, role);
+  }
+
+  async canUserDeleteOrAddVersion(documentId: string, userId: string, role?: string): Promise<boolean> {
     const document = await prisma.document.findUnique({
       where: { id: documentId },
       include: {
@@ -276,11 +354,23 @@ export class DocumentService {
 
     if (!document) return false;
 
+    if (role === 'admin') return true;
+
     // Si le document n'est pas confidentiel, tout le monde peut supprimer/ajouter version
     if (!document.estConfidentiel) return true;
 
     // L'utilisateur qui a uploadé peut toujours supprimer/ajouter version
     if (document.uploadedById === userId) return true;
+
+    // Pièce licence : seuls modification/suppression sur la licence (pas le simple droit DocumentPermission « lecture »)
+    if (document.referenceType === 'licence' && document.referenceId) {
+      const licence = await prisma.licence.findUnique({
+        where: { id: document.referenceId },
+        include: { permissions: true },
+      });
+      if (!licence || licence.deletedAt) return false;
+      return canEditLicenceContent(userId, role || 'lecteur', licence);
+    }
 
     // Pour les documents confidentiels, seuls les utilisateurs explicitement dans la liste des permissions peuvent supprimer/ajouter version
     // (le propriétaire/créateur du processus n'a pas automatiquement ce droit, sauf s'il est dans la liste)

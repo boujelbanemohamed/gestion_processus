@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 import axios from 'axios';
@@ -94,6 +94,8 @@ export default function Licences() {
   const [corbeilleLicences, setCorbeilleLicences] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const detailFileRef = useRef<HTMLInputElement>(null);
+  const [detailDocUploading, setDetailDocUploading] = useState(false);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -255,6 +257,26 @@ export default function Licences() {
     await api.post(`/licences/${showDetailModal.id}/notifications`, notifForm);
     const res = await api.get(`/licences/${showDetailModal.id}`);
     setShowDetailModal(res.data); loadAll();
+  };
+
+  const uploadDetailDocs = async (fileList: FileList | null) => {
+    if (!showDetailModal?.id || !fileList?.length) return;
+    setDetailDocUploading(true);
+    try {
+      for (const file of Array.from(fileList)) {
+        const fd = new FormData();
+        fd.append('documents', file, file.name);
+        await uploadApi.post(`/licences/${showDetailModal.id}/upload`, fd);
+      }
+      const res = await api.get(`/licences/${showDetailModal.id}`);
+      setShowDetailModal(res.data);
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur upload');
+    } finally {
+      setDetailDocUploading(false);
+      if (detailFileRef.current) detailFileRef.current.value = '';
+    }
   };
 
   const filtered = licences.filter(l => {
@@ -455,9 +477,24 @@ export default function Licences() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Documents</label>
-                <input type="file" multiple onChange={e => setNewFiles(Array.from(e.target.files || []))} className="w-full text-sm" />
-                {newFiles.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{newFiles.map((f, i) => <span key={i} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">📎 {f.name}</span>)}</div>}
+                <span className="block text-xs font-medium text-gray-600 mb-1">Documents</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label
+                    htmlFor="licence-form-files"
+                    className="inline-flex px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 cursor-pointer"
+                  >
+                    <input
+                      type="file"
+                      multiple
+                      id="licence-form-files"
+                      className="sr-only"
+                      onChange={(e) => setNewFiles(Array.from(e.target.files || []))}
+                    />
+                    Sélectionner fichier(s)
+                  </label>
+                  <span className="text-xs text-gray-500">PDF, Office, images…</span>
+                </div>
+                {newFiles.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{newFiles.map((f, i) => <span key={i} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">📎 {f.name}</span>)}</div>}
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50/80">
@@ -586,8 +623,27 @@ export default function Licences() {
                 </div>
               )}
               {detailTab === 'docs' && (
-                <div className="space-y-2">
-                  {showDetailModal.documents?.length === 0 && <p className="text-gray-400 text-sm">Aucun document</p>}
+                <div className="space-y-4">
+                  {canEditLicence(showDetailModal) && (
+                    <div className={`flex flex-wrap items-center gap-2 ${detailDocUploading ? 'pointer-events-none opacity-60' : ''}`}>
+                      <label
+                        htmlFor="licence-detail-files"
+                        className="inline-flex px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 cursor-pointer shrink-0"
+                      >
+                        <input
+                          ref={detailFileRef}
+                          type="file"
+                          multiple
+                          id="licence-detail-files"
+                          className="sr-only"
+                          onChange={(e) => uploadDetailDocs(e.target.files)}
+                        />
+                        {detailDocUploading ? 'Envoi en cours…' : 'Sélectionner fichier(s)'}
+                      </label>
+                      <span className="text-xs text-gray-500">Les fichiers apparaissent dans Licences et dans Documents (type Licence), avec les mêmes accès que la licence.</span>
+                    </div>
+                  )}
+                  {!showDetailModal.documents?.length && <p className="text-gray-400 text-sm">Aucun document</p>}
                   {showDetailModal.documents?.map((d: any) => (
                     <div key={d.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <a href={`${API_BASE_URL}/documents/${d.document?.id}/view?token=${localStorage.getItem('token')}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline text-sm">
