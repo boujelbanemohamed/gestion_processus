@@ -380,8 +380,8 @@ export class DocumentService {
     valideById?: string;
     permissionUserIds?: string[];
   }) {
-    const { permissionUserIds, ...updateData } = data;
-    
+    const { permissionUserIds, ...rest } = data;
+    const updateData: typeof rest & { dateValidation?: Date } = { ...rest };
     if (data.statut === 'valide' && data.valideById) {
       updateData.dateValidation = new Date();
     }

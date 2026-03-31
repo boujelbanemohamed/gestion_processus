@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../services/api';
+import { api, API_BASE_URL } from '../services/api';
 import axios from 'axios';
 
 // Instance axios pour uploads (sans Content-Type forcé)
-const uploadApi = axios.create({ baseURL: 'http://172.17.5.198:4000/api/v1' });
+const uploadApi = axios.create({ baseURL: API_BASE_URL });
 uploadApi.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -326,7 +326,7 @@ export default function Contrats() {
                         <div className="flex flex-wrap gap-1">
                           {c.documents.map((d: any) => (
                             <div key={d.id} className="flex items-center gap-1 px-2 py-0.5 bg-gray-100 rounded text-xs">
-                              <a href={`http://172.17.5.198:4000/api/v1/documents/${d.document?.id}/view?token=${localStorage.getItem("token")}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">📎 {d.document?.nom}</a>
+                              <a href={`${API_BASE_URL}/documents/${d.document?.id}/view?token=${localStorage.getItem("token")}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">📎 {d.document?.nom}</a>
                               {isOwner(c) && <button onClick={() => handleRemoveDoc(c.id, d.documentId)} className="text-red-400 hover:text-red-600 ml-1">✕</button>}
                             </div>
                           ))}
@@ -478,7 +478,7 @@ export default function Contrats() {
                   <div className="flex flex-wrap gap-1 mb-2">
                     {editing.documents.map((d: any) => (
                       <div key={d.id} className="flex items-center gap-1 px-2 py-0.5 bg-gray-100 rounded text-xs">
-                        <a href={`http://172.17.5.198:4000/api/v1/documents/${d.document?.id}/view?token=${localStorage.getItem("token")}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">📎 {d.document?.nom}</a>
+                        <a href={`${API_BASE_URL}/documents/${d.document?.id}/view?token=${localStorage.getItem("token")}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">📎 {d.document?.nom}</a>
                         <button type="button" onClick={async () => { await api.delete(`/contrats/${editing.id}/documents/${d.documentId}`); const updated = {...editing, documents: editing.documents.filter((x: any) => x.id !== d.id)}; setEditing(updated); }} className="text-red-400 hover:text-red-600 ml-1">✕</button>
                       </div>
                     ))}

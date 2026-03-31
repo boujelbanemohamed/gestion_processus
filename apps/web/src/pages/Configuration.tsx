@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
 
-type TabType = 'categories' | 'smtp' | 'typesSociete' | 'notifications';
+type TabType = 'categories' | 'smtp' | 'typesSociete' | 'typesLicence' | 'devises' | 'notifications';
 
 
 function NotificationsTab() {
@@ -185,6 +185,16 @@ export default function Configuration() {
   const [showTsModal, setShowTsModal] = useState(false);
   const [editingTs, setEditingTs] = useState<any>(null);
   const [tsForm, setTsForm] = useState({ nom: '', description: '' });
+  const [typesLicenceList, setTypesLicenceList] = useState<any[]>([]);
+  const [tlLoading, setTlLoading] = useState(false);
+  const [showTlModal, setShowTlModal] = useState(false);
+  const [editingTl, setEditingTl] = useState<any>(null);
+  const [tlForm, setTlForm] = useState({ nom: '' });
+  const [devisesList, setDevisesList] = useState<any[]>([]);
+  const [devLoading, setDevLoading] = useState(false);
+  const [showDevModal, setShowDevModal] = useState(false);
+  const [editingDev, setEditingDev] = useState<any>(null);
+  const [devForm, setDevForm] = useState({ code: '', libelle: '' });
   const [showSmtpModal, setShowSmtpModal] = useState(false);
   const [editingSmtp, setEditingSmtp] = useState<any>(null);
   const [smtpFormData, setSmtpFormData] = useState({
@@ -207,6 +217,10 @@ export default function Configuration() {
       loadCategories();
     } else if (activeTab === 'typesSociete') {
       loadTypesSociete();
+    } else if (activeTab === 'typesLicence') {
+      loadTypesLicence();
+    } else if (activeTab === 'devises') {
+      loadDevises();
     } else if (activeTab === 'smtp') {
       loadSmtpConfigs();
     }
@@ -228,6 +242,72 @@ export default function Configuration() {
     if (!confirm(`Supprimer "${nom}" ?`)) return;
     await api.delete(`/types-societe/${id}`); loadTypesSociete();
   };
+
+  const loadTypesLicence = async () => {
+    setTlLoading(true);
+    try {
+      const r = await api.get('/types-licence');
+      setTypesLicenceList(r.data);
+    } catch (e) {
+      console.error(e);
+    }
+    setTlLoading(false);
+  };
+  const handleSaveTl = async () => {
+    try {
+      if (editingTl) await api.put(`/types-licence/${editingTl.id}`, tlForm);
+      else await api.post('/types-licence', tlForm);
+      setShowTlModal(false);
+      setEditingTl(null);
+      setTlForm({ nom: '' });
+      loadTypesLicence();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur');
+    }
+  };
+  const handleDeleteTl = async (id: string, nom: string) => {
+    if (!confirm(`Supprimer le type de licence « ${nom} » ?`)) return;
+    try {
+      await api.delete(`/types-licence/${id}`);
+      loadTypesLicence();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur');
+    }
+  };
+
+  const loadDevises = async () => {
+    setDevLoading(true);
+    try {
+      const r = await api.get('/devises');
+      setDevisesList(r.data);
+    } catch (e) {
+      console.error(e);
+    }
+    setDevLoading(false);
+  };
+  const handleSaveDev = async () => {
+    try {
+      const payload = { code: devForm.code, libelle: devForm.libelle || null };
+      if (editingDev) await api.put(`/devises/${editingDev.id}`, payload);
+      else await api.post('/devises', payload);
+      setShowDevModal(false);
+      setEditingDev(null);
+      setDevForm({ code: '', libelle: '' });
+      loadDevises();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur');
+    }
+  };
+  const handleDeleteDev = async (id: string, code: string) => {
+    if (!confirm(`Supprimer la devise « ${code} » ?`)) return;
+    try {
+      await api.delete(`/devises/${id}`);
+      loadDevises();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur');
+    }
+  };
+
   const loadCategories = async () => {
     try {
       const response = await api.get('/categories');
@@ -432,9 +512,9 @@ export default function Configuration() {
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-6">Configuration</h1>
 
-      {/* Onglets */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="-mb-px flex space-x-8">
+      {/* Onglets (défilement horizontal si la fenêtre est étroite) */}
+      <div className="border-b border-gray-200 mb-6 overflow-x-auto">
+        <nav className="-mb-px flex space-x-8 w-max min-w-full">
           <button
             onClick={() => setActiveTab('categories')}
             className={`py-4 px-1 border-b-2 font-medium text-sm ${
@@ -464,6 +544,26 @@ export default function Configuration() {
             }`}
           >
             Types de société
+          </button>
+          <button
+            onClick={() => setActiveTab('typesLicence')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+              activeTab === 'typesLicence'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Types de licence
+          </button>
+          <button
+            onClick={() => setActiveTab('devises')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+              activeTab === 'devises'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Devises
           </button>
           <button
             onClick={() => setActiveTab('notifications')}
@@ -1090,6 +1190,204 @@ export default function Configuration() {
                 <div className="flex justify-end gap-2 mt-4">
                   <button onClick={() => setShowTsModal(false)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Annuler</button>
                   <button onClick={handleSaveTs} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">Enregistrer</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'typesLicence' && (
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Types de licence</h2>
+            <button
+              onClick={() => {
+                setEditingTl(null);
+                setTlForm({ nom: '' });
+                setShowTlModal(true);
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+            >
+              + Ajouter
+            </button>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Ces types apparaissent dans le formulaire des licences (liste déroulante).
+          </p>
+          {tlLoading ? (
+            <div className="text-gray-400">Chargement...</div>
+          ) : (
+            <div className="space-y-2">
+              {typesLicenceList.length === 0 && (
+                <div className="text-gray-400 text-sm">Aucun type de licence défini</div>
+              )}
+              {typesLicenceList.map((tl) => (
+                <div
+                  key={tl.id}
+                  className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-4 py-3"
+                >
+                  <span className="font-medium text-gray-900">{tl.nom}</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setEditingTl(tl);
+                        setTlForm({ nom: tl.nom });
+                        setShowTlModal(true);
+                      }}
+                      className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                    >
+                      ✏️ Modifier
+                    </button>
+                    <button
+                      onClick={() => handleDeleteTl(tl.id, tl.nom)}
+                      className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                    >
+                      🗑 Supprimer
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {showTlModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-4">
+                  {editingTl ? '✏️ Modifier' : '+ Ajouter'} un type de licence
+                </h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Nom *</label>
+                    <input
+                      type="text"
+                      value={tlForm.nom}
+                      onChange={(e) => setTlForm({ ...tlForm, nom: e.target.value })}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      placeholder="Ex. Standard, SaaS, Cloud..."
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 mt-4">
+                  <button
+                    onClick={() => setShowTlModal(false)}
+                    className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={handleSaveTl}
+                    className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    Enregistrer
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'devises' && (
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Devises</h2>
+            <button
+              onClick={() => {
+                setEditingDev(null);
+                setDevForm({ code: '', libelle: '' });
+                setShowDevModal(true);
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+            >
+              + Ajouter
+            </button>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Codes utilisés dans le formulaire des licences (liste à côté du coût). Le code est normalisé en majuscules (ex. TND, EUR).
+          </p>
+          {devLoading ? (
+            <div className="text-gray-400">Chargement...</div>
+          ) : (
+            <div className="space-y-2">
+              {devisesList.length === 0 && (
+                <div className="text-gray-400 text-sm">Aucune devise définie</div>
+              )}
+              {devisesList.map((d) => (
+                <div
+                  key={d.id}
+                  className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-4 py-3"
+                >
+                  <div>
+                    <span className="font-mono font-semibold text-gray-900">{d.code}</span>
+                    {d.libelle && (
+                      <span className="ml-3 text-sm text-gray-500">{d.libelle}</span>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setEditingDev(d);
+                        setDevForm({ code: d.code, libelle: d.libelle || '' });
+                        setShowDevModal(true);
+                      }}
+                      className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                    >
+                      ✏️ Modifier
+                    </button>
+                    <button
+                      onClick={() => handleDeleteDev(d.id, d.code)}
+                      className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                    >
+                      🗑 Supprimer
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {showDevModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-4">
+                  {editingDev ? '✏️ Modifier' : '+ Ajouter'} une devise
+                </h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Code *</label>
+                    <input
+                      type="text"
+                      value={devForm.code}
+                      onChange={(e) => setDevForm({ ...devForm, code: e.target.value })}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono uppercase"
+                      placeholder="TND, EUR, USD..."
+                      maxLength={12}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Libellé</label>
+                    <input
+                      type="text"
+                      value={devForm.libelle}
+                      onChange={(e) => setDevForm({ ...devForm, libelle: e.target.value })}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      placeholder="Ex. Dinar tunisien"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 mt-4">
+                  <button
+                    onClick={() => setShowDevModal(false)}
+                    className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={handleSaveDev}
+                    className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    Enregistrer
+                  </button>
                 </div>
               </div>
             </div>

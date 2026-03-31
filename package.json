@@ -1,0 +1,11 @@
+{
+  "name": "gestion-processus",
+  "private": true,
+  "scripts": {
+    "docker:watch": "docker compose up --watch",
+    "docker:dev-web": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres-app1 api-app1 web-hot",
+    "test:api": "node scripts/smoke-api.mjs && node scripts/smoke-api-mutations.mjs && node scripts/smoke-api-deep.mjs",
+    "test:e2e": "npm run test:e2e --prefix apps/web",
+    "test:all": "npm run build --prefix apps/web && npm run test:api && npm run test:e2e --prefix apps/web"
+  }
+}

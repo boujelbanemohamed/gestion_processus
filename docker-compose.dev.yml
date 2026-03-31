@@ -1,0 +1,26 @@
+# Mode développement : Vite avec rechargement à chaud (pas de rebuild nginx).
+# L’API et Postgres viennent du compose principal.
+#
+# Démarrage :
+#   docker compose stop web-app1
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres-app1 api-app1 web-hot
+#
+# Ouvrir http://localhost:5175 (CORS API inclut ce port).
+
+services:
+  web-hot:
+    image: node:20-alpine
+    container_name: web-gestion-processus-hot
+    working_dir: /app
+    volumes:
+      - ./apps/web:/app
+    ports:
+      - "5175:5175"
+    environment:
+      VITE_API_URL: http://localhost:4000/api/v1
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0 --port 5175"
+    depends_on:
+      - api-app1
+    networks:
+      - app1-network
+    restart: unless-stopped

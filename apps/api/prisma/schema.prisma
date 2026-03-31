@@ -51,6 +51,7 @@ enum DocType {
   client_fournisseur
   template
   tache
+  licence
   autre
 }
 
@@ -59,6 +60,7 @@ enum RefType {
   projet
   entite
   clientFournisseur
+  licence
 }
 
 enum DocStatut {
@@ -85,6 +87,7 @@ enum ResourceType {
   document
   entite
   utilisateur
+  licence
 }
 
 enum PermissionResource {
@@ -149,6 +152,11 @@ model User {
   tachesAssignees       TacheUser[]            @relation("TacheAssigneUser")
   tacheCommentaires     TacheCommentaire[]     @relation("TacheCommentaireUser")
   notifications         Notification[]         @relation("NotificationUser")
+
+  licencesCreees              Licence[]              @relation("LicenceCreatedBy")
+  licencePermissions        LicencePermission[]
+  licenceCommentaires       LicenceCommentaire[]   @relation("LicenceCommentaireAuteur")
+  licenceCommentairesAssignes LicenceCommentaire[] @relation("LicenceCommentaireAssigne")
 }
 
 model Entite {
@@ -226,6 +234,7 @@ model Processus {
   entites                ProcessusEntite[]
   categories             ProcessusCategorie[]
   favoris                FavorisProcessus[]
+  licences               Licence[]
 
   @@index([statut])
   @@index([codeProcessus])
@@ -429,6 +438,7 @@ model Document {
   @@index([statut])
   @@index([deletedAt])
   contrats              ContratDocument[]      @relation("DocumentContrat")
+  licenceDocuments      LicenceDocument[]
 }
 
 model VersionDocument {
@@ -592,6 +602,7 @@ model ClientFournisseur {
   updatedAt        DateTime @updatedAt
   representants    RepresentantLegal[]
   projets          ClientFournisseurProjet[]
+  licences         Licence[]
 }
 
 model RepresentantLegal {
@@ -633,6 +644,7 @@ model Contrat {
   projets           ContratProjet[]
   documents         ContratDocument[]
   permissions       ContratPermission[]
+  licences          Licence[]
 }
 
 model ContratPartiePrenante {
@@ -813,4 +825,101 @@ model TypeLicence {
   id        String   @id @default(uuid())
   nom       String   @unique
   createdAt DateTime @default(now())
+}
+
+// ── DEVISES (licences, coûts) ────────────────────────────────────────────────
+model Devise {
+  id        String   @id @default(uuid())
+  code      String   @unique // ex. TND, EUR — valeur enregistrée sur la licence
+  libelle   String? // ex. Dinar tunisien
+  createdAt DateTime @default(now())
+}
+
+// ── LICENCES ──────────────────────────────────────────────────────────────────
+
+model Licence {
+  id                  String    @id @default(uuid())
+  nom                 String
+  reference           String    @unique
+  typeLicence         String
+  statut              String    @default("active")
+  cout                Decimal?  @db.Decimal(15, 2)
+  devise              String?
+  nombreSieges        Int?
+  dateDebut           DateTime?
+  dateFin             DateTime?
+  description         String?
+  contratId           String?
+  contrat             Contrat?           @relation(fields: [contratId], references: [id], onDelete: SetNull)
+  processusId         String?
+  processus           Processus?         @relation(fields: [processusId], references: [id], onDelete: SetNull)
+  clientFournisseurId String?
+  clientFournisseur   ClientFournisseur? @relation(fields: [clientFournisseurId], references: [id], onDelete: SetNull)
+  createdById         String?
+  createdBy           User?              @relation("LicenceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  permissions   LicencePermission[]
+  documents     LicenceDocument[]
+  commentaires  LicenceCommentaire[]
+  notifications LicenceNotification[]
+
+  @@index([statut])
+  @@index([deletedAt])
+  @@index([createdById])
+}
+
+model LicencePermission {
+  id        String   @id @default(uuid())
+  licenceId String
+  licence   Licence  @relation(fields: [licenceId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  niveau    String
+  createdAt DateTime @default(now())
+
+  @@unique([licenceId, userId])
+  @@index([licenceId])
+  @@index([userId])
+}
+
+model LicenceDocument {
+  id         String   @id @default(uuid())
+  licenceId  String
+  licence    Licence  @relation(fields: [licenceId], references: [id], onDelete: Cascade)
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([licenceId, documentId])
+  @@index([licenceId])
+  @@index([documentId])
+}
+
+model LicenceCommentaire {
+  id          String   @id @default(uuid())
+  licenceId   String
+  licence     Licence  @relation(fields: [licenceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation("LicenceCommentaireAuteur", fields: [userId], references: [id], onDelete: Cascade)
+  contenu     String
+  assigneAId  String?
+  assigneUser User?    @relation("LicenceCommentaireAssigne", fields: [assigneAId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([licenceId])
+}
+
+model LicenceNotification {
+  id              String   @id @default(uuid())
+  licenceId       String
+  licence         Licence  @relation(fields: [licenceId], references: [id], onDelete: Cascade)
+  joursAvant      Int
+  active          Boolean  @default(true)
+  destinataireIds String[] @default([])
+  createdAt       DateTime @default(now())
+
+  @@index([licenceId])
 }

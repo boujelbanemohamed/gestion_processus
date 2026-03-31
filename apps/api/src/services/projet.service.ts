@@ -1,6 +1,22 @@
+import { randomBytes } from 'crypto';
 import { prisma } from '../utils/prisma';
 
 export class ProjetService {
+  /** Code unique si l’utilisateur ne fournit pas de code (ou chaîne vide). */
+  private async ensureCodeProjet(userCode: string | undefined): Promise<string> {
+    const trimmed = typeof userCode === 'string' ? userCode.trim() : '';
+    if (trimmed) return trimmed;
+    for (let i = 0; i < 12; i++) {
+      const code = `PRJ-${Date.now()}-${randomBytes(2).toString('hex')}`.toUpperCase();
+      const exists = await prisma.projet.findFirst({
+        where: { codeProjet: code },
+        select: { id: true },
+      });
+      if (!exists) return code;
+    }
+    return `PRJ-${randomBytes(6).toString('hex')}`.toUpperCase();
+  }
+
   async findAll(filters?: {
     statut?: string;
     entiteId?: string;
@@ -117,7 +133,7 @@ export class ProjetService {
 
   async create(data: {
     nom: string;
-    codeProjet: string;
+    codeProjet?: string;
     description?: string;
     tags?: string[];
     entiteIds?: string[];
@@ -142,52 +158,89 @@ export class ProjetService {
     kpis?: string[];
     objectifsStrategiques?: string[];
     objectifsOperationnels?: string[];
+    /** Lie le projet à une fiche Clients / Fournisseurs (ex. type client) et crée la liaison. */
+    clientFournisseurId?: string;
   }) {
     const {
       entiteIds, sponsorIds, chefProjetIds, techLeadIds, equipeIds,
       partiesPrenantes, kpis, objectifsStrategiques, objectifsOperationnels,
-      dateDebut, dateFinPrevue, ...projetData
+      dateDebut, dateFinPrevue, codeProjet: rawCodeProjet,
+      clientFournisseurId,
+      ...projetData
     } = data;
 
-    return prisma.projet.create({
-      data: {
-        ...projetData,
-        statut: projetData.statut || 'en_preparation',
-        type: projetData.type || 'interne',
-        priorite: projetData.priorite || 'moyenne',
-        dateDebut: dateDebut ? new Date(dateDebut) : undefined,
-        dateFinPrevue: dateFinPrevue ? new Date(dateFinPrevue) : undefined,
-        partiesPrenantes: partiesPrenantes ? JSON.stringify(partiesPrenantes) : undefined,
-        kpis: kpis ? JSON.stringify(kpis) : undefined,
-        objectifsStrategiques: objectifsStrategiques ? JSON.stringify(objectifsStrategiques) : undefined,
-        objectifsOperationnels: objectifsOperationnels ? JSON.stringify(objectifsOperationnels) : undefined,
-        entites: entiteIds?.length ? {
-          create: entiteIds.map((entiteId) => ({ entiteId })),
-        } : undefined,
-        sponsors: sponsorIds?.length ? {
-          create: sponsorIds.map((userId) => ({ userId })),
-        } : undefined,
-        chefsProjet: chefProjetIds?.length ? {
-          create: chefProjetIds.map((userId) => ({ userId })),
-        } : undefined,
-        techLeads: techLeadIds?.length ? {
-          create: techLeadIds.map((userId) => ({ userId })),
-        } : undefined,
-        equipe: equipeIds?.length ? {
-          create: equipeIds.map((userId) => ({ userId })),
-        } : undefined,
-      },
-      include: {
-        entites: { include: { entite: { select: { id: true, nom: true, code: true } } } },
-        sponsors: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
-        chefsProjet: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
-        techLeads: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
-        equipe: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
-        clientsFournisseurs: { include: { clientFournisseur: { include: { typeSociete: true, representants: true } } } },
-        responsable: { select: { id: true, nom: true, prenom: true } },
-        gestionnaire: { select: { id: true, nom: true, prenom: true } },
-        createdBy: { select: { id: true, nom: true, prenom: true } },
-      },
+    const codeProjet = await this.ensureCodeProjet(rawCodeProjet);
+
+    let nomClient = projetData.nomClient;
+    if (clientFournisseurId) {
+      const cf = await prisma.clientFournisseur.findUnique({
+        where: { id: clientFournisseurId },
+        select: { nom: true },
+      });
+      if (!cf) {
+        throw new Error('Fiche client / fournisseur introuvable.');
+      }
+      if (!nomClient || !String(nomClient).trim()) {
+        nomClient = cf.nom;
+      }
+    }
+
+    const projetInclude = {
+      entites: { include: { entite: { select: { id: true, nom: true, code: true } } } },
+      sponsors: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
+      chefsProjet: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
+      techLeads: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
+      equipe: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
+      clientsFournisseurs: { include: { clientFournisseur: { include: { typeSociete: true, representants: true } } } },
+      responsable: { select: { id: true, nom: true, prenom: true } },
+      gestionnaire: { select: { id: true, nom: true, prenom: true } },
+      createdBy: { select: { id: true, nom: true, prenom: true } },
+    } as const;
+
+    return prisma.$transaction(async (tx) => {
+      const projet = await tx.projet.create({
+        data: {
+          ...projetData,
+          nomClient: nomClient ?? undefined,
+          codeProjet,
+          statut: projetData.statut || 'en_preparation',
+          type: projetData.type || 'interne',
+          priorite: projetData.priorite || 'moyenne',
+          dateDebut: dateDebut ? new Date(dateDebut) : undefined,
+          dateFinPrevue: dateFinPrevue ? new Date(dateFinPrevue) : undefined,
+          partiesPrenantes: partiesPrenantes ? JSON.stringify(partiesPrenantes) : undefined,
+          kpis: kpis ? JSON.stringify(kpis) : undefined,
+          objectifsStrategiques: objectifsStrategiques ? JSON.stringify(objectifsStrategiques) : undefined,
+          objectifsOperationnels: objectifsOperationnels ? JSON.stringify(objectifsOperationnels) : undefined,
+          entites: entiteIds?.length ? {
+            create: entiteIds.map((entiteId) => ({ entiteId })),
+          } : undefined,
+          sponsors: sponsorIds?.length ? {
+            create: sponsorIds.map((userId) => ({ userId })),
+          } : undefined,
+          chefsProjet: chefProjetIds?.length ? {
+            create: chefProjetIds.map((userId) => ({ userId })),
+          } : undefined,
+          techLeads: techLeadIds?.length ? {
+            create: techLeadIds.map((userId) => ({ userId })),
+          } : undefined,
+          equipe: equipeIds?.length ? {
+            create: equipeIds.map((userId) => ({ userId })),
+          } : undefined,
+        },
+        include: projetInclude,
+      });
+
+      if (clientFournisseurId) {
+        await tx.clientFournisseurProjet.create({
+          data: { clientFournisseurId, projetId: projet.id },
+        });
+      }
+
+      return tx.projet.findUniqueOrThrow({
+        where: { id: projet.id },
+        include: projetInclude,
+      });
     });
   }
 

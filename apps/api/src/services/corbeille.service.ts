@@ -1,4 +1,7 @@
 import { prisma } from '../utils/prisma';
+import { LicenceService } from './licence.service';
+
+const licenceService = new LicenceService();
 
 export class CorbeilleService {
   // Récupérer tous les processus supprimés
@@ -67,6 +70,18 @@ export class CorbeilleService {
     );
 
     return documentsWithProcessus;
+  }
+
+  async getLicencesSupprimees() {
+    return licenceService.findAllDeletedAdmin();
+  }
+
+  async restaurerLicence(id: string, userId: string, role: string) {
+    return licenceService.restore(id, userId, role);
+  }
+
+  async supprimerDefinitivementLicence(id: string) {
+    return licenceService.deletePermanent(id);
   }
 
   // Restaurer un processus

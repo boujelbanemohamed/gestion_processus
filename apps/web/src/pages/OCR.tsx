@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { api } from '../services/api';
+import { api, API_BASE_URL } from '../services/api';
 
 export default function OCR() {
   const [documents, setDocuments] = useState<any[]>([]);
@@ -194,7 +194,7 @@ export default function OCR() {
                           <span>{getFileIcon(doc.fichierType)}</span>
                           {isSupported(doc) ? (<a
                             
-                              href={`http://172.17.5.198:4000/api/v1/documents/${doc.id}/view?token=${localStorage.getItem("token")}`}
+                              href={`${API_BASE_URL}/documents/${doc.id}/view?token=${localStorage.getItem("token")}`}
                               target="_blank"
                               rel="noreferrer"
                               className="font-medium text-blue-600 hover:underline truncate max-w-48"
@@ -300,7 +300,7 @@ export default function OCR() {
                     <div className="flex items-center gap-2">
                       <span>{getFileIcon(doc.fichierType)}</span>
                       <a
-                        href={`http://172.17.5.198:4000/api/v1/documents/${doc.id}/view?token=${localStorage.getItem("token")}`}
+                        href={`${API_BASE_URL}/documents/${doc.id}/view?token=${localStorage.getItem("token")}`}
                         target="_blank"
                         rel="noreferrer"
                         className="font-semibold text-blue-600 hover:underline"
@@ -308,11 +308,11 @@ export default function OCR() {
                         onClick={async (e) => {
                           e.preventDefault();
                           try {
-                            const res = await fetch(`http://172.17.5.198:4000/api/v1/documents/${doc.id}/view?token=${localStorage.getItem("token")}`, { method: 'HEAD' });
+                            const res = await fetch(`${API_BASE_URL}/documents/${doc.id}/view?token=${localStorage.getItem("token")}`, { method: 'HEAD' });
                             if (res.status === 403) {
                               alert("Accès refusé : vous n'avez pas les droits pour consulter ce document.");
                             } else {
-                              window.open(`http://172.17.5.198:4000/api/v1/documents/${doc.id}/view?token=${localStorage.getItem("token")}`, '_blank');
+                              window.open(`${API_BASE_URL}/documents/${doc.id}/view?token=${localStorage.getItem("token")}`, '_blank');
                             }
                           } catch {
                             alert("Erreur lors de la vérification des droits d'accès.");

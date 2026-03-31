@@ -17,14 +17,16 @@ export const getCorbeille = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut accéder à la corbeille.' });
     }
 
-    const [processus, documents] = await Promise.all([
+    const [processus, documents, licences] = await Promise.all([
       corbeilleService.getProcessusSupprimes(),
       corbeilleService.getDocumentsSupprimes(),
+      corbeilleService.getLicencesSupprimees(),
     ]);
 
     res.json({
       processus,
       documents,
+      licences,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -96,6 +98,38 @@ export const supprimerDefinitivementProcessus = async (req: AuthRequest, res: Re
     if (error.code === 'P2025') {
       return res.status(404).json({ error: 'Processus non trouvé' });
     }
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const restaurerLicence = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut restaurer des éléments.' });
+    }
+    const licence = await corbeilleService.restaurerLicence(req.params.id, req.user.userId, req.user.role);
+    await logAccess(req, res, 'modification', 'licence', licence.id, licence.nom, { action: 'restauration' });
+    res.json(licence);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const supprimerDefinitivementLicence = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé.' });
+    }
+    await corbeilleService.supprimerDefinitivementLicence(req.params.id);
+    await logAccess(req, res, 'suppression', 'licence', req.params.id, undefined, { action: 'suppression_definitive' });
+    res.status(204).send();
+  } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
 };

@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import "dotenv/config";
-import { authenticate, logger } from "./middleware/auth";
+import { authenticate } from "./middleware/auth";
 import { logger as loggerMiddleware } from "./middleware/logger";
 
 // Controllers
@@ -25,6 +25,8 @@ import * as clientFournisseurController from "./controllers/client-fournisseur.c
 import * as tacheController from "./controllers/tache.controller";
 import * as notificationController from "./controllers/notification.controller";
 import * as licenceController from "./controllers/licence.controller";
+import * as typeLicenceController from "./controllers/type-licence.controller";
+import * as deviseController from "./controllers/devise.controller";
 
 const app = express();
 app.use(helmet());
@@ -32,13 +34,15 @@ app.use(helmet());
 const allowedOrigins = [
   process.env.FRONTEND_URL || "http://localhost:5173",
   "http://localhost:5173",
+  "http://localhost:5175",
+  "http://127.0.0.1:5175",
   "http://172.17.5.198:5173",
   "http://127.0.0.1:5173",
 ];
 
 app.use(
   cors({
-    origin: (origin, callback) => {
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
       // Autoriser les requêtes sans origine (ex: Postman, curl)
       if (!origin) {
         return callback(null, true);
@@ -160,6 +164,8 @@ app.post("/api/v1/corbeille/processus/:id/restaurer", corbeilleController.restau
 app.post("/api/v1/corbeille/documents/:id/restaurer", corbeilleController.restaurerDocument);
 app.delete("/api/v1/corbeille/processus/:id", corbeilleController.supprimerDefinitivementProcessus);
 app.delete("/api/v1/corbeille/documents/:id", corbeilleController.supprimerDefinitivementDocument);
+app.post("/api/v1/corbeille/licences/:id/restaurer", corbeilleController.restaurerLicence);
+app.delete("/api/v1/corbeille/licences/:id", corbeilleController.supprimerDefinitivementLicence);
 
 // Favoris
 app.get("/api/v1/favoris", favorisController.getFavoris);
@@ -223,11 +229,31 @@ app.delete("/api/v1/taches/:id/documents/:documentId", tacheController.delierDoc
 app.post("/api/v1/taches/:id/documents", tacheController.uploadMiddleware, tacheController.uploadDocument);
 
 
-// Licences
+// Licences (routes spécifiques avant :id)
+app.get("/api/v1/licences/corbeille", licenceController.getLicencesCorbeille);
 app.get("/api/v1/licences", licenceController.getLicences);
-app.get("/api/v1/types-licence", licenceController.getTypesLicence);
+app.post("/api/v1/licences", licenceController.createLicence);
+app.get("/api/v1/licences/:id/history", licenceController.getLicenceHistory);
+app.get("/api/v1/licences/:id", licenceController.getLicence);
+app.put("/api/v1/licences/:id", licenceController.updateLicence);
+app.delete("/api/v1/licences/:id", licenceController.deleteLicence);
+app.post("/api/v1/licences/:id/restaurer", licenceController.restoreLicence);
+app.delete("/api/v1/licences/:id/definitif", licenceController.deleteLicencePermanent);
+app.post("/api/v1/licences/:id/permissions", licenceController.addPermission);
+app.delete("/api/v1/licences/:id/permissions/:userId", licenceController.removePermission);
+app.post("/api/v1/licences/:id/commentaires", licenceController.addCommentaire);
+app.post("/api/v1/licences/:id/notifications", licenceController.setNotification);
+app.post("/api/v1/licences/:id/upload", licenceController.licenceUploadMiddleware, licenceController.uploadDocuments);
+app.get("/api/v1/types-licence", typeLicenceController.getTypesLicence);
+app.post("/api/v1/types-licence", typeLicenceController.createTypeLicence);
+app.put("/api/v1/types-licence/:id", typeLicenceController.updateTypeLicence);
+app.delete("/api/v1/types-licence/:id", typeLicenceController.deleteTypeLicence);
 
-
+// Devises (configuration licences)
+app.get("/api/v1/devises", deviseController.getDevises);
+app.post("/api/v1/devises", deviseController.createDevise);
+app.put("/api/v1/devises/:id", deviseController.updateDevise);
+app.delete("/api/v1/devises/:id", deviseController.deleteDevise);
 
 // Notifications
 app.get("/api/v1/notifications", notificationController.getNotifications);

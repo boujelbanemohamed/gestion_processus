@@ -18,10 +18,8 @@ RUN echo "=== Contenu package.json ===" && \
     echo "=== Structure prisma ===" && \
     ls -la prisma/ 2>/dev/null || echo "Dossier prisma non trouvé"
 
-# Installer les dépendances avec logs détaillés
-RUN echo "=== Installation des dépendances ===" && \
-    npm ci --verbose 2>&1 | tee /tmp/npm-install.log || \
-    (echo "=== ERREUR INSTALLATION ===" && cat /tmp/npm-install.log && exit 1)
+# Installer les dépendances (sans pipe vers tee : sinon le code de sortie peut être masqué)
+RUN echo "=== Installation des dépendances ===" && npm ci
 
 # Copier le reste du code
 COPY . .
@@ -34,36 +32,26 @@ RUN echo "=== Structure des fichiers ===" && \
     echo "=== Fichiers tsconfig ===" && \
     cat tsconfig.json 2>/dev/null || echo "tsconfig.json non trouvé"
 
-# Générer le client Prisma avec logs
-RUN echo "=== Génération du client Prisma ===" && \
-    npx prisma generate 2>&1 | tee /tmp/prisma-generate.log || \
-    (echo "=== ERREUR PRISMA GENERATE ===" && cat /tmp/prisma-generate.log && exit 1)
+# Client Prisma (binaire local du lockfile, pas npx qui peut tirer Prisma 7)
+RUN echo "=== Génération du client Prisma ===" && ./node_modules/.bin/prisma generate
 
-# Compiler TypeScript avec logs détaillés
-RUN echo "=== Début de la compilation TypeScript ===" && \
-    npm run build 2>&1 | tee /tmp/build.log || \
-    (echo "=== ERREUR BUILD ===" && \
-     echo "=== Log complet ===" && \
-     cat /tmp/build.log && \
-     echo "=== Fin du log ===" && \
-     exit 1) && \
-    echo "=== Compilation réussie ===" && \
-    ls -la dist/ 2>/dev/null || echo "Dossier dist non trouvé"
+# Compilation TypeScript
+RUN echo "=== Compilation TypeScript ===" && npm run build && ls -la dist/
 
 # Image de production
 FROM node:20-alpine AS production
 
 WORKDIR /app
 
-# Installer uniquement les dépendances de production
+# Réutiliser node_modules du builder (évite un 2ᵉ npm ci réseau, source fréquente d’ECONNRESET)
 COPY package*.json ./
 COPY prisma ./prisma
-RUN npm ci --only=production
+COPY --from=builder /app/node_modules ./node_modules
+RUN npm prune --omit=dev
 
 # Copier les fichiers compilés depuis le builder
 COPY --from=builder /app/dist ./dist
-# Générer Prisma dans l'image de production (plus fiable que copier)
-RUN npx prisma generate
+RUN ./node_modules/.bin/prisma generate
 
 # Créer le dossier pour les uploads
 # Installer Tesseract OCR + langues + outils PDF

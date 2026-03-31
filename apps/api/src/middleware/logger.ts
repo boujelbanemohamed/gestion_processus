@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
 import { AuthRequest } from './auth';
-import { LogAction, ResourceType } from '@prisma/client';
+import { LogAction, ResourceType } from '../generated/prisma/enums';
 
 export const logAccess = async (
   req: AuthRequest,
@@ -50,6 +50,7 @@ export const logger = async (req: AuthRequest, res: Response, next: NextFunction
     else if (urlParts.includes('projet')) ressourceType = 'projet';
     else if (urlParts.includes('document')) ressourceType = 'document';
     else if (urlParts.includes('entite')) ressourceType = 'entite';
+    else if (urlParts.includes('licences')) ressourceType = 'licence';
 
     const ressourceId = req.params.id;
     

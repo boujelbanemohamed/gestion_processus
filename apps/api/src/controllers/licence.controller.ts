@@ -1,12 +1,201 @@
-export const getLicences = (req, res) => {
-  res.json([
-    { id: 1, nom: "Licence test", dateDebut: "2024-01-01", dateFin: "2025-01-01" }
-  ]);
+import { Response } from 'express';
+import multer from 'multer';
+import path from 'path';
+import { AuthRequest } from '../middleware/auth';
+import { logAccess } from '../middleware/logger';
+import { LicenceService } from '../services/licence.service';
+
+const licenceService = new LicenceService();
+
+const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+  filename: (_req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `${unique}${path.extname(file.originalname)}`);
+  },
+});
+export const licenceUploadMiddleware = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 },
+}).array('documents', 20);
+
+export const getLicencesCorbeille = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const list = await licenceService.findAllDeleted(req.user.userId, req.user.role);
+    res.json(list);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
 };
 
-export const getTypesLicence = (req, res) => {
-  res.json([
-    { id: 1, nom: "Standard" },
-    { id: 2, nom: "Premium" }
-  ]);
+export const getLicences = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const list = await licenceService.findAllActive(req.user.userId, req.user.role);
+    res.json(list);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const getLicence = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const l = await licenceService.findOne(req.params.id, req.user.userId, req.user.role);
+    if (!l) return res.status(404).json({ error: 'Licence non trouvée' });
+    await logAccess(req, res, 'lecture', 'licence', l.id, l.nom);
+    res.json(l);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const getLicenceHistory = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const hist = await licenceService.getHistory(req.params.id, req.user.userId, req.user.role);
+    if (hist === null) return res.status(404).json({ error: 'Licence non trouvée' });
+    res.json(hist);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const createLicence = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const l = await licenceService.create(req.body, req.user.userId);
+    await logAccess(req, res, 'creation', 'licence', l.id, l.nom);
+    res.status(201).json(l);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+};
+
+export const updateLicence = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const l = await licenceService.update(req.params.id, req.body, req.user.userId, req.user.role);
+    await logAccess(req, res, 'modification', 'licence', l.id, l.nom);
+    res.json(l);
+  } catch (e: any) {
+    const code = e.message === 'Licence non trouvée' ? 404 : e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const deleteLicence = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    await licenceService.softDelete(req.params.id, req.user.userId, req.user.role);
+    await logAccess(req, res, 'suppression', 'licence', req.params.id, undefined, { action: 'corbeille' });
+    res.status(204).end();
+  } catch (e: any) {
+    const code = e.message === 'Licence non trouvée' ? 404 : e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const restoreLicence = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const l = await licenceService.restore(req.params.id, req.user.userId, req.user.role);
+    await logAccess(req, res, 'modification', 'licence', l.id, l.nom, { action: 'restauration' });
+    res.json(l);
+  } catch (e: any) {
+    const code = e.message.includes('Accès') ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const deleteLicencePermanent = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Seul un administrateur peut supprimer définitivement une licence.' });
+    }
+    await licenceService.deletePermanent(req.params.id);
+    await logAccess(req, res, 'suppression', 'licence', req.params.id, undefined, { action: 'suppression_definitive' });
+    res.status(204).end();
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+};
+
+export const addPermission = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { userId, niveau } = req.body;
+    if (!userId || !niveau) return res.status(400).json({ error: 'userId et niveau requis' });
+    const l = await licenceService.addPermission(req.params.id, userId, niveau, req.user.userId, req.user.role);
+    if (!l) return res.status(404).json({ error: 'Licence non trouvée' });
+    await logAccess(req, res, 'modification', 'licence', l.id, l.nom, { action: 'permission_ajoutee', userId, niveau });
+    res.json(l);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const removePermission = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const l = await licenceService.removePermission(req.params.id, req.params.userId, req.user.userId, req.user.role);
+    if (!l) return res.status(404).json({ error: 'Licence non trouvée' });
+    await logAccess(req, res, 'modification', 'licence', l.id, l.nom, { action: 'permission_retiree', userId: req.params.userId });
+    res.json(l);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const addCommentaire = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { contenu, assigneA } = req.body;
+    if (!contenu?.trim()) return res.status(400).json({ error: 'Contenu requis' });
+    const l = await licenceService.addCommentaire(req.params.id, req.user.userId, req.user.role, contenu.trim(), assigneA || null);
+    if (!l) return res.status(404).json({ error: 'Licence non trouvée' });
+    await logAccess(req, res, 'creation', 'licence', l.id, l.nom, { action: 'commentaire' });
+    res.json(l);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+};
+
+export const setNotification = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { joursAvant, destinataires } = req.body;
+    const l = await licenceService.setNotification(req.params.id, req.user.userId, req.user.role, {
+      joursAvant: Number(joursAvant) || 30,
+      destinataires: Array.isArray(destinataires) ? destinataires : [],
+    });
+    if (!l) return res.status(404).json({ error: 'Licence non trouvée' });
+    await logAccess(req, res, 'modification', 'licence', l.id, l.nom, { action: 'notification_expiration' });
+    res.json(l);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const uploadDocuments = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const files = req.files as Express.Multer.File[];
+    if (!files?.length) return res.status(400).json({ error: 'Fichier requis' });
+    let last: any = null;
+    for (const file of files) {
+      last = await licenceService.attachUploadedFile(req.params.id, req.user.userId, req.user.role, file, file.originalname);
+    }
+    if (last) await logAccess(req, res, 'creation', 'licence', last.id, last.nom, { action: 'document_upload', count: files.length });
+    res.json(last);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
 };

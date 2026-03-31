@@ -44,7 +44,16 @@ export const createContrat = async (req: Request, res: Response) => {
     if (req.files && Array.isArray(req.files) && req.files.length > 0) {
       for (const file of req.files as Express.Multer.File[]) {
         const doc = await prisma.document.create({
-          data: { nom: file.originalname, fichierUrl: file.filename, typeDocument: "contrat", estConfidentiel: true, uploadedById: user.userId }
+          data: {
+            nom: file.originalname,
+            fichierUrl: file.filename,
+            fichierNomOriginal: file.originalname,
+            fichierTaille: file.size,
+            fichierType: file.mimetype,
+            typeDocument: "contrat",
+            estConfidentiel: true,
+            uploadedById: user.userId,
+          },
         });
         await contratService.addDocument(contrat.id, doc.id);
       }
@@ -112,7 +121,16 @@ export const addDocumentToContrat = async (req: Request, res: Response) => {
       const docs = [];
       for (const file of req.files as Express.Multer.File[]) {
         const doc = await prisma.document.create({
-          data: { nom: file.originalname, fichierUrl: file.filename, typeDocument: "contrat", estConfidentiel: true, uploadedById: user.userId }
+          data: {
+            nom: file.originalname,
+            fichierUrl: file.filename,
+            fichierNomOriginal: file.originalname,
+            fichierTaille: file.size,
+            fichierType: file.mimetype,
+            typeDocument: "contrat",
+            estConfidentiel: true,
+            uploadedById: user.userId,
+          },
         });
         await contratService.addDocument(req.params.id, doc.id);
         docs.push(doc);

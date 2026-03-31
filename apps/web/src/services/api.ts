@@ -1,10 +1,11 @@
 import axios from 'axios';
 
-// @ts-expect-error - Vite injecte les variables d'environnement via import.meta.env
-const API_BASE_URL = (import.meta.env?.VITE_API_URL as string) || 'http://localhost:4000/api/v1';
+export const API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'http://localhost:4000/api/v1';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },

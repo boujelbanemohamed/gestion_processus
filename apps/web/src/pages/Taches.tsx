@@ -1,11 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
-import { api } from '../services/api';
+import TachesGanttView from '../components/TachesGanttView';
+import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 
-// @ts-expect-error
-const API_URL = (import.meta.env?.VITE_API_URL as string) || 'http://localhost:4000/api/v1';
-
-const STATUT_OPTIONS = [
+export const STATUT_OPTIONS = [
   { value: 'cree', label: 'Créée', color: 'bg-gray-100 text-gray-700' },
   { value: 'a_faire', label: 'À faire / Non démarré', color: 'bg-slate-100 text-slate-700' },
   { value: 'en_cours', label: 'En cours (Active)', color: 'bg-blue-100 text-blue-700' },
@@ -20,12 +18,13 @@ const LIAISON_TYPES = [
   { value: 'simple', label: 'Liaison simple (informative)' },
 ];
 
-type Tache = {
+export type Tache = {
   id: string;
   nom: string;
   statut: string;
   dateDebut?: string;
   dateFinApprox?: string;
+  createdAt?: string;
   description?: string;
   scenarioExecution?: string;
   critereAcceptation?: string;
@@ -40,7 +39,7 @@ type Tache = {
   createur?: { id: string; nom: string; prenom: string };
 };
 
-type DocTache = {
+export type DocTache = {
   id: string;
   nom: string;
   typeDocument: string;
@@ -60,11 +59,11 @@ type Commentaire = {
   pieceJointeNom?: string;
 };
 
-type UserOption = { id: string; nom: string; prenom: string };
-type EntiteOption = { id: string; nom: string };
-type ProjetOption = { id: string; nom: string };
+export type UserOption = { id: string; nom: string; prenom: string; role?: string };
+export type EntiteOption = { id: string; nom: string };
+export type ProjetOption = { id: string; nom: string };
 
-function StatutBadge({ statut }: { statut: string }) {
+export function StatutBadge({ statut }: { statut: string }) {
   const opt = STATUT_OPTIONS.find(s => s.value === statut);
   return (
     <span className={`px-2 py-1 rounded text-xs font-medium ${opt?.color || 'bg-gray-100 text-gray-700'}`}>
@@ -73,39 +72,112 @@ function StatutBadge({ statut }: { statut: string }) {
   );
 }
 
+// ─── Avancement (tâches terminées / total) ───────────────────────────────────
+/** Pourcentage basé sur le statut « termine », aligné sur le KPI « Terminées » du tableau de bord. */
+export function TachesAvancementBlock({ taches }: { taches: Tache[] }) {
+  const total = taches.length;
+  if (total === 0) return null;
+  const terminees = taches.filter((t) => t.statut === 'termine').length;
+  const pct = Math.round((terminees / total) * 100);
+  return (
+    <div
+      className="mb-4 rounded-lg border border-teal-100 bg-gradient-to-r from-teal-50/90 to-emerald-50/80 p-4 shadow-sm"
+      aria-label="Avancement des tâches"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <span className="text-sm font-semibold text-gray-800">Avancement / réalisation</span>
+        <span className="text-xl font-bold text-teal-700 tabular-nums">{pct}%</span>
+      </div>
+      <div className="h-3 bg-gray-200/90 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-gradient-to-r from-teal-500 to-emerald-500 rounded-full transition-all duration-500 ease-out"
+          style={{ width: `${pct}%` }}
+          role="progressbar"
+          aria-valuenow={pct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        />
+      </div>
+      <p className="text-xs text-gray-600 mt-2">
+        <span className="tabular-nums font-medium text-gray-800">{terminees}</span> tâche
+        {terminees !== 1 ? 's' : ''} terminée{terminees !== 1 ? 's' : ''} sur{' '}
+        <span className="tabular-nums font-medium text-gray-800">{total}</span> (statut « Terminé / Finalisé »)
+      </p>
+    </div>
+  );
+}
+
 // ─── Dashboard Stats ──────────────────────────────────────────────────────────
-function TachesDashboard({ taches }: { taches: Tache[] }) {
+type AggRow = { nom: string; total: number; terminees: number; retard: number; retardDetails: { nom: string; jours: number }[] };
+
+function accumulateTaskForAgg(
+  row: AggRow,
+  t: Tache,
+  now: Date,
+) {
+  row.total++;
+  if (t.statut === 'termine') row.terminees++;
+  if (t.statut === 'bloque' || (t.dateFinApprox && new Date(t.dateFinApprox) < now && t.statut !== 'termine' && t.statut !== 'archive')) {
+    row.retard++;
+    if (t.dateFinApprox) {
+      const jours = Math.floor((now.getTime() - new Date(t.dateFinApprox).getTime()) / (1000 * 3600 * 24));
+      row.retardDetails.push({ nom: t.nom, jours });
+    }
+  }
+}
+
+export function TachesDashboard({
+  taches,
+  showStatutBreakdown,
+  showParPersonne,
+  hideAvancement,
+}: {
+  taches: Tache[];
+  showStatutBreakdown?: boolean;
+  /** Tableau KPI « par personne assignée » (ex. fiche projet) */
+  showParPersonne?: boolean;
+  /** Si true, ne pas afficher la barre d’avancement (déjà affichée au-dessus, ex. fiche projet) */
+  hideAvancement?: boolean;
+}) {
   const now = new Date();
 
   // Tâches par entité
-  const byEntite: Record<string, { nom: string; total: number; terminees: number; retard: number; retardDetails: { nom: string; jours: number }[] }> = {};
+  const byEntite: Record<string, AggRow> = {};
 
   taches.forEach(t => {
     const entites = t.assignesEntites || [];
     if (entites.length === 0) {
       const key = '__aucune__';
       if (!byEntite[key]) byEntite[key] = { nom: 'Sans entité', total: 0, terminees: 0, retard: 0, retardDetails: [] };
-      byEntite[key].total++;
-      if (t.statut === 'termine') byEntite[key].terminees++;
-      if (t.statut === 'bloque' || (t.dateFinApprox && new Date(t.dateFinApprox) < now && t.statut !== 'termine' && t.statut !== 'archive')) {
-        byEntite[key].retard++;
-        if (t.dateFinApprox) {
-          const jours = Math.floor((now.getTime() - new Date(t.dateFinApprox).getTime()) / (1000 * 3600 * 24));
-          byEntite[key].retardDetails.push({ nom: t.nom, jours });
-        }
-      }
+      accumulateTaskForAgg(byEntite[key], t, now);
     } else {
       entites.forEach(e => {
         if (!byEntite[e.id]) byEntite[e.id] = { nom: e.nom, total: 0, terminees: 0, retard: 0, retardDetails: [] };
-        byEntite[e.id].total++;
-        if (t.statut === 'termine') byEntite[e.id].terminees++;
-        if (t.statut === 'bloque' || (t.dateFinApprox && new Date(t.dateFinApprox) < now && t.statut !== 'termine' && t.statut !== 'archive')) {
-          byEntite[e.id].retard++;
-          if (t.dateFinApprox) {
-            const jours = Math.floor((now.getTime() - new Date(t.dateFinApprox).getTime()) / (1000 * 3600 * 24));
-            byEntite[e.id].retardDetails.push({ nom: t.nom, jours });
-          }
+        accumulateTaskForAgg(byEntite[e.id], t, now);
+      });
+    }
+  });
+
+  // Tâches par personne assignée (même logique KPI que par entité)
+  const byPerson: Record<string, AggRow> = {};
+  taches.forEach((t) => {
+    const assignes = t.assignesUtilisateurs || [];
+    if (assignes.length === 0) {
+      const key = '__aucun_assigne__';
+      if (!byPerson[key]) byPerson[key] = { nom: 'Sans assigné', total: 0, terminees: 0, retard: 0, retardDetails: [] };
+      accumulateTaskForAgg(byPerson[key], t, now);
+    } else {
+      assignes.forEach((u) => {
+        if (!byPerson[u.id]) {
+          byPerson[u.id] = {
+            nom: `${u.prenom} ${u.nom}`.trim() || u.id,
+            total: 0,
+            terminees: 0,
+            retard: 0,
+            retardDetails: [],
+          };
         }
+        accumulateTaskForAgg(byPerson[u.id], t, now);
       });
     }
   });
@@ -117,6 +189,7 @@ function TachesDashboard({ taches }: { taches: Tache[] }) {
 
   return (
     <div className="mb-6">
+      {!hideAvancement && <TachesAvancementBlock taches={taches} />}
       {/* KPIs globaux */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-4 text-center">
@@ -136,6 +209,25 @@ function TachesDashboard({ taches }: { taches: Tache[] }) {
           <div className="text-sm text-gray-500 mt-1">En retard / Bloquées</div>
         </div>
       </div>
+
+      {showStatutBreakdown && (
+        <div className="bg-white rounded-lg shadow p-4 mb-6">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Répartition par statut</h3>
+          <div className="flex flex-wrap gap-2">
+            {STATUT_OPTIONS.map((s) => {
+              const n = taches.filter((t) => t.statut === s.value).length;
+              return (
+                <div
+                  key={s.value}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium ${s.color} border border-gray-100`}
+                >
+                  {s.label}: <span className="tabular-nums">{n}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Tableau par entité */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -181,13 +273,77 @@ function TachesDashboard({ taches }: { taches: Tache[] }) {
           </table>
         </div>
       </div>
+
+      {showParPersonne && (
+        <div className="bg-white rounded-lg shadow overflow-hidden mt-6">
+          <div className="p-4 border-b bg-gray-50">
+            <h2 className="text-base font-semibold text-gray-700">👤 Tâches par personne (assignés)</h2>
+            <p className="text-xs text-gray-500 mt-1">
+              Une même tâche avec plusieurs assignés est comptée pour chacun, comme pour les entités.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Personne</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Terminées</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">En retard</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Détail retard</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {Object.values(byPerson)
+                  .sort((a, b) => b.total - a.total)
+                  .map((row, i) => (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium text-gray-800">{row.nom}</td>
+                      <td className="px-4 py-3 text-center">{row.total}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-green-600 font-medium">{row.terminees}</span>
+                        <span className="text-gray-400 text-xs ml-1">
+                          ({row.total > 0 ? Math.round((row.terminees / row.total) * 100) : 0}%)
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {row.retard > 0 ? (
+                          <span className="text-red-600 font-medium">{row.retard}</span>
+                        ) : (
+                          <span className="text-gray-400">0</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-600">
+                        {row.retardDetails.length > 0
+                          ? row.retardDetails.map((d, j) => (
+                              <div key={j}>
+                                <span className="font-medium">{d.nom}</span> —{' '}
+                                <span className="text-red-500">{d.jours}j de retard</span>
+                              </div>
+                            ))
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                {Object.keys(byPerson).length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="text-center py-6 text-gray-400">
+                      Aucune donnée
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Modal Création / Édition ─────────────────────────────────────────────────
-function TacheModal({
-  onClose, onSave, projets, users, entites, taches, editTache
+export function TacheModal({
+  onClose, onSave, projets, users, entites, taches, editTache, lockProjetId,
 }: {
   onClose: () => void;
   onSave: () => void;
@@ -196,6 +352,8 @@ function TacheModal({
   entites: EntiteOption[];
   taches: Tache[];
   editTache?: Tache;
+  /** Si défini, le projet de la tâche est fixé (ex. création depuis la fiche projet). */
+  lockProjetId?: string;
 }) {
   const { user: currentUser } = useAuth();
   const [form, setForm] = useState({
@@ -206,7 +364,7 @@ function TacheModal({
     description: editTache?.description || '',
     scenarioExecution: editTache?.scenarioExecution || '',
     critereAcceptation: editTache?.critereAcceptation || '',
-    projetId: editTache?.projetId || '',
+    projetId: editTache?.projetId || lockProjetId || '',
   });
   const [selectedUsers, setSelectedUsers] = useState<string[]>(
     editTache?.assignesUtilisateurs?.map(u => u.id) || []
@@ -285,11 +443,18 @@ function TacheModal({
             {/* Projet */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Projet associé</label>
-              <select value={form.projetId} onChange={e => setForm({ ...form, projetId: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md">
+              <select
+                value={form.projetId}
+                onChange={e => setForm({ ...form, projetId: e.target.value })}
+                disabled={!!lockProjetId}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100 disabled:cursor-not-allowed"
+              >
                 <option value="">— Aucun projet —</option>
                 {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
               </select>
+              {lockProjetId && (
+                <p className="text-xs text-gray-500 mt-1">Projet imposé par le contexte (fiche projet).</p>
+              )}
             </div>
 
             {/* Dates */}
@@ -483,7 +648,7 @@ function CommentairesSection({ tacheId, users }: { tacheId: string; users: UserO
             </div>
             <p className="text-sm text-gray-700 whitespace-pre-wrap">{c.contenu}</p>
             {c.pieceJointeNom && (
-              <a href={`${API_URL}/taches/${tacheId}/commentaires/${c.id}/fichier?token=${localStorage.getItem('token')}`}
+              <a href={`${API_BASE_URL}/taches/${tacheId}/commentaires/${c.id}/fichier?token=${localStorage.getItem('token')}`}
                 target="_blank" rel="noreferrer"
                 className="text-xs text-blue-600 hover:underline mt-1 block">
                 📎 {c.pieceJointeNom}
@@ -635,8 +800,6 @@ function DocumentsTache({ tacheId, documents, canEdit }: {
   documents: DocTache[];
   canEdit: boolean;
 }) {
-  // @ts-expect-error
-  const API_URL_DOC = (import.meta.env?.VITE_API_URL as string) || 'http://localhost:4000/api/v1';
   const [docs, setDocs] = useState<DocTache[]>(documents);
   const [showUpload, setShowUpload] = useState(false);
   const [showLier, setShowLier] = useState(false);
@@ -800,7 +963,7 @@ function DocumentsTache({ tacheId, documents, canEdit }: {
                 <div className="flex items-start gap-2 flex-1 min-w-0">
                   <span className="text-lg">{getFileIcon(doc.fichierType)}</span>
                   <div className="min-w-0">
-                    <a href={`${API_URL_DOC}/documents/${doc.id}/view?token=${localStorage.getItem('token')}`}
+                    <a href={`${API_BASE_URL}/documents/${doc.id}/view?token=${localStorage.getItem('token')}`}
                       target="_blank" rel="noreferrer"
                       className="text-sm font-medium text-blue-600 hover:underline truncate block">{doc.nom}</a>
                     <div className="flex gap-2 flex-wrap mt-0.5">
@@ -857,7 +1020,7 @@ function DocumentsTache({ tacheId, documents, canEdit }: {
 }
 
 // ─── Carte Tâche ─────────────────────────────────────────────────────────────
-function TacheCard({
+export function TacheCard({
   tache, onEdit, canEdit, users, currentUserRole, allUsers
 }: {
   tache: Tache;
@@ -1003,6 +1166,7 @@ export default function Taches() {
   const [showModal, setShowModal] = useState(false);
   const [editTache, setEditTache] = useState<Tache | undefined>();
   const [showDashboard, setShowDashboard] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'gantt'>('list');
   const [filters, setFilters] = useState({ nom: '', statut: '', projetId: '', assigneIds: [] as string[], entiteIds: [] as string[], dateDebutFrom: '', dateDebutTo: '', dateFinFrom: '', dateFinTo: '' });
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -1084,8 +1248,30 @@ export default function Taches() {
     <div className="p-6">
       {/* En-tête */}
       <div className="flex flex-wrap justify-between items-center mb-6 gap-3">
-        <h1 className="text-2xl font-bold text-gray-800">Tâches</h1>
-        <div className="flex gap-2">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Tâches</h1>
+          <p className="text-xs text-gray-500 mt-1">
+            Basculez entre <span className="font-medium text-gray-700">Liste</span> et{' '}
+            <span className="font-medium text-gray-700">Gantt</span> via les boutons à droite.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 items-center">
+          <div className="flex rounded-lg border border-gray-300 overflow-hidden shadow-sm">
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`px-3 py-2 text-sm font-medium ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Liste
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('gantt')}
+              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${viewMode === 'gantt' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Gantt
+            </button>
+          </div>
           <button onClick={() => setShowDashboard(!showDashboard)}
             className={`px-4 py-2 rounded border text-sm font-medium transition-colors ${showDashboard ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
             {showDashboard ? '📊 Masquer dashboard' : '📊 Dashboard'}
@@ -1190,46 +1376,68 @@ export default function Taches() {
         </div>
       </div>
 
-      {/* Liste */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500">{visibleTaches.length} tâche(s) trouvée(s)</p>
-        </div>
-        {pagedTaches.length === 0 && (
-          <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">
-            Aucune tâche trouvée
+      {/* Liste ou Gantt */}
+      {viewMode === 'gantt' ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <p className="text-sm text-gray-500">
+              {visibleTaches.length} tâche(s) sur le diagramme (mêmes filtres que la liste)
+            </p>
+            {visibleTaches.length > 80 && (
+              <p className="text-xs text-amber-700">Beaucoup de tâches : faites défiler horizontalement ou affinez les filtres.</p>
+            )}
           </div>
-        )}
-        {pagedTaches.map(t => (
-          <TacheCard
-            key={t.id}
-            tache={t}
-            onEdit={() => { setEditTache(t); setShowModal(true); }}
-            canEdit={canEdit(t)}
-            users={users}
-            currentUserRole={currentUser?.role || ''}
-            allUsers={users}
+          <TachesGanttView
+            taches={visibleTaches}
+            getCanEdit={canEdit}
+            onBarClick={(t) => {
+              setEditTache(t as Tache);
+              setShowModal(true);
+            }}
           />
-        ))}
-      </div>
-
-      {/* Pagination */}
-      {visibleTaches.length > pageSize && (
-        <div className="mt-6 flex items-center justify-between">
-          <p className="text-sm text-gray-500">
-            {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, visibleTaches.length)} sur {visibleTaches.length}
-          </p>
-          <div className="flex gap-2">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-              className={`px-4 py-2 rounded text-sm font-medium ${page === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
-              Précédent
-            </button>
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-              className={`px-4 py-2 rounded text-sm font-medium ${page === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
-              Suivant
-            </button>
-          </div>
         </div>
+      ) : (
+        <>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-500">{visibleTaches.length} tâche(s) trouvée(s)</p>
+            </div>
+            {pagedTaches.length === 0 && (
+              <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">
+                Aucune tâche trouvée
+              </div>
+            )}
+            {pagedTaches.map(t => (
+              <TacheCard
+                key={t.id}
+                tache={t}
+                onEdit={() => { setEditTache(t); setShowModal(true); }}
+                canEdit={canEdit(t)}
+                users={users}
+                currentUserRole={currentUser?.role || ''}
+                allUsers={users}
+              />
+            ))}
+          </div>
+
+          {visibleTaches.length > pageSize && (
+            <div className="mt-6 flex items-center justify-between">
+              <p className="text-sm text-gray-500">
+                {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, visibleTaches.length)} sur {visibleTaches.length}
+              </p>
+              <div className="flex gap-2">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                  className={`px-4 py-2 rounded text-sm font-medium ${page === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+                  Précédent
+                </button>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                  className={`px-4 py-2 rounded text-sm font-medium ${page === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+                  Suivant
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Modal */}

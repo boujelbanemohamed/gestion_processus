@@ -1,0 +1,27 @@
+---
+description: Rebuild Docker automatique après changements web/API sans demander à l'utilisateur
+alwaysApply: true
+---
+
+# Rebuild Docker (PMO / gestion_processus)
+
+## Préférer le mode watch (rebuild auto côté Docker)
+
+Si l’utilisateur lance la stack avec **`docker compose up --watch`** (ou `npm run docker:watch` depuis `gestion_processus`), Docker **reconstruit** `web-app1` / `api-app1` quand les fichiers sous `apps/web` ou `apps/api` changent — pas besoin de rebuild manuel à chaque fois.
+
+## Hot reload Vite (sans rebuild nginx)
+
+Pour voir les changements front **immédiatement** : `docker compose stop web-app1` puis `npm run docker:dev-web` — UI sur **http://localhost:5175** (service `web-hot`, fichier `docker-compose.dev.yml`).
+
+## Quand exécuter un rebuild à la main (agent)
+
+Après modification sous `apps/web/`, `apps/api/` ou Prisma, si l’utilisateur utilise la stack **classique** (`docker compose up -d` **sans** `--watch`) :
+
+1. **Ne pas** se contenter d’indiquer la commande : **l’exécuter** depuis `gestion_processus` :
+   - Front : `docker compose build web-app1 && docker compose up -d web-app1`
+   - API : `docker compose build api-app1 && docker compose up -d api-app1`
+   - Les deux si nécessaire.
+
+2. En dev local (`npm run dev` dans `apps/web`, hors Docker), pas de rebuild Docker obligatoire.
+
+3. Demander la permission réseau / `all` si Docker l’exige.

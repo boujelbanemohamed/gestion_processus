@@ -65,16 +65,25 @@ services:
     networks:
       - app1-network
     restart: unless-stopped
-    command: sh -c "npx prisma generate && npx prisma migrate deploy && npm start"
+    command: sh -c "./node_modules/.bin/prisma generate && ./node_modules/.bin/prisma migrate deploy && npm start"
+    develop:
+      watch:
+        - action: rebuild
+          path: ./apps/api
+          ignore:
+            - node_modules/
+            - uploads/
+            - dist/
 
   # Frontend de l'application 1 (Gestion des processus)
   web-app1:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
+      args:
+        # Obligatoire au build : Vite fige cette URL dans le JS (environment: ne suffit pas)
+        VITE_API_URL: http://localhost:4000/api/v1
     container_name: web-gestion-processus
-    environment:
-      VITE_API_URL: http://localhost:4000/api/v1
     ports:
       - "5173:80"
     depends_on:
@@ -82,6 +91,13 @@ services:
     networks:
       - app1-network
     restart: unless-stopped
+    develop:
+      watch:
+        - action: rebuild
+          path: ./apps/web
+          ignore:
+            - node_modules/
+            - dist/
 
   # API de l'application 2
   #api-app2:

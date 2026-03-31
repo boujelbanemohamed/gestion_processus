@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
+import ClientFournisseurQuickCreateModal from '../components/ClientFournisseurQuickCreateModal';
 import { api } from '../services/api';
+import { useAuth } from '../store/auth';
 
 const STATUS_COLORS: Record<string, string> = {
   'en_preparation': 'bg-yellow-100 text-yellow-800',
@@ -23,28 +25,43 @@ const PRIORITY_COLORS: Record<string, string> = {
 };
 
 export default function Projets() {
+  const { user } = useAuth();
+  const canEditClients = user?.role === 'admin' || user?.role === 'contributeur';
+
   const [projets, setProjets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showQuickClientModal, setShowQuickClientModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const [filters, setFilters] = useState({ nom: '', statut: '', priorite: '', type: '' });
   const [page, setPage] = useState(1);
   const pageSize = 10;
-
-  const [formData, setFormData] = useState({
-    nom: '',
-    codeProjet: '',
-    type: 'interne',
-    nomClient: '',
-    dateDebut: '',
-    dateFinPrevue: '',
-    statut: 'en_preparation',
-    priorite: 'moyenne',
-  });
+  /** Remonte le <form> à chaque ouverture : valeurs réelles = FormData (évite décalage React / autofill). */
+  const [createFormKey, setCreateFormKey] = useState(0);
+  const [modalType, setModalType] = useState<'interne' | 'client' | 'communautaire'>('interne');
+  const [fichesClient, setFichesClient] = useState<{ id: string; nom: string }[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState('');
 
   useEffect(() => { loadProjets(); }, [filters]);
   useEffect(() => { setPage(1); }, [filters]);
+
+  useEffect(() => {
+    if (!showCreateModal) return;
+    let cancelled = false;
+    setSelectedClientId('');
+    (async () => {
+      try {
+        const r = await api.get('/clients-fournisseurs', { params: { type: 'client' } });
+        if (!cancelled) setFichesClient(Array.isArray(r.data) ? r.data : []);
+      } catch {
+        if (!cancelled) setFichesClient([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showCreateModal]);
 
   const loadProjets = async () => {
     try {
@@ -62,32 +79,62 @@ export default function Projets() {
     }
   };
 
-  const handleCreate = async () => {
+  const openCreateModal = () => {
     setError('');
-    if (!formData.nom || !formData.codeProjet || !formData.dateDebut) {
-      setError('Veuillez remplir les champs obligatoires (Nom, Date de début)');
+    setModalType('interne');
+    setSelectedClientId('');
+    setShowQuickClientModal(false);
+    setCreateFormKey((k) => k + 1);
+    setShowCreateModal(true);
+  };
+
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+    setShowQuickClientModal(false);
+    setError('');
+  };
+
+  const handleCreateSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setError('');
+    const fd = new FormData(e.currentTarget);
+    const nom = String(fd.get('createProjetNom') ?? '').trim();
+    if (!nom) {
+      setError('Le nom du projet est obligatoire.');
       return;
     }
-    if (formData.type === 'client' && !formData.nomClient) {
-      setError('Veuillez indiquer le nom du client');
-      return;
+    const type = String(fd.get('createProjetType') ?? 'interne') as 'interne' | 'client' | 'communautaire';
+    const payload: Record<string, unknown> = {
+      nom,
+      type,
+      statut: String(fd.get('createProjetStatut') ?? 'en_preparation'),
+      priorite: String(fd.get('createProjetPriorite') ?? 'moyenne'),
+    };
+    if (type === 'client') {
+      const cfId = String(fd.get('createProjetClientFournisseurId') ?? '').trim();
+      if (!cfId) {
+        setError('Choisissez un client dans la liste ou créez une fiche client.');
+        return;
+      }
+      payload.clientFournisseurId = cfId;
     }
+    const codeProjet = String(fd.get('createProjetCode') ?? '').trim();
+    if (codeProjet) payload.codeProjet = codeProjet;
+    const dateDebut = String(fd.get('createProjetDateDebut') ?? '').trim();
+    if (dateDebut) payload.dateDebut = dateDebut;
+    const dateFinPrevue = String(fd.get('createProjetDateFin') ?? '').trim();
+    if (dateFinPrevue) payload.dateFinPrevue = dateFinPrevue;
+
     setCreating(true);
     try {
-      await api.post('/projets', formData);
+      await api.post('/projets', payload);
       await loadProjets();
-      setShowCreateModal(false);
-      resetForm();
+      closeCreateModal();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Erreur lors de la création');
     } finally {
       setCreating(false);
     }
-  };
-
-  const resetForm = () => {
-    setFormData({ nom: '', codeProjet: '', type: 'interne', nomClient: '', dateDebut: '', dateFinPrevue: '', statut: 'en_preparation', priorite: 'moyenne' });
-    setError('');
   };
 
   const totalPages = Math.max(1, Math.ceil(projets.length / pageSize));
@@ -99,10 +146,7 @@ export default function Projets() {
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Projets</h1>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-        >
+        <button type="button" onClick={openCreateModal} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
           Nouveau projet
         </button>
       </div>
@@ -217,48 +261,122 @@ export default function Projets() {
       {/* Modal création */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto relative">
-            <button onClick={() => { setShowCreateModal(false); resetForm(); }} className="absolute top-3 right-3 text-gray-500 hover:text-gray-700 text-xl">×</button>
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto relative z-50">
+            <button type="button" onClick={closeCreateModal} className="absolute top-3 right-3 text-gray-500 hover:text-gray-700 text-xl">
+              ×
+            </button>
             <div className="p-6">
-              <h2 className="text-xl font-bold mb-4">Nouveau projet</h2>
+              <h2 className="text-xl font-bold mb-1">Nouveau projet</h2>
+              <p className="text-xs text-gray-500 mb-4">
+                Code projet facultatif (généré par le serveur si vide). Type « Client » : liste des fiches + bouton nouvelle fiche.
+              </p>
               {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
-              <div className="space-y-4">
+              <form key={createFormKey} onSubmit={handleCreateSubmit} autoComplete="off" noValidate className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Nom du projet <span className="text-red-500">*</span></label>
-                  <input type="text" value={formData.nom} onChange={(e) => setFormData({ ...formData, nom: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md" />
+                  <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetNom">
+                    Nom du projet <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="createProjetNom"
+                    name="createProjetNom"
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    autoComplete="off"
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Code projet <span className="text-red-500">*</span></label>
-                  <input type="text" value={formData.codeProjet} onChange={(e) => setFormData({ ...formData, codeProjet: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="Ex: PROJ-2025-001" />
+                  <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetCode">
+                    Code projet <span className="text-gray-500 font-normal">(facultatif)</span>
+                  </label>
+                  <input
+                    id="createProjetCode"
+                    name="createProjetCode"
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    placeholder="Laissé vide : code généré automatiquement (ex. PRJ-…)"
+                    autoComplete="off"
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Type <span className="text-red-500">*</span></label>
-                  <select value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md">
+                  <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetType">
+                    Type <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    id="createProjetType"
+                    name="createProjetType"
+                    defaultValue="interne"
+                    onChange={(ev) => {
+                      const v = ev.target.value as typeof modalType;
+                      setModalType(v);
+                      if (v !== 'client') setSelectedClientId('');
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  >
                     <option value="interne">Interne</option>
                     <option value="client">Client</option>
                     <option value="communautaire">Communautaire</option>
                   </select>
                 </div>
-                {formData.type === 'client' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Nom du client <span className="text-red-500">*</span></label>
-                    <input type="text" value={formData.nomClient} onChange={(e) => setFormData({ ...formData, nomClient: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="Nom de l'entreprise cliente" />
+                {modalType === 'client' && (
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetClientFournisseurId">
+                      Client <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      id="createProjetClientFournisseurId"
+                      name="createProjetClientFournisseurId"
+                      value={selectedClientId}
+                      onChange={(ev) => setSelectedClientId(ev.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      <option value="">— Choisir un client —</option>
+                      {fichesClient.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nom}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500">
+                      Fiches issues de la page Clients / Fournisseurs (type client). La liaison projet ↔ client est créée automatiquement.
+                    </p>
+                    {canEditClients ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowQuickClientModal(true)}
+                        className="w-full px-3 py-2 text-sm border border-dashed border-blue-400 text-blue-700 rounded-md hover:bg-blue-50"
+                      >
+                        + Nouvelle fiche client…
+                      </button>
+                    ) : (
+                      <p className="text-xs text-amber-700">Pour créer une fiche client, demandez à un administrateur ou contributeur.</p>
+                    )}
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Date de début <span className="text-red-500">*</span></label>
-                    <input type="date" value={formData.dateDebut} onChange={(e) => setFormData({ ...formData, dateDebut: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md" />
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetDateDebut">
+                      Date de début <span className="text-gray-500 font-normal">(facultatif)</span>
+                    </label>
+                    <input
+                      id="createProjetDateDebut"
+                      name="createProjetDateDebut"
+                      type="date"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Date de fin prévue</label>
-                    <input type="date" value={formData.dateFinPrevue} onChange={(e) => setFormData({ ...formData, dateFinPrevue: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md" />
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetDateFin">
+                      Date de fin prévue
+                    </label>
+                    <input id="createProjetDateFin" name="createProjetDateFin" type="date" className="w-full px-3 py-2 border border-gray-300 rounded-md" />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Statut</label>
-                    <select value={formData.statut} onChange={(e) => setFormData({ ...formData, statut: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md">
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetStatut">
+                      Statut
+                    </label>
+                    <select id="createProjetStatut" name="createProjetStatut" defaultValue="en_preparation" className="w-full px-3 py-2 border border-gray-300 rounded-md">
                       <option value="en_preparation">En préparation</option>
                       <option value="en_cours">En cours</option>
                       <option value="termine">Terminé</option>
@@ -266,22 +384,42 @@ export default function Projets() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Priorité</label>
-                    <select value={formData.priorite} onChange={(e) => setFormData({ ...formData, priorite: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md">
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetPriorite">
+                      Priorité
+                    </label>
+                    <select id="createProjetPriorite" name="createProjetPriorite" defaultValue="moyenne" className="w-full px-3 py-2 border border-gray-300 rounded-md">
                       <option value="haute">Haute</option>
                       <option value="moyenne">Moyenne</option>
                       <option value="basse">Basse</option>
                     </select>
                   </div>
                 </div>
-              </div>
-              <div className="flex justify-end space-x-3 mt-6 pt-4 border-t">
-                <button onClick={() => { setShowCreateModal(false); resetForm(); }} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Annuler</button>
-                <button onClick={handleCreate} disabled={creating} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">{creating ? 'Création...' : 'Créer'}</button>
-              </div>
+                <div className="flex justify-end space-x-3 mt-6 pt-4 border-t">
+                  <button type="button" onClick={closeCreateModal} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">
+                    Annuler
+                  </button>
+                  <button type="submit" disabled={creating} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">
+                    {creating ? 'Création...' : 'Créer'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
+      )}
+
+      {showQuickClientModal && (
+        <ClientFournisseurQuickCreateModal
+          open={showQuickClientModal}
+          onClose={() => setShowQuickClientModal(false)}
+          onCreated={(fiche) => {
+            setFichesClient((prev) => {
+              const rest = prev.filter((x) => x.id !== fiche.id);
+              return [fiche, ...rest];
+            });
+            setSelectedClientId(fiche.id);
+          }}
+        />
       )}
     </div>
   );

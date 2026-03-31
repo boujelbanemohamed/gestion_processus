@@ -4,8 +4,9 @@ import { api } from '../services/api';
 export default function Corbeille() {
   const [processus, setProcessus] = useState<any[]>([]);
   const [documents, setDocuments] = useState<any[]>([]);
+  const [licences, setLicences] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'processus' | 'documents'>('processus');
+  const [activeTab, setActiveTab] = useState<'processus' | 'documents' | 'licences'>('processus');
 
   useEffect(() => {
     loadCorbeille();
@@ -16,6 +17,7 @@ export default function Corbeille() {
       const response = await api.get('/corbeille');
       setProcessus(response.data.processus || []);
       setDocuments(response.data.documents || []);
+      setLicences(response.data.licences || []);
     } catch (error) {
       console.error('Erreur chargement corbeille:', error);
     } finally {
@@ -63,6 +65,26 @@ export default function Corbeille() {
     }
   };
 
+  const handleRestaurerLicence = async (id: string) => {
+    if (!window.confirm('Restaurer cette licence ?')) return;
+    try {
+      await api.post(`/corbeille/licences/${id}/restaurer`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur restauration:', error);
+    }
+  };
+
+  const handleSupprimerLicence = async (id: string) => {
+    if (!window.confirm('Supprimer définitivement cette licence et ses pièces jointes ? Irréversible.')) return;
+    try {
+      await api.delete(`/corbeille/licences/${id}`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur suppression:', error);
+    }
+  };
+
   if (loading) return <div className="p-6">Chargement...</div>;
 
   return (
@@ -90,6 +112,16 @@ export default function Corbeille() {
           }`}
         >
           Documents ({documents.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('licences')}
+          className={`pb-2 px-1 text-sm font-medium border-b-2 ${
+            activeTab === 'licences'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Licences ({licences.length})
         </button>
       </div>
 
@@ -181,6 +213,53 @@ export default function Corbeille() {
           </table>
           {documents.length === 0 && (
             <div className="text-center py-8 text-gray-500">La corbeille est vide</div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'licences' && (
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Référence</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supprimée le</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {licences.map((lic) => (
+                <tr key={lic.id}>
+                  <td className="px-6 py-4 text-sm text-gray-900">{lic.nom}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">{lic.reference}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {lic.deletedAt ? new Date(lic.deletedAt).toLocaleDateString('fr-FR') : '—'}
+                  </td>
+                  <td className="px-6 py-4 text-sm">
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleRestaurerLicence(lic.id)}
+                        className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
+                      >
+                        Restaurer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSupprimerLicence(lic.id)}
+                        className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200"
+                      >
+                        Supprimer définitivement
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {licences.length === 0 && (
+            <div className="text-center py-8 text-gray-500">Aucune licence en corbeille</div>
           )}
         </div>
       )}

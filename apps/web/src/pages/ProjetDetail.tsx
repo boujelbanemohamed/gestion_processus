@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import ProjetTachesSection from '../components/ProjetTachesSection';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
 
@@ -849,6 +850,21 @@ export default function ProjetDetail() {
             </table>
           )}
         </div>
+
+        {id && (
+          <div className="print:hidden mt-6">
+            <ProjetTachesSection
+              projetId={id}
+              projet={projet}
+              usersForTaches={users.map((u) => ({
+                id: u.id,
+                nom: u.nom,
+                prenom: u.prenom,
+                role: u.role,
+              }))}
+            />
+          </div>
+        )}
         </div>{/* fin print-zone */}
       {/* Modal Modifier Accès */}
       {showAccesModal && acceDoc && (
