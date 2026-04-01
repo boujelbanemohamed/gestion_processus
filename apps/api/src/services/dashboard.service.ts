@@ -2,6 +2,8 @@ import { prisma } from '../utils/prisma';
 
 const JOURS_ACTIVITE_PROJET = 30;
 
+const TACHE_STATUTS_FINALISES = ['termine', 'archive'] as const;
+
 export class DashboardService {
   /** Top projets : sur 30 jours, actions journal (projet) + tches mises  jour ; complt par `updatedAt` si besoin. */
   private async getProjetsPlusActifs(projetWhere: any) {
@@ -95,6 +97,70 @@ export class DashboardService {
         consultationsJournal: number;
         tachesMisesAJour: number;
       }>;
+  }
+
+  /**
+   * Tches non finalises dont la date de fin prvue est dpasse (max 10, plus anciennes en premier).
+   * Align sur la visibilit liste Tches : admin voit tout ; lecteur/contributeur : crateur ou assign utilisateur.
+   */
+  private async getTachesEnRetard(userId?: string, userRole?: string) {
+    const now = new Date();
+
+    const baseWhere: any = {
+      statut: { notIn: [...TACHE_STATUTS_FINALISES] },
+      dateFinApprox: { not: null, lt: now },
+    };
+
+    let where: any = { ...baseWhere };
+
+    if (userRole === 'lecteur' || userRole === 'contributeur') {
+      if (!userId) {
+        return [];
+      }
+      where = {
+        AND: [
+          baseWhere,
+          {
+            OR: [{ createurId: userId }, { assignesUtilisateurs: { some: { userId } } }],
+          },
+        ],
+      };
+    }
+
+    const taches = await prisma.tache.findMany({
+      where,
+      take: 10,
+      orderBy: { dateFinApprox: 'asc' },
+      include: {
+        projet: { select: { id: true, nom: true, codeProjet: true } },
+        assignesUtilisateurs: {
+          include: { user: { select: { id: true, nom: true, prenom: true } } },
+        },
+        assignesEntites: {
+          include: { entite: { select: { id: true, nom: true, code: true } } },
+        },
+      },
+    });
+
+    return taches.map((t) => ({
+      id: t.id,
+      nom: t.nom,
+      statut: t.statut,
+      dateFinPrevue: t.dateFinApprox?.toISOString() ?? null,
+      projet: t.projet
+        ? { id: t.projet.id, nom: t.projet.nom, codeProjet: t.projet.codeProjet }
+        : null,
+      assignesUtilisateurs: t.assignesUtilisateurs.map((tu) => ({
+        id: tu.user.id,
+        nom: tu.user.nom,
+        prenom: tu.user.prenom,
+      })),
+      assignesEntites: t.assignesEntites.map((te) => ({
+        id: te.entite.id,
+        nom: te.entite.nom,
+        code: te.entite.code,
+      })),
+    }));
   }
 
   async getKPIs(userId?: string, userRole?: string) {
@@ -248,12 +314,16 @@ export class DashboardService {
       }))
       .sort((a, b) => b.nombreTelechargements - a.nombreTelechargements);
 
-    const projetsPlusActifs = await this.getProjetsPlusActifs(projetWhereClause);
+    const [projetsPlusActifs, tachesEnRetard] = await Promise.all([
+      this.getProjetsPlusActifs(projetWhereClause),
+      this.getTachesEnRetard(userId, userRole),
+    ]);
 
     return {
       processus: { total: processusTotal, parStatut },
       projets: { actifs: Object.values(projetsParStatutMap).reduce((a, b) => a + b, 0), parStatut: projetsParStatutMap },
       projetsPlusActifs,
+      tachesEnRetard,
       documentsRecents: documentsRecents.map((d) => ({
         id: d.id,
         nom: d.nom,
