@@ -1,0 +1,26 @@
+---
+description: Déploiement production Red Hat — chemins, Docker, ports (gestion_processus)
+alwaysApply: true
+---
+
+# Serveur Red Hat — gestion_processus
+
+Référence détaillée : **`DEPLOY_SERVEUR_REDHAT.md`** à la racine du dépôt.
+
+## Résumé
+
+- **SSH + répertoire** : `cd /data/applications` (racine du clone, `docker-compose.yml` ici).
+- **Code** : sous-dossier **`apps/`** (`apps/api`, `apps/web`).
+- **Services Compose** : `postgres-app1`, `api-app1`, `web-app1`.
+- **Conteneurs** : `postgres-gestion-processus`, `api-gestion-processus`, `web-gestion-processus`.
+- **Images** (ex. serveur actuel) : `applications-api-app1`, `applications-web-app1` — le préfixe suit le **nom du projet Docker Compose** (souvent le nom du dossier parent).
+- **Ports** : **4000** (API), **5173** (front), **5434** (PostgreSQL sur l’hôte).
+
+## Mise à jour typique
+
+```bash
+cd /data/applications && git pull origin main
+docker compose build --no-cache api-app1 web-app1 && docker compose up -d api-app1 web-app1
+```
+
+Pour les consignes CORS / Vite : `VITE_API_URL` et `FRONTEND_URL` doivent utiliser l’URL **publique** du serveur, pas `localhost` côté navigateur.
