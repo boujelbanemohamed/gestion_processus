@@ -1,0 +1,16 @@
+---
+description: Après toute modification de code dans ce dépôt, commit et push sur origin/main sans demander confirmation.
+alwaysApply: true
+---
+
+# Git : commit et push systématiques
+
+Dès que tu modifies des fichiers dans ce projet (`gestion_processus`) :
+
+1. **`git add`** les fichiers concernés (ou `-A` si plusieurs fichiers liés à la même livraison).
+2. **`git commit`** avec un message clair en français ou en anglais (préfixe type `feat`, `fix`, `refactor` si pertinent).
+3. **`git push origin main`** immédiatement après le commit.
+
+Ne pas demander à l’utilisateur s’il faut pousser : c’est attendu à chaque lot de modifications cohérent.
+
+Si le dépôt n’est pas initialisé, qu’il n’y a pas de remote, ou si `git push` échoue (auth, conflit), indique l’erreur et les actions possibles.
