@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import TachesGanttView from '../components/TachesGanttView';
+import TachesEnRetardBloc, { type TacheEnRetardItem } from '../components/TachesEnRetardBloc';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 
@@ -1159,6 +1160,7 @@ export function TacheCard({
 export default function Taches() {
   const { user: currentUser } = useAuth();
   const [taches, setTaches] = useState<Tache[]>([]);
+  const [tachesEnRetard, setTachesEnRetard] = useState<TacheEnRetardItem[]>([]);
   const [projets, setProjets] = useState<ProjetOption[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [entites, setEntites] = useState<EntiteOption[]>([]);
@@ -1186,16 +1188,18 @@ export default function Taches() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [tRes, pRes, uRes, eRes] = await Promise.all([
+      const [tRes, pRes, uRes, eRes, retardRes] = await Promise.all([
         api.get('/taches'),
         api.get('/projets'),
         api.get('/users'),
         api.get('/entites'),
+        api.get('/dashboard/taches-en-retard').catch(() => ({ data: [] as TacheEnRetardItem[] })),
       ]);
       setTaches(tRes.data);
       setProjets(pRes.data);
       setUsers(uRes.data);
       setEntites(eRes.data);
+      setTachesEnRetard(Array.isArray(retardRes.data) ? retardRes.data : []);
     } catch (err) {
       console.error('Erreur chargement:', err);
     } finally {
@@ -1375,6 +1379,18 @@ export default function Taches() {
           </button>
         </div>
       </div>
+
+      <TachesEnRetardBloc
+        items={tachesEnRetard}
+        hideFooterLink
+        onTacheClick={(id) => {
+          const t = taches.find((x) => x.id === id);
+          if (t) {
+            setEditTache(t);
+            setShowModal(true);
+          }
+        }}
+      />
 
       {/* Liste ou Gantt */}
       {viewMode === 'gantt' ? (

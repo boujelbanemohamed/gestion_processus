@@ -89,6 +89,7 @@ app.use(loggerMiddleware);
 
 // Dashboard
 app.get("/api/v1/dashboard", dashboardController.getKPIs);
+app.get("/api/v1/dashboard/taches-en-retard", dashboardController.getTachesEnRetard);
 
 // Entités
 app.get("/api/v1/entites", entiteController.getAllEntites);

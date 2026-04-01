@@ -103,7 +103,7 @@ export class DashboardService {
    * Tùches non finalisùes dont la date de fin prùvue est dùpassùe (max 10, plus anciennes en premier).
    * Alignù sur la visibilitù liste Tùches : admin voit tout ; lecteur/contributeur : crùateur ou assignù utilisateur.
    */
-  private async getTachesEnRetard(userId?: string, userRole?: string) {
+  async getTachesEnRetard(userId?: string, userRole?: string) {
     const now = new Date();
 
     const baseWhere: any = {
