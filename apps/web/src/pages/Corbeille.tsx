@@ -6,8 +6,11 @@ export default function Corbeille() {
   const [documents, setDocuments] = useState<any[]>([]);
   const [licences, setLicences] = useState<any[]>([]);
   const [clientsFournisseurs, setClientsFournisseurs] = useState<any[]>([]);
+  const [contrats, setContrats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'processus' | 'documents' | 'licences' | 'clientsFournisseurs'>('processus');
+  const [activeTab, setActiveTab] = useState<
+    'processus' | 'documents' | 'licences' | 'clientsFournisseurs' | 'contrats'
+  >('processus');
 
   useEffect(() => {
     loadCorbeille();
@@ -20,6 +23,7 @@ export default function Corbeille() {
       setDocuments(response.data.documents || []);
       setLicences(response.data.licences || []);
       setClientsFournisseurs(response.data.clientsFournisseurs || []);
+      setContrats(response.data.contrats || []);
     } catch (error) {
       console.error('Erreur chargement corbeille:', error);
     } finally {
@@ -107,6 +111,26 @@ export default function Corbeille() {
     }
   };
 
+  const handleRestaurerContrat = async (id: string) => {
+    if (!window.confirm('Restaurer ce contrat ?')) return;
+    try {
+      await api.post(`/corbeille/contrats/${id}/restaurer`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur restauration:', error);
+    }
+  };
+
+  const handleSupprimerContrat = async (id: string) => {
+    if (!window.confirm('Supprimer définitivement ce contrat ? Irréversible.')) return;
+    try {
+      await api.delete(`/corbeille/contrats/${id}`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur suppression:', error);
+    }
+  };
+
   if (loading) return <div className="p-6">Chargement...</div>;
 
   return (
@@ -154,6 +178,16 @@ export default function Corbeille() {
           }`}
         >
           Clients / Fournisseurs ({clientsFournisseurs.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('contrats')}
+          className={`pb-2 px-1 text-sm font-medium border-b-2 ${
+            activeTab === 'contrats'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Contrats ({contrats.length})
         </button>
       </div>
 
@@ -341,6 +375,53 @@ export default function Corbeille() {
           </table>
           {clientsFournisseurs.length === 0 && (
             <div className="text-center py-8 text-gray-500">Aucune fiche client / fournisseur en corbeille</div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'contrats' && (
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supprimé le</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {contrats.map((c) => (
+                <tr key={c.id}>
+                  <td className="px-6 py-4 text-sm text-gray-900">{c.nom}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500 capitalize">{c.statut || '—'}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {c.deletedAt ? new Date(c.deletedAt).toLocaleDateString('fr-FR') : '—'}
+                  </td>
+                  <td className="px-6 py-4 text-sm">
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleRestaurerContrat(c.id)}
+                        className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
+                      >
+                        Restaurer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSupprimerContrat(c.id)}
+                        className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200"
+                      >
+                        Supprimer définitivement
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {contrats.length === 0 && (
+            <div className="text-center py-8 text-gray-500">Aucun contrat en corbeille</div>
           )}
         </div>
       )}

@@ -17,11 +17,12 @@ export const getCorbeille = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut accéder à la corbeille.' });
     }
 
-    const [processus, documents, licences, clientsFournisseurs] = await Promise.all([
+    const [processus, documents, licences, clientsFournisseurs, contrats] = await Promise.all([
       corbeilleService.getProcessusSupprimes(),
       corbeilleService.getDocumentsSupprimes(),
       corbeilleService.getLicencesSupprimees(),
       corbeilleService.getClientsFournisseursSupprimes(),
+      corbeilleService.getContratsSupprimes(),
     ]);
 
     res.json({
@@ -29,6 +30,7 @@ export const getCorbeille = async (req: AuthRequest, res: Response) => {
       documents,
       licences,
       clientsFournisseurs,
+      contrats,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -185,6 +187,40 @@ export const supprimerDefinitivementClientFournisseur = async (req: AuthRequest,
     }
     await corbeilleService.supprimerDefinitivementClientFournisseur(req.params.id);
     await logAccess(req, res, 'suppression', 'clientFournisseur', req.params.id, undefined, {
+      action: 'suppression_definitive',
+    });
+    res.status(204).send();
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const restaurerContrat = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut restaurer des éléments.' });
+    }
+    const row = await corbeilleService.restaurerContrat(req.params.id, req.user.userId);
+    await logAccess(req, res, 'modification', 'contrat', row.id, row.nom, { action: 'restauration' });
+    res.json(row);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const supprimerDefinitivementContrat = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé.' });
+    }
+    await corbeilleService.supprimerDefinitivementContrat(req.params.id);
+    await logAccess(req, res, 'suppression', 'contrat', req.params.id, undefined, {
       action: 'suppression_definitive',
     });
     res.status(204).send();

@@ -169,6 +169,8 @@ app.post("/api/v1/corbeille/licences/:id/restaurer", corbeilleController.restaur
 app.delete("/api/v1/corbeille/licences/:id", corbeilleController.supprimerDefinitivementLicence);
 app.post("/api/v1/corbeille/clients-fournisseurs/:id/restaurer", corbeilleController.restaurerClientFournisseur);
 app.delete("/api/v1/corbeille/clients-fournisseurs/:id", corbeilleController.supprimerDefinitivementClientFournisseur);
+app.post("/api/v1/corbeille/contrats/:id/restaurer", corbeilleController.restaurerContrat);
+app.delete("/api/v1/corbeille/contrats/:id", corbeilleController.supprimerDefinitivementContrat);
 
 // Favoris
 app.get("/api/v1/favoris", favorisController.getFavoris);
@@ -207,6 +209,12 @@ app.delete("/api/v1/clients-fournisseurs/:id/projets/:projetId", clientFournisse
 
 // Routes Contrats
 app.get("/api/v1/contrats", contratController.getContrats);
+app.get("/api/v1/contrats/:id/acces", contratController.getContratAcces);
+app.get("/api/v1/contrats/:id/historique", contratController.getContratHistorique);
+app.delete(
+  "/api/v1/contrats/:id/permissions/entry/:permissionEntryId",
+  contratController.removePermissionEntry
+);
 app.get("/api/v1/contrats/:id", contratController.getContrat);
 app.post("/api/v1/contrats", contratController.uploadContrat, contratController.createContrat);
 app.put("/api/v1/contrats/:id", contratController.updateContrat);

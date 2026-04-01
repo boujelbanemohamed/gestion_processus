@@ -89,6 +89,7 @@ enum ResourceType {
   utilisateur
   licence
   clientFournisseur
+  contrat
 }
 
 enum PermissionResource {
@@ -161,6 +162,7 @@ model User {
 
   clientsFournisseursCrees       ClientFournisseur[]              @relation("ClientFournisseurCreatedBy")
   clientFournisseurHistorique    ClientFournisseurHistorique[]
+  contratHistorique              ContratHistorique[]
 }
 
 model Entite {
@@ -661,6 +663,7 @@ model Contrat {
   tags              String?  // JSON array
   createdById       String
   createdBy         User     @relation("ContratCreatedBy", fields: [createdById], references: [id])
+  deletedAt         DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   partiesPrenantes  ContratPartiePrenante[]
@@ -668,6 +671,22 @@ model Contrat {
   documents         ContratDocument[]
   permissions       ContratPermission[]
   licences          Licence[]
+  historique        ContratHistorique[]
+}
+
+model ContratHistorique {
+  id            String   @id @default(uuid())
+  contratId   String
+  contrat     Contrat  @relation(fields: [contratId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  typeEvenement String
+  libelle     String?
+  details     Json?
+  createdAt   DateTime @default(now())
+
+  @@index([contratId, createdAt])
+  @@index([userId])
 }
 
 model ContratPartiePrenante {

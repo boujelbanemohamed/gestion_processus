@@ -1,6 +1,7 @@
 import { prisma } from '../utils/prisma';
 import { LicenceService } from './licence.service';
 import { clientFournisseurService, logCfHistory } from './client-fournisseur.service';
+import { contratService } from './contrat.service';
 
 const licenceService = new LicenceService();
 
@@ -187,5 +188,17 @@ export class CorbeilleService {
 
   async supprimerDefinitivementClientFournisseur(id: string) {
     return clientFournisseurService.deletePermanent(id);
+  }
+
+  async getContratsSupprimes() {
+    return contratService.listDeletedForCorbeille();
+  }
+
+  async restaurerContrat(id: string, userId: string) {
+    return contratService.restoreFromCorbeille(id, userId);
+  }
+
+  async supprimerDefinitivementContrat(id: string) {
+    return contratService.deletePermanent(id);
   }
 }
