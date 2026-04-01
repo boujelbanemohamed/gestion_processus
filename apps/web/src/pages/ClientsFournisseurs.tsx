@@ -69,7 +69,10 @@ export default function ClientsFournisseurs() {
       await api.post(`/clients-fournisseurs/${repTarget.id}/representants`, repForm);
       setShowRepModal(false);
       load();
-    } catch (e) { alert('Erreur'); }
+    } catch (e: any) {
+      const msg = e?.response?.data?.error || e?.message || 'Erreur lors de l’ajout du représentant';
+      alert(msg);
+    }
   };
   const handleUpdateRepStatut = async (cfId: string, repId: string, statut: string) => {
     await api.put(`/clients-fournisseurs/${cfId}/representants/${repId}`, { statut, dateFin: statut === 'fin_exercice' ? new Date().toISOString() : null });

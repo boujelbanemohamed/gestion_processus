@@ -72,13 +72,55 @@ export const clientFournisseurService = {
   async delete(id: string) {
     return prisma.clientFournisseur.delete({ where: { id } });
   },
-  async addRepresentant(clientFournisseurId: string, data: any) {
-    if (data.dateDebut === "") data.dateDebut = null;
-    if (data.dateFin === "") data.dateFin = null;
-    return prisma.representantLegal.create({ data: { ...data, clientFournisseurId } });
+  async addRepresentant(clientFournisseurId: string, raw: any) {
+    const parseDate = (v: unknown): Date | null => {
+      if (v === null || v === undefined) return null;
+      const s = String(v).trim();
+      if (s === '') return null;
+      // input type="date" → "YYYY-MM-DD" ; Prisma/PostgreSQL attend un instant valide
+      const iso = s.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T12:00:00.000Z` : s;
+      const d = new Date(iso);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    const nom = String(raw?.nom ?? '').trim();
+    const prenom = String(raw?.prenom ?? '').trim();
+    if (!nom || !prenom) {
+      throw new Error('Le nom et le prénom sont obligatoires');
+    }
+
+    const statut = raw?.statut === 'fin_exercice' ? 'fin_exercice' : 'en_exercice';
+    const fonctionRaw = raw?.fonction;
+    const fonction =
+      fonctionRaw === null || fonctionRaw === undefined || String(fonctionRaw).trim() === ''
+        ? null
+        : String(fonctionRaw).trim();
+
+    return prisma.representantLegal.create({
+      data: {
+        clientFournisseurId,
+        nom,
+        prenom,
+        fonction,
+        statut,
+        dateDebut: parseDate(raw?.dateDebut),
+        dateFin: parseDate(raw?.dateFin),
+      },
+    });
   },
   async updateRepresentant(id: string, data: any) {
-    return prisma.representantLegal.update({ where: { id }, data });
+    const patch: any = { ...data };
+    if (patch.dateDebut === '') patch.dateDebut = null;
+    if (patch.dateFin === '') patch.dateFin = null;
+    if (patch.dateDebut !== undefined && patch.dateDebut !== null && typeof patch.dateDebut === 'string') {
+      const s = patch.dateDebut.trim();
+      if (s.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(s)) patch.dateDebut = new Date(`${s}T12:00:00.000Z`);
+    }
+    if (patch.dateFin !== undefined && patch.dateFin !== null && typeof patch.dateFin === 'string') {
+      const s = patch.dateFin.trim();
+      if (s.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(s)) patch.dateFin = new Date(`${s}T12:00:00.000Z`);
+    }
+    return prisma.representantLegal.update({ where: { id }, data: patch });
   },
   async deleteRepresentant(id: string) {
     return prisma.representantLegal.delete({ where: { id } });
