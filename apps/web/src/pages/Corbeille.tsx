@@ -5,8 +5,9 @@ export default function Corbeille() {
   const [processus, setProcessus] = useState<any[]>([]);
   const [documents, setDocuments] = useState<any[]>([]);
   const [licences, setLicences] = useState<any[]>([]);
+  const [clientsFournisseurs, setClientsFournisseurs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'processus' | 'documents' | 'licences'>('processus');
+  const [activeTab, setActiveTab] = useState<'processus' | 'documents' | 'licences' | 'clientsFournisseurs'>('processus');
 
   useEffect(() => {
     loadCorbeille();
@@ -18,6 +19,7 @@ export default function Corbeille() {
       setProcessus(response.data.processus || []);
       setDocuments(response.data.documents || []);
       setLicences(response.data.licences || []);
+      setClientsFournisseurs(response.data.clientsFournisseurs || []);
     } catch (error) {
       console.error('Erreur chargement corbeille:', error);
     } finally {
@@ -85,6 +87,26 @@ export default function Corbeille() {
     }
   };
 
+  const handleRestaurerClientFournisseur = async (id: string) => {
+    if (!window.confirm('Restaurer cette fiche client / fournisseur ?')) return;
+    try {
+      await api.post(`/corbeille/clients-fournisseurs/${id}/restaurer`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur restauration:', error);
+    }
+  };
+
+  const handleSupprimerClientFournisseur = async (id: string) => {
+    if (!window.confirm('Supprimer définitivement cette fiche ? Irréversible.')) return;
+    try {
+      await api.delete(`/corbeille/clients-fournisseurs/${id}`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur suppression:', error);
+    }
+  };
+
   if (loading) return <div className="p-6">Chargement...</div>;
 
   return (
@@ -122,6 +144,16 @@ export default function Corbeille() {
           }`}
         >
           Licences ({licences.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('clientsFournisseurs')}
+          className={`pb-2 px-1 text-sm font-medium border-b-2 ${
+            activeTab === 'clientsFournisseurs'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Clients / Fournisseurs ({clientsFournisseurs.length})
         </button>
       </div>
 
@@ -260,6 +292,55 @@ export default function Corbeille() {
           </table>
           {licences.length === 0 && (
             <div className="text-center py-8 text-gray-500">Aucune licence en corbeille</div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'clientsFournisseurs' && (
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supprimé le</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {clientsFournisseurs.map((cf) => (
+                <tr key={cf.id}>
+                  <td className="px-6 py-4 text-sm text-gray-900">{cf.nom}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {cf.type === 'client' ? 'Client' : 'Fournisseur'}
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {cf.deletedAt ? new Date(cf.deletedAt).toLocaleDateString('fr-FR') : '—'}
+                  </td>
+                  <td className="px-6 py-4 text-sm">
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleRestaurerClientFournisseur(cf.id)}
+                        className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
+                      >
+                        Restaurer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSupprimerClientFournisseur(cf.id)}
+                        className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200"
+                      >
+                        Supprimer définitivement
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {clientsFournisseurs.length === 0 && (
+            <div className="text-center py-8 text-gray-500">Aucune fiche client / fournisseur en corbeille</div>
           )}
         </div>
       )}

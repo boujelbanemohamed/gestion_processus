@@ -88,6 +88,7 @@ enum ResourceType {
   entite
   utilisateur
   licence
+  clientFournisseur
 }
 
 enum PermissionResource {
@@ -157,6 +158,9 @@ model User {
   licencePermissions        LicencePermission[]
   licenceCommentaires       LicenceCommentaire[]   @relation("LicenceCommentaireAuteur")
   licenceCommentairesAssignes LicenceCommentaire[] @relation("LicenceCommentaireAssigne")
+
+  clientsFournisseursCrees       ClientFournisseur[]              @relation("ClientFournisseurCreatedBy")
+  clientFournisseurHistorique    ClientFournisseurHistorique[]
 }
 
 model Entite {
@@ -598,11 +602,30 @@ model ClientFournisseur {
   matriculeFiscale String?
   adresse          String?
   pays             String?
+  createdById      String?
+  createdBy        User?    @relation("ClientFournisseurCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedAt        DateTime?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   representants    RepresentantLegal[]
   projets          ClientFournisseurProjet[]
   licences         Licence[]
+  historique       ClientFournisseurHistorique[]
+}
+
+model ClientFournisseurHistorique {
+  id                  String            @id @default(uuid())
+  clientFournisseurId String
+  clientFournisseur   ClientFournisseur @relation(fields: [clientFournisseurId], references: [id], onDelete: Cascade)
+  userId              String
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  typeEvenement       String
+  libelle             String?
+  details             Json?
+  createdAt           DateTime          @default(now())
+
+  @@index([clientFournisseurId, createdAt])
+  @@index([userId])
 }
 
 model RepresentantLegal {

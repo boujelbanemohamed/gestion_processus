@@ -8,10 +8,38 @@ function isoToDateInput(iso: string | null | undefined): string {
   return iso.slice(0, 10);
 }
 
+const LABEL_PERM: Record<string, string> = {
+  lecture: 'Consultation',
+  modification: 'Modification',
+  suppression: 'Suppression (fiche)',
+  gestion: 'Gestion',
+};
+
+const LABEL_HISTO: Record<string, string> = {
+  creation: 'Création de la fiche',
+  modification_champs: 'Modification des champs',
+  droit_ajoute: 'Droit d’accès accordé',
+  droit_retire: 'Droit d’accès retiré',
+  representant_ajout: 'Représentant ajouté',
+  representant_modification: 'Représentant modifié',
+  representant_suppression: 'Représentant supprimé',
+  contrat_lie: 'Contrat lié',
+  contrat_delie: 'Contrat retiré',
+  projet_lie: 'Projet lié',
+  projet_delie: 'Projet retiré',
+  soft_delete: 'Mise en corbeille',
+  restauration: 'Restauration',
+};
+
 export default function ClientsFournisseurs() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const canEdit = user?.role === 'admin' || user?.role === 'contributeur';
+  const canCreate = user?.role === 'admin' || user?.role === 'contributeur';
+
+  const capModify = (item: any) =>
+    item.capabilities?.canModify ?? (user?.role === 'admin' || user?.role === 'contributeur');
+  const capDelete = (item: any) =>
+    item.capabilities?.canDelete ?? (user?.role === 'admin' || user?.role === 'contributeur');
 
   const [items, setItems] = useState<any[]>([]);
   const [typeFilter, setTypeFilter] = useState<string>('');
@@ -29,6 +57,14 @@ export default function ClientsFournisseurs() {
   const [repEditingRep, setRepEditingRep] = useState<any | null>(null);
   const [repForm, setRepForm] = useState({ nom: '', prenom: '', fonction: '', statut: 'en_exercice', dateDebut: '', dateFin: '' });
   const [usersList, setUsersList] = useState<any[]>([]);
+  const [accesModalItem, setAccesModalItem] = useState<any | null>(null);
+  const [accesDetail, setAccesDetail] = useState<any | null>(null);
+  const [accesLoading, setAccesLoading] = useState(false);
+  const [newPermUserId, setNewPermUserId] = useState('');
+  const [newPermType, setNewPermType] = useState('lecture');
+  const [histModalItem, setHistModalItem] = useState<any | null>(null);
+  const [histoList, setHistoList] = useState<any[]>([]);
+  const [histoLoading, setHistoLoading] = useState(false);
 
   const emptyForm = { type: 'client', nom: '', typeSocieteId: '', matriculeFiscale: '', adresse: '', pays: '', projetIds: [] as string[] };
   const [form, setForm] = useState<any>(emptyForm);
@@ -76,13 +112,82 @@ export default function ClientsFournisseurs() {
       else await api.post('/clients-fournisseurs', form);
       setShowModal(false);
       load();
-    } catch (e) { alert('Erreur lors de la sauvegarde'); }
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur lors de la sauvegarde');
+    }
   };
 
   const handleDelete = async (id: string, nom: string) => {
-    if (!confirm(`Supprimer "${nom}" ?`)) return;
-    await api.delete(`/clients-fournisseurs/${id}`);
-    load();
+    if (!confirm(`Mettre « ${nom} » en corbeille ? Vous pourrez la restaurer depuis la corbeille (admin).`)) return;
+    try {
+      await api.delete(`/clients-fournisseurs/${id}`);
+      load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const openAccesModal = async (item: any) => {
+    setAccesModalItem(item);
+    setAccesDetail(null);
+    setNewPermUserId('');
+    setNewPermType('lecture');
+    setAccesLoading(true);
+    try {
+      const { data } = await api.get(`/clients-fournisseurs/${item.id}/acces`);
+      setAccesDetail(data);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur chargement accès');
+      setAccesModalItem(null);
+    } finally {
+      setAccesLoading(false);
+    }
+  };
+
+  const openHistoriqueModal = async (item: any) => {
+    setHistModalItem(item);
+    setHistoList([]);
+    setHistoLoading(true);
+    try {
+      const { data } = await api.get(`/clients-fournisseurs/${item.id}/historique`);
+      setHistoList(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur chargement historique');
+      setHistModalItem(null);
+    } finally {
+      setHistoLoading(false);
+    }
+  };
+
+  const refreshAccesDetail = async (cfId: string) => {
+    const { data } = await api.get(`/clients-fournisseurs/${cfId}/acces`);
+    setAccesDetail(data);
+  };
+
+  const handleAddPermission = async () => {
+    if (!accesModalItem || !newPermUserId) return;
+    try {
+      await api.post(`/clients-fournisseurs/${accesModalItem.id}/permissions`, {
+        userId: newPermUserId,
+        permission: newPermType,
+      });
+      setNewPermUserId('');
+      await refreshAccesDetail(accesModalItem.id);
+      load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleRemovePermission = async (permissionId: string) => {
+    if (!accesModalItem || !confirm('Retirer ce droit ?')) return;
+    try {
+      await api.delete(`/clients-fournisseurs/${accesModalItem.id}/permissions/${permissionId}`);
+      await refreshAccesDetail(accesModalItem.id);
+      load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
   };
 
   const openAddRep = (item: any) => {
@@ -134,15 +239,11 @@ export default function ClientsFournisseurs() {
     load();
   };
 
-  const roleOrdre = (r: string) => (r === 'admin' ? 0 : r === 'contributeur' ? 1 : 2);
-  const libelleRoleAcces = (r: string) =>
-    r === 'admin' ? 'Admin' : r === 'contributeur' ? 'Contributeur' : 'Lecteur — consultation seule';
-
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-900">🏢 Clients / Fournisseurs</h1>
-        {canEdit && <button onClick={openCreate} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">+ Ajouter</button>}
+        {canCreate && <button onClick={openCreate} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">+ Ajouter</button>}
       </div>
 
       {/* Filtres */}
@@ -153,31 +254,6 @@ export default function ClientsFournisseurs() {
           <option value="client">Clients</option>
           <option value="fournisseur">Fournisseurs</option>
         </select>
-      </div>
-
-      <div className="mb-6 text-xs text-gray-600 bg-slate-50 border border-slate-100 rounded-md px-3 py-2.5">
-        <p className="font-semibold text-slate-700 mb-1.5">Accès</p>
-        <div className="space-y-0.5">
-          {(() => {
-            const actifs = usersList.filter((u: any) => !u.statut || u.statut === 'actif');
-            if (actifs.length === 0) {
-              return <span className="italic text-gray-400">Liste des utilisateurs non disponible</span>;
-            }
-            const sorted = [...actifs].sort((a, b) => {
-              const d = roleOrdre(a.role) - roleOrdre(b.role);
-              if (d !== 0) return d;
-              const na = `${a.prenom || ''} ${a.nom || ''}`.trim().toLowerCase();
-              const nb = `${b.prenom || ''} ${b.nom || ''}`.trim().toLowerCase();
-              return na.localeCompare(nb, 'fr');
-            });
-            return sorted.map((u: any) => (
-              <div key={u.id}>
-                <span className="font-medium">{u.prenom} {u.nom}</span>{' '}
-                <span className="text-gray-400">({libelleRoleAcces(u.role)})</span>
-              </div>
-            ));
-          })()}
-        </div>
       </div>
 
       {/* Liste */}
@@ -212,7 +288,7 @@ export default function ClientsFournisseurs() {
                             </span>
                             <span className="font-medium">{rep.prenom} {rep.nom}</span>
                             {rep.fonction && <span className="text-gray-400">— {rep.fonction}</span>}
-                            {canEdit && (
+                            {capModify(item) && (
                               <div className="flex flex-wrap gap-1 ml-auto">
                                 <button type="button" onClick={() => openEditRep(item, rep)} className="text-xs px-2 py-0.5 bg-blue-100 text-blue-800 rounded hover:bg-blue-200">✏️ Modifier</button>
                                 {rep.statut === 'en_exercice' && (
@@ -236,16 +312,16 @@ export default function ClientsFournisseurs() {
                         <div key={c.id} className="flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-900 border border-amber-100 rounded text-xs">
                           <button type="button" className="hover:underline text-left" onClick={() => navigate('/contrats')}>📄 {c.nom}</button>
                           <span className="text-amber-600/80">({c.statut})</span>
-                          {canEdit && (
+                          {capModify(item) && (
                             <button type="button" onClick={async () => { if (!confirm('Retirer ce contrat de la fiche ?')) return; await api.delete(`/clients-fournisseurs/${item.id}/contrats/${c.id}`); load(); }} className="text-red-500 hover:text-red-700 ml-1 font-bold">✕</button>
                           )}
                         </div>
                       ))}
-                      {canEdit && showContratSelect !== item.id && (
+                      {capModify(item) && showContratSelect !== item.id && (
                         <button type="button" onClick={() => setShowContratSelect(item.id)} className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded text-xs hover:bg-amber-200">+ Lier un contrat</button>
                       )}
                     </div>
-                    {canEdit && showContratSelect === item.id && (
+                    {capModify(item) && showContratSelect === item.id && (
                       <div className="flex flex-wrap gap-2 mt-1">
                         <select id={`contratSel-${item.id}`} className="flex-1 min-w-[12rem] border border-gray-300 rounded px-2 py-1 text-xs">
                           <option value="">— Sélectionner un contrat —</option>
@@ -275,14 +351,14 @@ export default function ClientsFournisseurs() {
                       {item.projets?.map((p: any) => (
                         <div key={p.id} className="flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">
                           <span className="cursor-pointer hover:underline" onClick={() => navigate(`/projets/${p.projet?.id}`)}>📁 {p.projet?.nom}</span>
-                          {canEdit && <button type="button" onClick={async () => { await api.delete(`/clients-fournisseurs/${item.id}/projets/${p.projet?.id}`); load(); }} className="text-red-400 hover:text-red-600 ml-1 font-bold">✕</button>}
+                          {capModify(item) && <button type="button" onClick={async () => { await api.delete(`/clients-fournisseurs/${item.id}/projets/${p.projet?.id}`); load(); }} className="text-red-400 hover:text-red-600 ml-1 font-bold">✕</button>}
                         </div>
                       ))}
-                      {canEdit && showProjetSelect !== item.id && (
+                      {capModify(item) && showProjetSelect !== item.id && (
                         <button type="button" onClick={() => setShowProjetSelect(item.id)} className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200">+ Lier projet</button>
                       )}
                     </div>
-                    {canEdit && showProjetSelect === item.id && (
+                    {capModify(item) && showProjetSelect === item.id && (
                       <div className="flex flex-wrap gap-2 mt-1">
                         <select id={`projetSel-${item.id}`} className="flex-1 min-w-[12rem] border border-gray-300 rounded px-2 py-1 text-xs">
                           <option value="">— Sélectionner —</option>
@@ -296,13 +372,19 @@ export default function ClientsFournisseurs() {
                     )}
                   </div>
                 </div>
-                {canEdit && (
-                  <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
-                    <button type="button" onClick={() => openAddRep(item)} className="px-3 py-1.5 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200">👤 + Représentant</button>
-                    <button type="button" onClick={() => openEdit(item)} className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">✏️ Modifier la fiche</button>
-                    <button type="button" onClick={() => handleDelete(item.id, item.nom)} className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">🗑 Supprimer la fiche</button>
-                  </div>
-                )}
+                <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
+                  <button type="button" onClick={() => openAccesModal(item)} className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200">🔐 Accès</button>
+                  <button type="button" onClick={() => openHistoriqueModal(item)} className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200">📜 Historique</button>
+                  {capModify(item) && (
+                    <>
+                      <button type="button" onClick={() => openAddRep(item)} className="px-3 py-1.5 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200">👤 + Représentant</button>
+                      <button type="button" onClick={() => openEdit(item)} className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">✏️ Modifier la fiche</button>
+                    </>
+                  )}
+                  {capDelete(item) && (
+                    <button type="button" onClick={() => handleDelete(item.id, item.nom)} className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">🗑 Mettre en corbeille</button>
+                  )}
+                </div>
               </div>
             </div>
           ))}
@@ -420,6 +502,147 @@ export default function ClientsFournisseurs() {
             <div className="flex justify-end gap-2 mt-4">
               <button type="button" onClick={() => { setShowRepModal(false); setRepEditingRep(null); }} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Annuler</button>
               <button type="button" onClick={handleSaveRep} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">{repEditingRep ? 'Enregistrer' : 'Ajouter'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {accesModalItem && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-2">Accès — {accesModalItem.nom}</h3>
+            <p className="text-xs text-gray-600 mb-4">
+              Les comptes <span className="font-medium">administrateur</span> ont tous les droits sur toutes les fiches. Le{' '}
+              <span className="font-medium">créateur</span> de la fiche dispose par défaut de la modification, de la suppression et de la gestion des droits.
+            </p>
+            {accesLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : accesDetail ? (
+              <div className="space-y-4 text-sm">
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Administrateurs</p>
+                  <ul className="space-y-1 text-gray-700">
+                    {(accesDetail.admins || []).map((a: any) => (
+                      <li key={a.id}>
+                        <span className="font-medium">{a.prenom} {a.nom}</span>
+                        <span className="text-gray-400"> (accès complet)</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Créateur</p>
+                  {accesDetail.creator ? (
+                    <p>
+                      <span className="font-medium">{accesDetail.creator.prenom} {accesDetail.creator.nom}</span>
+                      <span className="text-gray-400"> — modification, suppression, octroi des droits</span>
+                    </p>
+                  ) : (
+                    <p className="text-amber-800 text-xs">
+                      Aucun créateur enregistré (fiche existante avant la traçabilité). Tous les contributeurs peuvent modifier tant qu’aucun créateur n’est défini ; seuls les administrateurs peuvent attribuer des droits explicites.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Droits explicites</p>
+                  {(accesDetail.delegations || []).length === 0 ? (
+                    <p className="text-gray-400 text-xs italic">Aucun droit délégué</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {(accesDetail.delegations || []).map((d: any) => (
+                        <li key={d.id} className="flex flex-wrap items-center gap-2 border border-gray-100 rounded px-2 py-1.5 bg-gray-50">
+                          <span className="font-medium">{d.user.prenom} {d.user.nom}</span>
+                          <span className="text-gray-500">— {LABEL_PERM[d.permission] || d.permission}</span>
+                          {d.grantedBy && (
+                            <span className="text-xs text-gray-400">par {d.grantedBy.prenom} {d.grantedBy.nom}</span>
+                          )}
+                          {accesDetail.canManagePermissions && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemovePermission(d.id)}
+                              className="text-xs text-red-600 hover:underline ml-auto"
+                            >
+                              Retirer
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {accesDetail.canManagePermissions && (
+                  <div className="border-t pt-3 space-y-2">
+                    <p className="text-xs font-semibold text-gray-500 uppercase">Accorder un droit</p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <select
+                        value={newPermUserId}
+                        onChange={(e) => setNewPermUserId(e.target.value)}
+                        className="flex-1 border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                      >
+                        <option value="">— Utilisateur —</option>
+                        {usersList
+                          .filter((u: any) => (!u.statut || u.statut === 'actif') && u.role !== 'admin' && u.id !== accesDetail.creator?.id)
+                          .map((u: any) => (
+                            <option key={u.id} value={u.id}>{u.prenom} {u.nom} ({u.email})</option>
+                          ))}
+                      </select>
+                      <select
+                        value={newPermType}
+                        onChange={(e) => setNewPermType(e.target.value)}
+                        className="border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                      >
+                        <option value="lecture">Consultation</option>
+                        <option value="modification">Modification</option>
+                        <option value="suppression">Suppression (fiche)</option>
+                        <option value="gestion">Gestion</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleAddPermission}
+                        disabled={!newPermUserId}
+                        className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        Ajouter
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
+            <div className="flex justify-end mt-4">
+              <button type="button" onClick={() => setAccesModalItem(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {histModalItem && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">Historique — {histModalItem.nom}</h3>
+            {histoLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : histoList.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">Aucun événement enregistré</p>
+            ) : (
+              <ul className="space-y-3 text-sm">
+                {histoList.map((h: any) => (
+                  <li key={h.id} className="border-b border-gray-100 pb-2">
+                    <div className="flex flex-wrap justify-between gap-1 text-xs text-gray-500">
+                      <span>{new Date(h.createdAt).toLocaleString('fr-FR')}</span>
+                      <span>{h.user?.prenom} {h.user?.nom}</span>
+                    </div>
+                    <p className="font-medium text-gray-800">{LABEL_HISTO[h.typeEvenement] || h.typeEvenement}</p>
+                    {h.libelle && <p className="text-gray-600 text-xs mt-0.5">{h.libelle}</p>}
+                    {h.details && typeof h.details === 'object' && (
+                      <pre className="text-xs bg-gray-50 rounded p-2 mt-1 overflow-x-auto max-h-32">{JSON.stringify(h.details, null, 2)}</pre>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex justify-end mt-4">
+              <button type="button" onClick={() => setHistModalItem(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Fermer</button>
             </div>
           </div>
         </div>

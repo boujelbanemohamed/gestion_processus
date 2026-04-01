@@ -17,16 +17,18 @@ export const getCorbeille = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut accéder à la corbeille.' });
     }
 
-    const [processus, documents, licences] = await Promise.all([
+    const [processus, documents, licences, clientsFournisseurs] = await Promise.all([
       corbeilleService.getProcessusSupprimes(),
       corbeilleService.getDocumentsSupprimes(),
       corbeilleService.getLicencesSupprimees(),
+      corbeilleService.getClientsFournisseursSupprimes(),
     ]);
 
     res.json({
       processus,
       documents,
       licences,
+      clientsFournisseurs,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -153,6 +155,40 @@ export const supprimerDefinitivementDocument = async (req: AuthRequest, res: Res
     if (error.code === 'P2025') {
       return res.status(404).json({ error: 'Document non trouvé' });
     }
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const restaurerClientFournisseur = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut restaurer des éléments.' });
+    }
+    const row = await corbeilleService.restaurerClientFournisseur(req.params.id, req.user.userId);
+    await logAccess(req, res, 'modification', 'clientFournisseur', row.id, row.nom, { action: 'restauration' });
+    res.json(row);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const supprimerDefinitivementClientFournisseur = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé.' });
+    }
+    await corbeilleService.supprimerDefinitivementClientFournisseur(req.params.id);
+    await logAccess(req, res, 'suppression', 'clientFournisseur', req.params.id, undefined, {
+      action: 'suppression_definitive',
+    });
+    res.status(204).send();
+  } catch (error: any) {
     res.status(400).json({ error: error.message });
   }
 };

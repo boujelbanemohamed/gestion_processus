@@ -1,4 +1,15 @@
 import { prisma } from '../utils/prisma';
+import { PermissionType } from '../generated/prisma/enums';
+import {
+  capabilitiesFor,
+  canManageCfPermissions,
+  canModifyCf,
+  canDeleteCf,
+  canViewCf,
+  CfAuth,
+  isAdminRole,
+  isLegacyOpen,
+} from './client-fournisseur-access';
 
 function parseRepresentantDate(v: unknown): Date | null {
   if (v === null || v === undefined) return null;
@@ -15,6 +26,71 @@ async function assertRepresentantBelongsToClient(repId: string, clientFournisseu
     select: { id: true },
   });
   if (!rep) throw new Error('Représentant introuvable pour cette fiche');
+}
+
+const cfAclSelect = { id: true, createdById: true, deletedAt: true } as const;
+
+async function getCfAclRow(id: string) {
+  return prisma.clientFournisseur.findFirst({
+    where: { id, deletedAt: null },
+    select: cfAclSelect,
+  });
+}
+
+async function getCfAclRowAllowDeleted(id: string) {
+  return prisma.clientFournisseur.findUnique({
+    where: { id },
+    select: cfAclSelect,
+  });
+}
+
+async function myPermTypesForCf(cfId: string, userId: string): Promise<PermissionType[]> {
+  const rows = await prisma.permission.findMany({
+    where: {
+      ressourceType: 'clientFournisseur',
+      ressourceId: cfId,
+      userId,
+    },
+    select: { permission: true },
+  });
+  return rows.map((r) => r.permission);
+}
+
+async function myPermTypesForCfs(cfIds: string[], userId: string): Promise<Map<string, PermissionType[]>> {
+  const map = new Map<string, PermissionType[]>();
+  if (cfIds.length === 0) return map;
+  const rows = await prisma.permission.findMany({
+    where: {
+      ressourceType: 'clientFournisseur',
+      ressourceId: { in: cfIds },
+      userId,
+    },
+    select: { ressourceId: true, permission: true },
+  });
+  for (const r of rows) {
+    const arr = map.get(r.ressourceId) ?? [];
+    arr.push(r.permission);
+    map.set(r.ressourceId, arr);
+  }
+  return map;
+}
+
+export async function logCfHistory(
+  clientFournisseurId: string,
+  userId: string,
+  typeEvenement: string,
+  libelle?: string | null,
+  details?: object
+) {
+  await prisma.clientFournisseurHistorique.create({
+    data: {
+      clientFournisseurId,
+      userId,
+      typeEvenement,
+      libelle: libelle ?? null,
+      details: details === undefined ? undefined : (details as object),
+    },
+  });
 }
 
 export const typeSocieteService = {
@@ -53,10 +129,30 @@ async function attachContratsLies<T extends { id: string }>(clients: T[]) {
   })) as (T & { contratsLies: { id: string; nom: string; statut: string }[] })[];
 }
 
+function enrichWithCapabilities<T extends { id: string; createdById: string | null }>(
+  rows: T[],
+  auth: CfAuth,
+  permMap: Map<string, PermissionType[]>
+) {
+  return rows
+    .filter((row) => {
+      const perms = permMap.get(row.id) ?? [];
+      return canViewCf(row, auth, perms);
+    })
+    .map((row) => {
+      const perms = permMap.get(row.id) ?? [];
+      return {
+        ...row,
+        capabilities: capabilitiesFor(row, auth, perms),
+      };
+    });
+}
+
 export const clientFournisseurService = {
-  async findAll(type?: string, search?: string) {
+  async findAll(type: string | undefined, search: string | undefined, auth: CfAuth) {
     const rows = await prisma.clientFournisseur.findMany({
       where: {
+        deletedAt: null,
         ...(type ? { type } : {}),
         ...(search ? { nom: { contains: search, mode: 'insensitive' } } : {}),
       },
@@ -64,38 +160,85 @@ export const clientFournisseurService = {
         typeSociete: true,
         representants: { orderBy: { createdAt: 'asc' } },
         projets: { include: { projet: { select: { id: true, nom: true, codeProjet: true } } } },
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
       },
       orderBy: { nom: 'asc' },
     });
-    return attachContratsLies(rows);
+    const permMap = await myPermTypesForCfs(
+      rows.map((r) => r.id),
+      auth.userId
+    );
+    const filtered = enrichWithCapabilities(
+      rows.map((r) => ({ ...r, createdById: r.createdById })),
+      auth,
+      permMap
+    );
+    return attachContratsLies(filtered);
   },
-  async findOne(id: string) {
-    const row = await prisma.clientFournisseur.findUnique({
-      where: { id },
+
+  async findOne(id: string, auth: CfAuth) {
+    const row = await prisma.clientFournisseur.findFirst({
+      where: { id, deletedAt: null },
       include: {
         typeSociete: true,
         representants: { orderBy: { createdAt: 'asc' } },
         projets: { include: { projet: { select: { id: true, nom: true, codeProjet: true } } } },
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
       },
     });
     if (!row) return null;
-    const [withContrats] = await attachContratsLies([row]);
+    const perms = await myPermTypesForCf(id, auth.userId);
+    const acl = { id: row.id, createdById: row.createdById };
+    if (!canViewCf(acl, auth, perms)) return null;
+    const [withContrats] = await attachContratsLies([
+      {
+        ...row,
+        capabilities: capabilitiesFor(acl, auth, perms),
+      },
+    ]);
     return withContrats;
   },
-  async create(data: any) {
+
+  async create(data: any, auth: CfAuth) {
     const { representants, projetIds, ...rest } = data;
-    return prisma.clientFournisseur.create({
+    const row = await prisma.clientFournisseur.create({
       data: {
         ...rest,
+        createdById: auth.userId,
         representants: representants?.length ? { create: representants } : undefined,
-        projets: projetIds?.length ? { create: projetIds.map((id: string) => ({ projetId: id })) } : undefined,
+        projets: projetIds?.length ? { create: projetIds.map((pid: string) => ({ projetId: pid })) } : undefined,
       },
-      include: { typeSociete: true, representants: true, projets: { include: { projet: true } } },
+      include: { typeSociete: true, representants: true, projets: { include: { projet: true } }, createdBy: true },
     });
+    await logCfHistory(row.id, auth.userId, 'creation', `Fiche créée : ${row.nom}`);
+    const [out] = await attachContratsLies([
+      {
+        ...row,
+        capabilities: capabilitiesFor({ id: row.id, createdById: row.createdById }, auth, []),
+      },
+    ]);
+    return out;
   },
-  async update(id: string, data: any) {
+
+  async update(id: string, data: any, auth: CfAuth) {
+    const existing = await prisma.clientFournisseur.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        id: true,
+        createdById: true,
+        type: true,
+        nom: true,
+        typeSocieteId: true,
+        matriculeFiscale: true,
+        adresse: true,
+        pays: true,
+      },
+    });
+    if (!existing) throw new Error('NOT_FOUND');
+    const perms = await myPermTypesForCf(id, auth.userId);
+    if (!canModifyCf(existing, auth, perms)) throw new Error('FORBIDDEN');
+
     const { representants, projetIds, ...rest } = data;
-    // Synchroniser les liaisons projets si projetIds fournis
     if (projetIds !== undefined) {
       await prisma.clientFournisseurProjet.deleteMany({ where: { clientFournisseurId: id } });
       if (projetIds.length > 0) {
@@ -105,16 +248,55 @@ export const clientFournisseurService = {
         });
       }
     }
-    return prisma.clientFournisseur.update({
+    const row = await prisma.clientFournisseur.update({
       where: { id },
       data: rest,
-      include: { typeSociete: true, representants: true, projets: { include: { projet: true } } },
+      include: { typeSociete: true, representants: true, projets: { include: { projet: true } }, createdBy: true },
     });
+
+    const changes: Record<string, { avant: unknown; apres: unknown }> = {};
+    const keys = ['type', 'nom', 'typeSocieteId', 'matriculeFiscale', 'adresse', 'pays'] as const;
+    for (const k of keys) {
+      if (rest[k] !== undefined && (existing as any)[k] !== rest[k]) {
+        changes[k] = { avant: (existing as any)[k], apres: rest[k] };
+      }
+    }
+    if (Object.keys(changes).length > 0) {
+      await logCfHistory(id, auth.userId, 'modification_champs', 'Champs de la fiche modifiés', { changes });
+    }
+
+    const [out] = await attachContratsLies([
+      {
+        ...row,
+        capabilities: capabilitiesFor({ id: row.id, createdById: row.createdById }, auth, perms),
+      },
+    ]);
+    return out;
   },
-  async delete(id: string) {
-    return prisma.clientFournisseur.delete({ where: { id } });
+
+  /** Mise en corbeille (soft delete). */
+  async softDelete(id: string, auth: CfAuth) {
+    const existing = await getCfAclRow(id);
+    if (!existing) throw new Error('NOT_FOUND');
+    const perms = await myPermTypesForCf(id, auth.userId);
+    if (!canDeleteCf(existing, auth, perms)) throw new Error('FORBIDDEN');
+    const row = await prisma.clientFournisseur.findUnique({
+      where: { id },
+      select: { nom: true },
+    });
+    await prisma.clientFournisseur.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+    await logCfHistory(id, auth.userId, 'soft_delete', `Fiche mise en corbeille : ${row?.nom ?? id}`);
   },
-  async addRepresentant(clientFournisseurId: string, raw: any) {
+
+  async addRepresentant(clientFournisseurId: string, raw: any, auth: CfAuth) {
+    const cf = await getCfAclRow(clientFournisseurId);
+    if (!cf) throw new Error('NOT_FOUND');
+    const perms = await myPermTypesForCf(clientFournisseurId, auth.userId);
+    if (!canModifyCf(cf, auth, perms)) throw new Error('FORBIDDEN');
+
     const nom = String(raw?.nom ?? '').trim();
     const prenom = String(raw?.prenom ?? '').trim();
     if (!nom || !prenom) {
@@ -128,7 +310,7 @@ export const clientFournisseurService = {
         ? null
         : String(fonctionRaw).trim();
 
-    return prisma.representantLegal.create({
+    const rep = await prisma.representantLegal.create({
       data: {
         clientFournisseurId,
         nom,
@@ -139,8 +321,15 @@ export const clientFournisseurService = {
         dateFin: parseRepresentantDate(raw?.dateFin),
       },
     });
+    await logCfHistory(clientFournisseurId, auth.userId, 'representant_ajout', `Représentant ajouté : ${prenom} ${nom}`);
+    return rep;
   },
-  async updateRepresentant(clientFournisseurId: string, repId: string, raw: any) {
+
+  async updateRepresentant(clientFournisseurId: string, repId: string, raw: any, auth: CfAuth) {
+    const cf = await getCfAclRow(clientFournisseurId);
+    if (!cf) throw new Error('NOT_FOUND');
+    const perms = await myPermTypesForCf(clientFournisseurId, auth.userId);
+    if (!canModifyCf(cf, auth, perms)) throw new Error('FORBIDDEN');
     await assertRepresentantBelongsToClient(repId, clientFournisseurId);
 
     const data: {
@@ -171,31 +360,234 @@ export const clientFournisseurService = {
       throw new Error('Le nom et le prénom ne peuvent pas être vides');
     }
 
-    return prisma.representantLegal.update({ where: { id: repId }, data });
-  },
-  async deleteRepresentant(clientFournisseurId: string, repId: string) {
-    await assertRepresentantBelongsToClient(repId, clientFournisseurId);
-    return prisma.representantLegal.delete({ where: { id: repId } });
+    const updated = await prisma.representantLegal.update({ where: { id: repId }, data });
+    await logCfHistory(clientFournisseurId, auth.userId, 'representant_modification', `Représentant modifié : ${updated.prenom} ${updated.nom}`, { representantId: repId });
+    return updated;
   },
 
-  async linkContrat(clientFournisseurId: string, contratId: string) {
-    const cf = await prisma.clientFournisseur.findUnique({ where: { id: clientFournisseurId } });
-    if (!cf) throw new Error('Client / fournisseur introuvable');
+  async deleteRepresentant(clientFournisseurId: string, repId: string, auth: CfAuth) {
+    const cf = await getCfAclRow(clientFournisseurId);
+    if (!cf) throw new Error('NOT_FOUND');
+    const perms = await myPermTypesForCf(clientFournisseurId, auth.userId);
+    if (!canModifyCf(cf, auth, perms)) throw new Error('FORBIDDEN');
+    await assertRepresentantBelongsToClient(repId, clientFournisseurId);
+    const rep = await prisma.representantLegal.findUnique({ where: { id: repId } });
+    await prisma.representantLegal.delete({ where: { id: repId } });
+    if (rep) {
+      await logCfHistory(clientFournisseurId, auth.userId, 'representant_suppression', `Représentant supprimé : ${rep.prenom} ${rep.nom}`);
+    }
+  },
+
+  async linkContrat(clientFournisseurId: string, contratId: string, auth: CfAuth) {
+    const cf = await getCfAclRow(clientFournisseurId);
+    if (!cf) throw new Error('NOT_FOUND');
+    const perms = await myPermTypesForCf(clientFournisseurId, auth.userId);
+    if (!canModifyCf(cf, auth, perms)) throw new Error('FORBIDDEN');
+
+    const cfRow = await prisma.clientFournisseur.findUnique({ where: { id: clientFournisseurId } });
+    if (!cfRow) throw new Error('Client / fournisseur introuvable');
     const existing = await prisma.contratPartiePrenante.findFirst({
       where: { contratId, clientFournisseurId },
     });
     if (existing) return existing;
-    return prisma.contratPartiePrenante.create({
+    const row = await prisma.contratPartiePrenante.create({
       data: {
         contratId,
-        nom: cf.nom,
+        nom: cfRow.nom,
         clientFournisseurId,
       },
     });
+    const c = await prisma.contrat.findUnique({ where: { id: contratId }, select: { nom: true } });
+    await logCfHistory(clientFournisseurId, auth.userId, 'contrat_lie', `Contrat lié : ${c?.nom ?? contratId}`);
+    return row;
   },
-  async unlinkContrat(clientFournisseurId: string, contratId: string) {
+
+  async unlinkContrat(clientFournisseurId: string, contratId: string, auth: CfAuth) {
+    const cf = await getCfAclRow(clientFournisseurId);
+    if (!cf) throw new Error('NOT_FOUND');
+    const perms = await myPermTypesForCf(clientFournisseurId, auth.userId);
+    if (!canModifyCf(cf, auth, perms)) throw new Error('FORBIDDEN');
+    const c = await prisma.contrat.findUnique({ where: { id: contratId }, select: { nom: true } });
     await prisma.contratPartiePrenante.deleteMany({
       where: { contratId, clientFournisseurId },
     });
+    await logCfHistory(clientFournisseurId, auth.userId, 'contrat_delie', `Contrat retiré : ${c?.nom ?? contratId}`);
+  },
+
+  async addProjet(clientFournisseurId: string, projetId: string, auth: CfAuth) {
+    const cf = await getCfAclRow(clientFournisseurId);
+    if (!cf) throw new Error('NOT_FOUND');
+    const perms = await myPermTypesForCf(clientFournisseurId, auth.userId);
+    if (!canModifyCf(cf, auth, perms)) throw new Error('FORBIDDEN');
+    const data = await prisma.clientFournisseurProjet.create({
+      data: { clientFournisseurId, projetId },
+      include: { projet: { select: { nom: true, codeProjet: true } } },
+    });
+    await logCfHistory(
+      clientFournisseurId,
+      auth.userId,
+      'projet_lie',
+      `Projet lié : ${data.projet?.nom ?? projetId}`
+    );
+    return data;
+  },
+
+  async removeProjet(clientFournisseurId: string, projetId: string, auth: CfAuth) {
+    const cf = await getCfAclRow(clientFournisseurId);
+    if (!cf) throw new Error('NOT_FOUND');
+    const perms = await myPermTypesForCf(clientFournisseurId, auth.userId);
+    if (!canModifyCf(cf, auth, perms)) throw new Error('FORBIDDEN');
+    const p = await prisma.projet.findUnique({ where: { id: projetId }, select: { nom: true } });
+    await prisma.clientFournisseurProjet.deleteMany({
+      where: { clientFournisseurId, projetId },
+    });
+    await logCfHistory(clientFournisseurId, auth.userId, 'projet_delie', `Projet retiré : ${p?.nom ?? projetId}`);
+  },
+
+  async getAccesDetail(cfId: string, auth: CfAuth) {
+    const row = await prisma.clientFournisseur.findFirst({
+      where: { id: cfId, deletedAt: null },
+      select: { id: true, createdById: true, nom: true },
+    });
+    if (!row) throw new Error('NOT_FOUND');
+    const perms = await myPermTypesForCf(cfId, auth.userId);
+    if (!canViewCf(row, auth, perms)) throw new Error('FORBIDDEN');
+
+    const admins = await prisma.user.findMany({
+      where: { role: 'admin', statut: 'actif' },
+      select: { id: true, nom: true, prenom: true, email: true, role: true },
+      orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
+    });
+
+    const creator = row.createdById
+      ? await prisma.user.findUnique({
+          where: { id: row.createdById },
+          select: { id: true, nom: true, prenom: true, email: true, role: true },
+        })
+      : null;
+
+    const delegations = await prisma.permission.findMany({
+      where: { ressourceType: 'clientFournisseur', ressourceId: cfId },
+      include: {
+        user: { select: { id: true, nom: true, prenom: true, email: true, role: true } },
+        grantedBy: { select: { id: true, nom: true, prenom: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return {
+      ficheNom: row.nom,
+      admins,
+      creator,
+      delegations: delegations.map((d) => ({
+        id: d.id,
+        permission: d.permission,
+        user: d.user,
+        grantedBy: d.grantedBy,
+        createdAt: d.createdAt,
+      })),
+      canManagePermissions: canManageCfPermissions(row, auth),
+    };
+  },
+
+  async addDelegation(cfId: string, targetUserId: string, permission: PermissionType, auth: CfAuth) {
+    const row = await getCfAclRow(cfId);
+    if (!row) throw new Error('NOT_FOUND');
+    if (!canManageCfPermissions(row, auth)) throw new Error('FORBIDDEN');
+    if (targetUserId === auth.userId && !isAdminRole(auth.role)) {
+      // créateur se donne un droit explicite : inutile mais autorisé si admin
+    }
+    const target = await prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, role: true, nom: true, prenom: true } });
+    if (!target) throw new Error('Utilisateur introuvable');
+    if (target.role === 'admin') {
+      throw new Error('Les administrateurs ont déjà tous les droits sur les fiches');
+    }
+    if (row.createdById === targetUserId) {
+      throw new Error('Le créateur de la fiche a déjà tous les droits');
+    }
+
+    const created = await prisma.permission.create({
+      data: {
+        userId: targetUserId,
+        ressourceType: 'clientFournisseur',
+        ressourceId: cfId,
+        permission,
+        grantedById: auth.userId,
+      },
+      include: {
+        user: { select: { id: true, nom: true, prenom: true, email: true } },
+        grantedBy: { select: { id: true, nom: true, prenom: true } },
+      },
+    });
+    await logCfHistory(cfId, auth.userId, 'droit_ajoute', `Droit « ${permission} » accordé à ${target.prenom} ${target.nom}`, {
+      permission,
+      cibleUserId: targetUserId,
+    });
+    return created;
+  },
+
+  async removeDelegation(cfId: string, permissionId: string, auth: CfAuth) {
+    const row = await getCfAclRow(cfId);
+    if (!row) throw new Error('NOT_FOUND');
+    if (!canManageCfPermissions(row, auth)) throw new Error('FORBIDDEN');
+    const perm = await prisma.permission.findFirst({
+      where: { id: permissionId, ressourceType: 'clientFournisseur', ressourceId: cfId },
+      include: { user: { select: { nom: true, prenom: true } } },
+    });
+    if (!perm) throw new Error('NOT_FOUND');
+    await prisma.permission.delete({ where: { id: permissionId } });
+    await logCfHistory(cfId, auth.userId, 'droit_retire', `Droit « ${perm.permission} » retiré à ${perm.user.prenom} ${perm.user.nom}`, {
+      permission: perm.permission,
+      cibleUserId: perm.userId,
+    });
+  },
+
+  async getHistorique(cfId: string, auth: CfAuth) {
+    const row = await prisma.clientFournisseur.findFirst({
+      where: { id: cfId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!row) throw new Error('NOT_FOUND');
+    const perms = await myPermTypesForCf(cfId, auth.userId);
+    if (!canViewCf(row, auth, perms)) throw new Error('FORBIDDEN');
+
+    const events = await prisma.clientFournisseurHistorique.findMany({
+      where: { clientFournisseurId: cfId },
+      include: { user: { select: { id: true, nom: true, prenom: true, email: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    return events;
+  },
+
+  async listDeletedForCorbeille() {
+    return prisma.clientFournisseur.findMany({
+      where: { deletedAt: { not: null } },
+      include: {
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+  },
+
+  async restoreFromCorbeille(id: string) {
+    const row = await getCfAclRowAllowDeleted(id);
+    if (!row || !row.deletedAt) throw new Error('Élément introuvable ou non supprimé');
+    return prisma.clientFournisseur.update({
+      where: { id },
+      data: { deletedAt: null },
+      include: { createdBy: true, typeSociete: true },
+    });
+  },
+
+  async deletePermanent(id: string) {
+    await prisma.permission.deleteMany({
+      where: { ressourceType: 'clientFournisseur', ressourceId: id },
+    });
+    await prisma.contratPartiePrenante.updateMany({
+      where: { clientFournisseurId: id },
+      data: { clientFournisseurId: null },
+    });
+    await prisma.clientFournisseur.delete({ where: { id } });
   },
 };

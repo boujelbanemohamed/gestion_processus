@@ -167,6 +167,8 @@ app.delete("/api/v1/corbeille/processus/:id", corbeilleController.supprimerDefin
 app.delete("/api/v1/corbeille/documents/:id", corbeilleController.supprimerDefinitivementDocument);
 app.post("/api/v1/corbeille/licences/:id/restaurer", corbeilleController.restaurerLicence);
 app.delete("/api/v1/corbeille/licences/:id", corbeilleController.supprimerDefinitivementLicence);
+app.post("/api/v1/corbeille/clients-fournisseurs/:id/restaurer", corbeilleController.restaurerClientFournisseur);
+app.delete("/api/v1/corbeille/clients-fournisseurs/:id", corbeilleController.supprimerDefinitivementClientFournisseur);
 
 // Favoris
 app.get("/api/v1/favoris", favorisController.getFavoris);
@@ -183,6 +185,13 @@ app.put("/api/v1/types-societe/:id", clientFournisseurController.updateTypeSocie
 app.delete("/api/v1/types-societe/:id", clientFournisseurController.deleteTypeSociete);
 // Clients / Fournisseurs
 app.get("/api/v1/clients-fournisseurs", clientFournisseurController.getClientsFournisseurs);
+app.get("/api/v1/clients-fournisseurs/:id/acces", clientFournisseurController.getClientFournisseurAcces);
+app.get("/api/v1/clients-fournisseurs/:id/historique", clientFournisseurController.getClientFournisseurHistorique);
+app.post("/api/v1/clients-fournisseurs/:id/permissions", clientFournisseurController.addClientFournisseurPermission);
+app.delete(
+  "/api/v1/clients-fournisseurs/:id/permissions/:permissionId",
+  clientFournisseurController.removeClientFournisseurPermission
+);
 app.get("/api/v1/clients-fournisseurs/:id", clientFournisseurController.getClientFournisseur);
 app.post("/api/v1/clients-fournisseurs", clientFournisseurController.createClientFournisseur);
 app.put("/api/v1/clients-fournisseurs/:id", clientFournisseurController.updateClientFournisseur);

@@ -1,5 +1,6 @@
 import { prisma } from '../utils/prisma';
 import { LicenceService } from './licence.service';
+import { clientFournisseurService, logCfHistory } from './client-fournisseur.service';
 
 const licenceService = new LicenceService();
 
@@ -172,5 +173,19 @@ export class CorbeilleService {
 
     // Supprimer le document de la base de données
     return prisma.document.delete({ where: { id } });
+  }
+
+  async getClientsFournisseursSupprimes() {
+    return clientFournisseurService.listDeletedForCorbeille();
+  }
+
+  async restaurerClientFournisseur(id: string, userId: string) {
+    const row = await clientFournisseurService.restoreFromCorbeille(id);
+    await logCfHistory(id, userId, 'restauration', 'Fiche restaurée depuis la corbeille');
+    return row;
+  }
+
+  async supprimerDefinitivementClientFournisseur(id: string) {
+    return clientFournisseurService.deletePermanent(id);
   }
 }
