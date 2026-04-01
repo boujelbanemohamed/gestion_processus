@@ -89,7 +89,16 @@ export default function ClientsFournisseurs() {
   const [histoLoading, setHistoLoading] = useState(false);
   const [noAccesModalOpen, setNoAccesModalOpen] = useState(false);
 
-  const emptyForm = { type: 'client', nom: '', typeSocieteId: '', matriculeFiscale: '', adresse: '', pays: '', projetIds: [] as string[] };
+  const emptyForm = {
+    type: 'client',
+    nom: '',
+    typeSocieteId: '',
+    matriculeFiscale: '',
+    adresse: '',
+    pays: '',
+    projetIds: [] as string[],
+    contratIds: [] as string[],
+  };
   const [form, setForm] = useState<any>(emptyForm);
 
   const load = async () => {
@@ -124,15 +133,40 @@ export default function ClientsFournisseurs() {
 
   const openCreate = () => { setForm(emptyForm); setEditing(null); setShowModal(true); };
   const openEdit = (item: any) => {
-    setForm({ type: item.type, nom: item.nom, typeSocieteId: item.typeSocieteId || '', matriculeFiscale: item.matriculeFiscale || '', adresse: item.adresse || '', pays: item.pays || '', projetIds: item.projets?.map((p: any) => p.projetId || p.projet?.id) || [] });
+    setForm({
+      type: item.type,
+      nom: item.nom,
+      typeSocieteId: item.typeSocieteId || '',
+      matriculeFiscale: item.matriculeFiscale || '',
+      adresse: item.adresse || '',
+      pays: item.pays || '',
+      projetIds: item.projets?.map((p: any) => p.projetId || p.projet?.id) || [],
+      contratIds: (item.contratsLies || []).map((c: any) => c.id),
+    });
     setEditing(item);
     setShowModal(true);
   };
 
   const handleSave = async () => {
     try {
-      if (editing) await api.put(`/clients-fournisseurs/${editing.id}`, form);
-      else await api.post('/clients-fournisseurs', form);
+      const { contratIds, ...cfPayload } = form;
+      if (editing) {
+        await api.put(`/clients-fournisseurs/${editing.id}`, cfPayload);
+        const prevIds = new Set((editing.contratsLies || []).map((c: any) => c.id));
+        const nextIds = new Set(contratIds || []);
+        for (const cid of nextIds) {
+          if (!prevIds.has(cid)) {
+            await api.post(`/clients-fournisseurs/${editing.id}/contrats`, { contratId: cid });
+          }
+        }
+        for (const cid of prevIds) {
+          if (!nextIds.has(cid)) {
+            await api.delete(`/clients-fournisseurs/${editing.id}/contrats/${cid}`);
+          }
+        }
+      } else {
+        await api.post('/clients-fournisseurs', cfPayload);
+      }
       setShowModal(false);
       load();
     } catch (e: any) {
@@ -302,76 +336,6 @@ export default function ClientsFournisseurs() {
                     <h2 className="text-lg font-semibold text-gray-900">{item.nom}</h2>
                   </div>
 
-                  {/* Aperçu accès (comme colonne Documents) */}
-                  <div className="mt-3 flex flex-wrap items-start gap-2 sm:gap-3 text-xs text-gray-700 border border-slate-100 rounded-lg px-3 py-2.5 bg-slate-50/90">
-                    <span className="font-semibold text-gray-600 uppercase shrink-0 pt-0.5">Accès :</span>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0 flex-1">
-                      {isAccesRestreint(item) ? (
-                        <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-red-50 border border-red-100 text-red-900 shrink-0">
-                          <span className="text-sm leading-none" aria-hidden>🔒</span>
-                          <span className="text-[10px] font-semibold leading-tight mt-0.5 text-center">Accès restreint</span>
-                        </div>
-                      ) : (
-                        <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-green-50 border border-green-100 text-green-900 shrink-0">
-                          <span className="text-[10px] font-semibold leading-tight text-center">Accès élargi</span>
-                          <span className="text-[10px] text-green-800/90 text-center mt-0.5">Tous les contributeurs</span>
-                        </div>
-                      )}
-                      {(() => {
-                        const actifAdmins = usersList.filter(
-                          (u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif')
-                        );
-                        const creatorId = item.createdById || item.createdBy?.id;
-                        const droitsComplet = 'modification + suppression + gestion des droits + lecture';
-                        return (
-                          <>
-                            {actifAdmins.map((a: any) => {
-                              const isCreator = creatorId === a.id;
-                              return (
-                                <div key={`adm-${item.id}-${a.id}`} className="min-w-0">
-                                  <span className="font-medium text-gray-900">
-                                    {a.prenom} {a.nom}
-                                  </span>
-                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                                    {isCreator
-                                      ? `(Administrateur et créateur : ${droitsComplet})`
-                                      : `(Admin : ${droitsComplet})`}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                            {item.createdBy &&
-                              creatorId &&
-                              !actifAdmins.some((a: any) => a.id === creatorId) && (
-                                <div className="min-w-0">
-                                  <span className="font-medium text-gray-900">
-                                    {item.createdBy.prenom} {item.createdBy.nom}
-                                  </span>
-                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                                    (Créateur : {droitsComplet})
-                                  </span>
-                                </div>
-                              )}
-                          </>
-                        );
-                      })()}
-                      {(item.accesApercu?.delegations || []).map((d: any) => (
-                        <div key={d.user.id} className="min-w-0">
-                          <span className="font-medium text-gray-900">
-                            {d.user.prenom} {d.user.nom}
-                          </span>
-                          <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                            {d.permissions?.includes('lecture') && d.permissions?.length === 1 ? (
-                              <>👁 ({permSummaryLine(d.permissions)})</>
-                            ) : (
-                              <> ({permSummaryLine(d.permissions)})</>
-                            )}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm text-gray-600 mt-3">
                     {item.typeSociete && <div><span className="font-medium">Type : </span>{item.typeSociete.nom}</div>}
                     {item.matriculeFiscale && <div><span className="font-medium">MF/ID : </span>{item.matriculeFiscale}</div>}
@@ -473,6 +437,76 @@ export default function ClientsFournisseurs() {
                       </div>
                     )}
                   </div>
+
+                  {/* Aperçu accès — après projets liés */}
+                  <div className="mt-3 flex flex-wrap items-start gap-2 sm:gap-3 text-xs text-gray-700 border border-slate-100 rounded-lg px-3 py-2.5 bg-slate-50/90">
+                    <span className="font-semibold text-gray-600 uppercase shrink-0 pt-0.5">Accès :</span>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0 flex-1">
+                      {isAccesRestreint(item) ? (
+                        <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-red-50 border border-red-100 text-red-900 shrink-0">
+                          <span className="text-sm leading-none" aria-hidden>🔒</span>
+                          <span className="text-[10px] font-semibold leading-tight mt-0.5 text-center">Accès restreint</span>
+                        </div>
+                      ) : (
+                        <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-green-50 border border-green-100 text-green-900 shrink-0">
+                          <span className="text-[10px] font-semibold leading-tight text-center">Accès élargi</span>
+                          <span className="text-[10px] text-green-800/90 text-center mt-0.5">Tous les contributeurs</span>
+                        </div>
+                      )}
+                      {(() => {
+                        const actifAdmins = usersList.filter(
+                          (u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif')
+                        );
+                        const creatorId = item.createdById || item.createdBy?.id;
+                        const droitsComplet = 'modification + suppression + gestion des droits + lecture';
+                        return (
+                          <>
+                            {actifAdmins.map((a: any) => {
+                              const isCreator = creatorId === a.id;
+                              return (
+                                <div key={`adm-${item.id}-${a.id}`} className="min-w-0">
+                                  <span className="font-medium text-gray-900">
+                                    {a.prenom} {a.nom}
+                                  </span>
+                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                    {isCreator
+                                      ? `(Administrateur et créateur : ${droitsComplet})`
+                                      : `(Admin : ${droitsComplet})`}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                            {item.createdBy &&
+                              creatorId &&
+                              !actifAdmins.some((a: any) => a.id === creatorId) && (
+                                <div className="min-w-0">
+                                  <span className="font-medium text-gray-900">
+                                    {item.createdBy.prenom} {item.createdBy.nom}
+                                  </span>
+                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                    (Créateur : {droitsComplet})
+                                  </span>
+                                </div>
+                              )}
+                          </>
+                        );
+                      })()}
+                      {(item.accesApercu?.delegations || []).map((d: any) => (
+                        <div key={d.user.id} className="min-w-0">
+                          <span className="font-medium text-gray-900">
+                            {d.user.prenom} {d.user.nom}
+                          </span>
+                          <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                            {d.permissions?.includes('lecture') && d.permissions?.length === 1 ? (
+                              <>👁 ({permSummaryLine(d.permissions)})</>
+                            ) : (
+                              <> ({permSummaryLine(d.permissions)})</>
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
                   <button type="button" onClick={() => onAccesButtonClick(item)} className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200">🔐 Accès</button>
@@ -552,6 +586,57 @@ export default function ClientsFournisseurs() {
                   <button type="button" onClick={() => { const sel = document.getElementById('newProjetSelect') as HTMLSelectElement; if (sel?.value) { setForm({...form, projetIds: [...(form.projetIds||[]), sel.value]}); sel.value=''; }}} className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">+</button>
                 </div>
               </div>
+              {editing && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Contrats liés</label>
+                  {form.contratIds?.length > 0 && (
+                    <div className="space-y-1 mb-2">
+                      {form.contratIds.map((cid: string) => {
+                        const c = contrats.find((ct: any) => ct.id === cid);
+                        return c ? (
+                          <div key={cid} className="flex items-center gap-2 text-sm">
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded">📄 {c.nom}</span>
+                            <button
+                              type="button"
+                              onClick={() => setForm({ ...form, contratIds: form.contratIds.filter((id: string) => id !== cid) })}
+                              className="text-red-400 hover:text-red-600 text-xs"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div key={cid} className="text-xs text-gray-500">Contrat {cid.slice(0, 8)}…</div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <select id="editContratSelect" className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                      <option value="">— Ajouter un contrat —</option>
+                      {contrats
+                        .filter((ct: any) => !form.contratIds?.includes(ct.id))
+                        .map((ct: any) => (
+                          <option key={ct.id} value={ct.id}>
+                            {ct.nom}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const sel = document.getElementById('editContratSelect') as HTMLSelectElement;
+                        if (sel?.value) {
+                          setForm({ ...form, contratIds: [...(form.contratIds || []), sel.value] });
+                          sel.value = '';
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-amber-600 text-white rounded text-sm hover:bg-amber-700"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Annuler</button>
