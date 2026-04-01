@@ -172,7 +172,13 @@ export default function ClientsFournisseurs() {
           }
         }
       } else {
-        await api.post('/clients-fournisseurs', cfPayload);
+        const res = await api.post('/clients-fournisseurs', cfPayload);
+        const newId = res.data?.id as string | undefined;
+        if (newId && contratIds?.length) {
+          for (const cid of contratIds) {
+            await api.post(`/clients-fournisseurs/${newId}/contrats`, { contratId: cid });
+          }
+        }
       }
       setShowModal(false);
       load();
@@ -641,57 +647,56 @@ export default function ClientsFournisseurs() {
                   <button type="button" onClick={() => { const sel = document.getElementById('newProjetSelect') as HTMLSelectElement; if (sel?.value) { setForm({...form, projetIds: [...(form.projetIds||[]), sel.value]}); sel.value=''; }}} className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">+</button>
                 </div>
               </div>
-              {editing && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Contrats liés</label>
-                  {form.contratIds?.length > 0 && (
-                    <div className="space-y-1 mb-2">
-                      {form.contratIds.map((cid: string) => {
-                        const c = contrats.find((ct: any) => ct.id === cid);
-                        return c ? (
-                          <div key={cid} className="flex items-center gap-2 text-sm">
-                            <span className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded">📄 {c.nom}</span>
-                            <button
-                              type="button"
-                              onClick={() => setForm({ ...form, contratIds: form.contratIds.filter((id: string) => id !== cid) })}
-                              className="text-red-400 hover:text-red-600 text-xs"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ) : (
-                          <div key={cid} className="text-xs text-gray-500">Contrat {cid.slice(0, 8)}…</div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <div className="flex gap-2">
-                    <select id="editContratSelect" className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm">
-                      <option value="">— Ajouter un contrat —</option>
-                      {contrats
-                        .filter((ct: any) => !form.contratIds?.includes(ct.id))
-                        .map((ct: any) => (
-                          <option key={ct.id} value={ct.id}>
-                            {ct.nom}
-                          </option>
-                        ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const sel = document.getElementById('editContratSelect') as HTMLSelectElement;
-                        if (sel?.value) {
-                          setForm({ ...form, contratIds: [...(form.contratIds || []), sel.value] });
-                          sel.value = '';
-                        }
-                      }}
-                      className="px-3 py-1.5 bg-amber-600 text-white rounded text-sm hover:bg-amber-700"
-                    >
-                      +
-                    </button>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Contrats liés</label>
+                <p className="text-xs text-gray-500 mb-2">Optionnel — contrats déjà enregistrés dans l’application.</p>
+                {form.contratIds?.length > 0 && (
+                  <div className="space-y-1 mb-2">
+                    {form.contratIds.map((cid: string) => {
+                      const c = contrats.find((ct: any) => ct.id === cid);
+                      return c ? (
+                        <div key={cid} className="flex items-center gap-2 text-sm">
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded">📄 {c.nom}</span>
+                          <button
+                            type="button"
+                            onClick={() => setForm({ ...form, contratIds: form.contratIds.filter((id: string) => id !== cid) })}
+                            className="text-red-400 hover:text-red-600 text-xs"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <div key={cid} className="text-xs text-gray-500">Contrat {cid.slice(0, 8)}…</div>
+                      );
+                    })}
                   </div>
+                )}
+                <div className="flex gap-2">
+                  <select id="modalContratSelect" className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm">
+                    <option value="">— Ajouter un contrat —</option>
+                    {contrats
+                      .filter((ct: any) => !form.contratIds?.includes(ct.id))
+                      .map((ct: any) => (
+                        <option key={ct.id} value={ct.id}>
+                          {ct.nom}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const sel = document.getElementById('modalContratSelect') as HTMLSelectElement;
+                      if (sel?.value) {
+                        setForm({ ...form, contratIds: [...(form.contratIds || []), sel.value] });
+                        sel.value = '';
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-amber-600 text-white rounded text-sm hover:bg-amber-700"
+                  >
+                    +
+                  </button>
                 </div>
-              )}
+              </div>
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Annuler</button>
