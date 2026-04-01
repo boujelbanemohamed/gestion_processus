@@ -137,6 +137,9 @@ export class CorbeilleService {
 
   // Supprimer définitivement un processus (hard delete)
   async supprimerDefinitivementProcessus(id: string) {
+    await prisma.permission.deleteMany({
+      where: { ressourceType: 'processus', ressourceId: id },
+    });
     return prisma.processus.delete({ where: { id } });
   }
 

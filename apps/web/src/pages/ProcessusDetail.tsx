@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
 import * as XLSX from 'xlsx';
@@ -7,13 +7,15 @@ import * as XLSX from 'xlsx';
 export default function ProcessusDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user: currentUser } = useAuth();
   const isLecteur = currentUser?.role === 'lecteur';
   const isContributeur = currentUser?.role === 'contributeur';
-  
-  // Vérifier si l'utilisateur peut modifier le processus (admin, propriétaire ou créateur)
+
+  // Vérifier si l'utilisateur peut modifier le processus (capabilities API + repli)
   const canModifyProcessus = () => {
     if (!currentUser || !processus) return false;
+    if (processus.capabilities?.canModify != null) return !!processus.capabilities.canModify;
     if (currentUser.role === 'admin') return true;
     if (isContributeur) {
       return processus.proprietaireId === currentUser.id || processus.createdById === currentUser.id;
@@ -93,6 +95,15 @@ export default function ProcessusDetail() {
       checkFavori();
     }
   }, [id, currentUser]);
+
+  useEffect(() => {
+    const st = location.state as { openEdit?: boolean } | null;
+    if (st?.openEdit && processus && canModifyProcessus()) {
+      setIsEditing(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ouverture unique depuis la liste
+  }, [processus?.id]);
 
   const checkFavori = async () => {
     if (!id || !currentUser?.id) return;

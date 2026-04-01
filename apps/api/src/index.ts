@@ -103,10 +103,16 @@ app.post("/api/v1/entites", entiteController.createEntite);
 app.put("/api/v1/entites/:id", entiteController.updateEntite);
 app.delete("/api/v1/entites/:id", entiteController.deleteEntite);
 
-// Processus
+// Processus (routes spécifiques avant :id)
 app.get("/api/v1/processus", processusController.getAllProcessus);
-app.get("/api/v1/processus/:id", processusController.getProcessus);
+app.get("/api/v1/processus/:id/acces", processusController.getProcessusAcces);
+app.post("/api/v1/processus/:id/permissions", processusController.addProcessusPermission);
+app.delete(
+  "/api/v1/processus/:id/permissions/:permissionId",
+  processusController.removeProcessusPermission
+);
 app.get("/api/v1/processus/:id/history", processusController.getProcessusHistory);
+app.get("/api/v1/processus/:id", processusController.getProcessus);
 app.post("/api/v1/processus", processusController.createProcessus);
 app.put("/api/v1/processus/:id", processusController.updateProcessus);
 app.patch("/api/v1/processus/:id/status", processusController.updateProcessusStatus);

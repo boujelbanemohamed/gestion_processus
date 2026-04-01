@@ -1,50 +1,284 @@
 import { prisma } from '../utils/prisma';
 import { ProcessusStatut } from '@prisma/client';
+import { PermissionType } from '../generated/prisma/enums';
+
+export type ProcessusAuth = { userId: string; role: string };
+
+const processusIncludeList = {
+  proprietaire: { select: { id: true, nom: true, prenom: true, email: true } },
+  entites: {
+    include: {
+      entite: { select: { id: true, nom: true, code: true } },
+    },
+  },
+  categories: {
+    include: {
+      categorie: { select: { id: true, nom: true, couleur: true } },
+    },
+  },
+  createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+} as const;
+
+function isAdminRole(role: string) {
+  return role === 'admin';
+}
+
+async function myPermTypesForProcessus(processusId: string, userId: string): Promise<PermissionType[]> {
+  const rows = await prisma.permission.findMany({
+    where: { ressourceType: 'processus', ressourceId: processusId, userId },
+    select: { permission: true },
+  });
+  return rows.map((r) => r.permission);
+}
+
+async function loadPermissionsForProcessus(processusIds: string[]) {
+  if (processusIds.length === 0) return new Map<string, any[]>();
+  const rows = await prisma.permission.findMany({
+    where: { ressourceType: 'processus', ressourceId: { in: processusIds } },
+    include: {
+      user: { select: { id: true, nom: true, prenom: true, email: true, role: true } },
+      grantedBy: { select: { id: true, nom: true, prenom: true } },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  const m = new Map<string, any[]>();
+  for (const r of rows) {
+    const list = m.get(r.ressourceId) ?? [];
+    list.push(r);
+    m.set(r.ressourceId, list);
+  }
+  return m;
+}
+
+function canViewProcessusRow(
+  row: {
+    statut: ProcessusStatut;
+    createdById: string | null;
+    proprietaireId: string | null;
+  },
+  auth: ProcessusAuth,
+  permTypes: PermissionType[]
+) {
+  if (isAdminRole(auth.role)) return true;
+
+  const archived = row.statut === 'archive' || row.statut === 'obsolete';
+  if (archived) {
+    if (row.proprietaireId === auth.userId || row.createdById === auth.userId) return true;
+    return permTypes.length > 0;
+  }
+
+  if (row.createdById == null) return true;
+  if (row.proprietaireId === auth.userId || row.createdById === auth.userId) return true;
+  return permTypes.length > 0;
+}
+
+function canModifyProcessusRow(
+  row: { proprietaireId: string | null; createdById: string | null },
+  auth: ProcessusAuth,
+  permTypes: PermissionType[]
+) {
+  if (isAdminRole(auth.role)) return true;
+  if (row.proprietaireId === auth.userId || row.createdById === auth.userId) return true;
+  return permTypes.some((t) => ['modification', 'suppression', 'gestion'].includes(t));
+}
+
+function canSoftDeleteProcessusRow(
+  row: { proprietaireId: string | null; createdById: string | null },
+  auth: ProcessusAuth,
+  permTypes: PermissionType[]
+) {
+  if (isAdminRole(auth.role)) return true;
+  if (row.proprietaireId === auth.userId || row.createdById === auth.userId) return true;
+  return permTypes.some((t) => ['suppression', 'gestion'].includes(t));
+}
+
+function canManageProcessusPermissionsRow(
+  row: { proprietaireId: string | null; createdById: string | null },
+  auth: ProcessusAuth,
+  permTypes: PermissionType[]
+) {
+  if (isAdminRole(auth.role)) return true;
+  if (row.proprietaireId === auth.userId || row.createdById === auth.userId) return true;
+  return permTypes.includes('gestion');
+}
+
+function capabilitiesProcessus(
+  row: {
+    statut: ProcessusStatut;
+    proprietaireId: string | null;
+    createdById: string | null;
+  },
+  auth: ProcessusAuth,
+  permTypes: PermissionType[]
+) {
+  const view = canViewProcessusRow(row, auth, permTypes);
+  return {
+    canView: view,
+    canModify: view && canModifyProcessusRow(row, auth, permTypes),
+    canDelete: view && canSoftDeleteProcessusRow(row, auth, permTypes),
+    canManagePermissions: view && canManageProcessusPermissionsRow(row, auth, permTypes),
+  };
+}
+
+function mapAccesDelegations(perms: any[]) {
+  const delegMap = new Map<string, { user: any; permissions: PermissionType[]; permissionEntryIds: string[] }>();
+  for (const r of perms) {
+    const k = r.userId;
+    if (!delegMap.has(k)) {
+      delegMap.set(k, { user: r.user, permissions: [], permissionEntryIds: [] });
+    }
+    const e = delegMap.get(k)!;
+    e.permissions.push(r.permission);
+    e.permissionEntryIds.push(r.id);
+  }
+  return Array.from(delegMap.values());
+}
+
+async function enrichLiensProcessus(
+  processusIds: string[],
+  rows: { id: string; entites: { entiteId: string }[] }[]
+) {
+  const empty = {
+    documentsByProc: new Map<string, { id: string; nom: string }[]>(),
+    licencesByProc: new Map<string, { id: string; nom: string; reference: string }[]>(),
+    projetsByProc: new Map<string, { id: string; nom: string; codeProjet: string }[]>(),
+    tachesTotalByProc: new Map<string, number>(),
+  };
+  if (processusIds.length === 0) return empty;
+
+  const [docsNested, licAll] = await Promise.all([
+    Promise.all(
+      processusIds.map((pid) =>
+        prisma.document.findMany({
+          where: { referenceType: 'processus', referenceId: pid, deletedAt: null },
+          select: { id: true, nom: true },
+          orderBy: { updatedAt: 'desc' },
+          take: 6,
+        })
+      )
+    ),
+    prisma.licence.findMany({
+      where: { processusId: { in: processusIds }, deletedAt: null },
+      select: { id: true, nom: true, reference: true, processusId: true },
+      orderBy: { updatedAt: 'desc' },
+      take: 200,
+    }),
+  ]);
+
+  const documentsByProc = new Map<string, { id: string; nom: string }[]>();
+  processusIds.forEach((pid, i) => {
+    documentsByProc.set(pid, docsNested[i].map((d) => ({ id: d.id, nom: d.nom })));
+  });
+
+  const licencesByProc = new Map<string, { id: string; nom: string; reference: string }[]>();
+  for (const pid of processusIds) licencesByProc.set(pid, []);
+  for (const l of licAll) {
+    if (!l.processusId) continue;
+    const list = licencesByProc.get(l.processusId) ?? [];
+    if (list.length < 5) list.push({ id: l.id, nom: l.nom, reference: l.reference });
+    licencesByProc.set(l.processusId, list);
+  }
+
+  const projetsByProc = new Map<string, { id: string; nom: string; codeProjet: string }[]>();
+  const tachesTotalByProc = new Map<string, number>();
+
+  await Promise.all(
+    rows.map(async (r) => {
+      const eids = r.entites.map((pe: any) => pe.entiteId ?? pe.entite?.id).filter(Boolean);
+      if (eids.length === 0) {
+        projetsByProc.set(r.id, []);
+        tachesTotalByProc.set(r.id, 0);
+        return;
+      }
+      const projets = await prisma.projet.findMany({
+        where: { deletedAt: null, entites: { some: { entiteId: { in: eids } } } },
+        select: { id: true, nom: true, codeProjet: true },
+        orderBy: { updatedAt: 'desc' },
+        take: 5,
+      });
+      projetsByProc.set(
+        r.id,
+        projets.map((p) => ({ id: p.id, nom: p.nom, codeProjet: p.codeProjet }))
+      );
+      const pids = projets.map((p) => p.id);
+      const tc =
+        pids.length > 0
+          ? await prisma.tache.count({ where: { projetId: { in: pids } } })
+          : 0;
+      tachesTotalByProc.set(r.id, tc);
+    })
+  );
+
+  return { documentsByProc, licencesByProc, projetsByProc, tachesTotalByProc };
+}
+
+function mapListItem(
+  p: any,
+  auth: ProcessusAuth,
+  permTypes: PermissionType[],
+  perms: any[],
+  liens: {
+    documentsByProc: Map<string, { id: string; nom: string }[]>;
+    licencesByProc: Map<string, { id: string; nom: string; reference: string }[]>;
+    projetsByProc: Map<string, { id: string; nom: string; codeProjet: string }[]>;
+    tachesTotalByProc: Map<string, number>;
+  },
+  nombreDocuments: number
+) {
+  const caps = capabilitiesProcessus(
+    {
+      statut: p.statut,
+      proprietaireId: p.proprietaireId,
+      createdById: p.createdById,
+    },
+    auth,
+    permTypes
+  );
+  return {
+    ...p,
+    permissions: perms,
+    capabilities: caps,
+    accesApercu: { delegations: mapAccesDelegations(perms) },
+    nombreDocuments,
+    documentsListe: liens.documentsByProc.get(p.id) ?? [],
+    licencesListe: liens.licencesByProc.get(p.id) ?? [],
+    projetsListe: liens.projetsByProc.get(p.id) ?? [],
+    tachesLieesTotal: liens.tachesTotalByProc.get(p.id) ?? 0,
+  };
+}
 
 export class ProcessusService {
-  async findAll(filters?: {
-    statut?: ProcessusStatut;
-    entiteId?: string;
-    categorieId?: string;
-    search?: string;
-    sortBy?: string;
-    sortOrder?: 'asc' | 'desc';
-  }) {
+  async findAll(
+    filters: {
+      statut?: ProcessusStatut;
+      entiteId?: string;
+      categorieId?: string;
+      search?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+    },
+    auth: ProcessusAuth
+  ) {
     const where: any = {};
     if (filters?.statut) where.statut = filters.statut;
     if (filters?.entiteId) {
-      where.entites = {
-        some: {
-          entiteId: filters.entiteId,
-        },
-      };
+      where.entites = { some: { entiteId: filters.entiteId } };
     }
     if (filters?.categorieId) {
-      where.categories = {
-        some: {
-          categorieId: filters.categorieId,
-        },
-      };
+      where.categories = { some: { categorieId: filters.categorieId } };
     }
     if (filters?.search) {
-      // Recherche dans nom, code, description ET tags
-      // Pour les tags, on utilise une recherche avec hasSome pour une correspondance exacte
-      // et on complète avec un filtre côté application pour une recherche partielle
       where.OR = [
         { nom: { contains: filters.search, mode: 'insensitive' } },
         { codeProcessus: { contains: filters.search, mode: 'insensitive' } },
         { description: { contains: filters.search, mode: 'insensitive' } },
-        // Recherche exacte dans les tags (si le terme de recherche correspond exactement à un tag)
         { tags: { hasSome: [filters.search] } },
       ];
     }
 
-    // Définir l'ordre de tri
-    let orderBy: any = { updatedAt: 'desc' }; // Par défaut, tri par date de mise à jour décroissante
-    
+    let orderBy: any = { updatedAt: 'desc' };
     if (filters?.sortBy) {
       const sortOrder = filters.sortOrder || 'asc';
-      
       switch (filters.sortBy) {
         case 'codeProcessus':
           orderBy = { codeProcessus: sortOrder };
@@ -62,7 +296,6 @@ export class ProcessusService {
           orderBy = { updatedAt: sortOrder };
           break;
         case 'proprietaire':
-          // Pour proprietaire, on trie par nom de l'utilisateur (via relation)
           orderBy = { proprietaire: { nom: sortOrder } };
           break;
         default:
@@ -70,102 +303,252 @@ export class ProcessusService {
       }
     }
 
-    // Exclure les processus supprimés (soft delete)
     where.deletedAt = null;
 
     const processusList = await prisma.processus.findMany({
       where,
-      include: {
-        proprietaire: { select: { id: true, nom: true, prenom: true, email: true } },
-        entites: {
-          include: {
-            entite: { select: { id: true, nom: true, code: true } },
-          },
-        },
-        categories: {
-          include: {
-            categorie: { select: { id: true, nom: true, couleur: true } },
-          },
-        },
-        createdBy: { select: { id: true, nom: true, prenom: true } },
-      },
+      include: processusIncludeList,
       orderBy,
     });
 
-    // Filtrer par tags si une recherche est effectuée (recherche partielle dans les tags)
     let filteredList = processusList;
     if (filters?.search) {
       const searchLower = filters.search.toLowerCase();
       filteredList = processusList.filter((p) => {
-        // Vérifier si le processus correspond déjà aux critères Prisma (nom, code, description)
-        const matchesPrismaCriteria = 
+        const matchesPrismaCriteria =
           (p.nom && p.nom.toLowerCase().includes(searchLower)) ||
           (p.codeProcessus && p.codeProcessus.toLowerCase().includes(searchLower)) ||
           (p.description && p.description.toLowerCase().includes(searchLower));
-        
-        // Vérifier si un des tags contient le terme de recherche (recherche partielle)
         let tagMatch = false;
         if (p.tags && Array.isArray(p.tags) && p.tags.length > 0) {
-          tagMatch = p.tags.some((tag: string) => 
-            tag.toLowerCase().includes(searchLower)
-          );
+          tagMatch = p.tags.some((tag: string) => tag.toLowerCase().includes(searchLower));
         }
-        
-        // Garder le processus s'il correspond aux critères Prisma OU aux tags
         return matchesPrismaCriteria || tagMatch;
       });
     }
 
-    // Enrichir avec le nombre de documents (les documents sont liés via referenceType et referenceId)
-    const processusWithCounts = await Promise.all(
-      filteredList.map(async (p) => {
-        const nombreDocuments = await prisma.document.count({
-          where: {
-            referenceType: 'processus',
-            referenceId: p.id,
-          },
-        });
-        return {
-          ...p,
-          nombreDocuments,
-        };
-      })
+    const permMap = await loadPermissionsForProcessus(filteredList.map((p) => p.id));
+    const visible = filteredList.filter((p) => {
+      const permTypes = (permMap.get(p.id) ?? []).map((x: any) => x.permission as PermissionType);
+      return canViewProcessusRow(
+        { statut: p.statut, createdById: p.createdById, proprietaireId: p.proprietaireId },
+        auth,
+        permTypes
+      );
+    });
+
+    const ids = visible.map((p) => p.id);
+    const docGroup = await prisma.document.groupBy({
+      by: ['referenceId'],
+      where: {
+        referenceType: 'processus',
+        referenceId: { in: ids },
+        deletedAt: null,
+      },
+      _count: { _all: true },
+    });
+    const docCountMap = new Map<string, number>();
+    for (const g of docGroup) {
+      if (g.referenceId) docCountMap.set(g.referenceId, g._count._all);
+    }
+
+    const liens = await enrichLiensProcessus(
+      ids,
+      visible.map((p) => ({
+        id: p.id,
+        entites: p.entites.map((pe: any) => ({ entiteId: pe.entiteId ?? pe.entite?.id })),
+      }))
     );
 
-    return processusWithCounts;
+    return visible.map((p) => {
+      const perms = permMap.get(p.id) ?? [];
+      const permTypes = perms.map((x: any) => x.permission as PermissionType);
+      return mapListItem(p, auth, permTypes, perms, liens, docCountMap.get(p.id) ?? 0);
+    });
   }
 
   async getConsultationCount(id: string): Promise<number> {
     return prisma.journalAcces.count({
-      where: {
+      where: { ressourceType: 'processus', ressourceId: id, action: 'lecture' },
+    });
+  }
+
+  async findOne(id: string, auth: ProcessusAuth) {
+    const p = await prisma.processus.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        proprietaire: true,
+        entites: { include: { entite: true } },
+        categories: { include: { categorie: true } },
+        createdBy: true,
+      },
+    });
+    if (!p) return null;
+    const permTypes = await myPermTypesForProcessus(id, auth.userId);
+    if (
+      !canViewProcessusRow(
+        { statut: p.statut, createdById: p.createdById, proprietaireId: p.proprietaireId },
+        auth,
+        permTypes
+      )
+    ) {
+      return null;
+    }
+    const perms = (await loadPermissionsForProcessus([id])).get(id) ?? [];
+    const liens = await enrichLiensProcessus(
+      [id],
+      [{ id, entites: p.entites.map((pe: any) => ({ entiteId: pe.entiteId })) }]
+    );
+    const nd = await prisma.document.count({
+      where: { referenceType: 'processus', referenceId: id, deletedAt: null },
+    });
+    return mapListItem(p, auth, permTypes, perms, liens, nd);
+  }
+
+  async getAccesDetail(processusId: string, auth: ProcessusAuth) {
+    const row = await prisma.processus.findFirst({
+      where: { id: processusId, deletedAt: null },
+      select: {
+        id: true,
+        nom: true,
+        createdById: true,
+        proprietaireId: true,
+        statut: true,
+      },
+    });
+    if (!row) throw new Error('NOT_FOUND');
+    const permTypes = await myPermTypesForProcessus(processusId, auth.userId);
+    if (
+      !canViewProcessusRow(
+        { statut: row.statut, createdById: row.createdById, proprietaireId: row.proprietaireId },
+        auth,
+        permTypes
+      )
+    ) {
+      throw new Error('FORBIDDEN');
+    }
+    if (
+      !canManageProcessusPermissionsRow(
+        { createdById: row.createdById, proprietaireId: row.proprietaireId },
+        auth,
+        permTypes
+      )
+    ) {
+      throw new Error('FORBIDDEN');
+    }
+
+    const admins = await prisma.user.findMany({
+      where: { role: 'admin', statut: 'actif' },
+      select: { id: true, nom: true, prenom: true, email: true, role: true },
+      orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
+    });
+
+    const creator = row.createdById
+      ? await prisma.user.findUnique({
+          where: { id: row.createdById },
+          select: { id: true, nom: true, prenom: true, email: true, role: true },
+        })
+      : null;
+
+    const raw = await prisma.permission.findMany({
+      where: { ressourceType: 'processus', ressourceId: processusId },
+      include: {
+        user: { select: { id: true, nom: true, prenom: true, email: true, role: true } },
+        grantedBy: { select: { id: true, nom: true, prenom: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return {
+      ficheNom: row.nom,
+      admins,
+      creator,
+      delegations: raw.map((r) => ({
+        id: r.id,
+        permission: r.permission,
+        user: r.user,
+        grantedBy: r.grantedBy,
+        createdAt: r.createdAt,
+      })),
+      canManagePermissions: true,
+    };
+  }
+
+  async addPermission(processusId: string, targetUserId: string, permission: PermissionType, auth: ProcessusAuth) {
+    const row = await prisma.processus.findFirst({ where: { id: processusId, deletedAt: null } });
+    if (!row) throw new Error('NOT_FOUND');
+    const permTypes = await myPermTypesForProcessus(processusId, auth.userId);
+    if (
+      !canManageProcessusPermissionsRow(
+        { createdById: row.createdById, proprietaireId: row.proprietaireId },
+        auth,
+        permTypes
+      )
+    ) {
+      throw new Error('FORBIDDEN');
+    }
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, role: true, nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    if (target.role === 'admin') throw new Error('Les administrateurs ont déjà tous les droits');
+    if (row.createdById === targetUserId || row.proprietaireId === targetUserId) {
+      throw new Error('Le créateur ou le propriétaire a déjà tous les droits');
+    }
+    return prisma.permission.create({
+      data: {
+        userId: targetUserId,
         ressourceType: 'processus',
-        ressourceId: id,
-        action: 'lecture',
+        ressourceId: processusId,
+        permission,
+        grantedById: auth.userId,
+      },
+      include: {
+        user: { select: { id: true, nom: true, prenom: true, email: true } },
+        grantedBy: { select: { id: true, nom: true, prenom: true } },
       },
     });
   }
 
-  async findOne(id: string) {
-    return prisma.processus.findFirst({
-      where: { 
-        id,
-        deletedAt: null, // Exclure les processus supprimés
-      },
-      include: {
-        proprietaire: true,
-        entites: {
-          include: {
-            entite: true,
-          },
-        },
-        categories: {
-          include: {
-            categorie: true,
-          },
-        },
-        createdBy: true,
-      },
+  async removePermission(processusId: string, permissionId: string, auth: ProcessusAuth) {
+    const row = await prisma.processus.findFirst({ where: { id: processusId, deletedAt: null } });
+    if (!row) throw new Error('NOT_FOUND');
+    const permTypes = await myPermTypesForProcessus(processusId, auth.userId);
+    if (
+      !canManageProcessusPermissionsRow(
+        { createdById: row.createdById, proprietaireId: row.proprietaireId },
+        auth,
+        permTypes
+      )
+    ) {
+      throw new Error('FORBIDDEN');
+    }
+    const perm = await prisma.permission.findFirst({
+      where: { id: permissionId, ressourceType: 'processus', ressourceId: processusId },
     });
+    if (!perm) throw new Error('NOT_FOUND');
+    await prisma.permission.delete({ where: { id: permissionId } });
+  }
+
+  async canModifyForUser(processusId: string, auth: ProcessusAuth): Promise<boolean> {
+    const row = await prisma.processus.findFirst({
+      where: { id: processusId, deletedAt: null },
+      select: { proprietaireId: true, createdById: true },
+    });
+    if (!row) return false;
+    const permTypes = await myPermTypesForProcessus(processusId, auth.userId);
+    return canModifyProcessusRow(row, auth, permTypes);
+  }
+
+  async canSoftDeleteForUser(processusId: string, auth: ProcessusAuth): Promise<boolean> {
+    const row = await prisma.processus.findFirst({
+      where: { id: processusId, deletedAt: null },
+      select: { proprietaireId: true, createdById: true },
+    });
+    if (!row) return false;
+    const permTypes = await myPermTypesForProcessus(processusId, auth.userId);
+    return canSoftDeleteProcessusRow(row, auth, permTypes);
   }
 
   async create(data: {
@@ -178,103 +561,65 @@ export class ProcessusService {
     createdById: string;
   }) {
     const { entiteIds, categorieIds, ...processusData } = data;
-    
+
     return prisma.processus.create({
       data: {
         ...processusData,
         statut: 'brouillon',
-        entites: entiteIds && entiteIds.length > 0 ? {
-          create: entiteIds.map((entiteId) => ({
-            entiteId,
-          })),
-        } : undefined,
-        categories: categorieIds && categorieIds.length > 0 ? {
-          create: categorieIds.map((categorieId) => ({
-            categorieId,
-          })),
-        } : undefined,
+        entites:
+          entiteIds && entiteIds.length > 0
+            ? { create: entiteIds.map((entiteId) => ({ entiteId })) }
+            : undefined,
+        categories:
+          categorieIds && categorieIds.length > 0
+            ? { create: categorieIds.map((categorieId) => ({ categorieId })) }
+            : undefined,
       },
-      include: {
-        proprietaire: { select: { id: true, nom: true, prenom: true } },
-        entites: {
-          include: {
-            entite: { select: { id: true, nom: true } },
-          },
-        },
-        categories: {
-          include: {
-            categorie: { select: { id: true, nom: true, couleur: true } },
-          },
-        },
-      },
+      include: processusIncludeList,
     });
   }
 
-  async update(id: string, data: {
-    nom?: string;
-    codeProcessus?: string;
-    description?: string;
-    tags?: string[];
-    categorieIds?: string[];
-    entiteIds?: string[];
-    proprietaireId?: string;
-    dateProchaineRevision?: Date;
-  }) {
+  async update(
+    id: string,
+    data: {
+      nom?: string;
+      codeProcessus?: string;
+      description?: string;
+      tags?: string[];
+      categorieIds?: string[];
+      entiteIds?: string[];
+      proprietaireId?: string;
+      dateProchaineRevision?: Date;
+    },
+    auth: ProcessusAuth
+  ) {
+    const can = await this.canModifyForUser(id, auth);
+    if (!can) throw new Error('Accès refusé');
+
     const { entiteIds, categorieIds, ...updateData } = data;
-    
-    // Si entiteIds est fourni, mettre à jour les relations
+
     if (entiteIds !== undefined) {
-      // Supprimer toutes les relations existantes
-      await prisma.processusEntite.deleteMany({
-        where: { processusId: id },
-      });
-      
-      // Créer les nouvelles relations
+      await prisma.processusEntite.deleteMany({ where: { processusId: id } });
       if (entiteIds.length > 0) {
         await prisma.processusEntite.createMany({
-          data: entiteIds.map((entiteId) => ({
-            processusId: id,
-            entiteId,
-          })),
+          data: entiteIds.map((entiteId) => ({ processusId: id, entiteId })),
         });
       }
     }
 
-    // Si categorieIds est fourni, mettre à jour les relations
     if (categorieIds !== undefined) {
-      // Supprimer toutes les relations existantes
-      await prisma.processusCategorie.deleteMany({
-        where: { processusId: id },
-      });
-      
-      // Créer les nouvelles relations
+      await prisma.processusCategorie.deleteMany({ where: { processusId: id } });
       if (categorieIds.length > 0) {
         await prisma.processusCategorie.createMany({
-          data: categorieIds.map((categorieId) => ({
-            processusId: id,
-            categorieId,
-          })),
+          data: categorieIds.map((categorieId) => ({ processusId: id, categorieId })),
         });
       }
     }
-    
+
     return prisma.processus.update({
       where: { id },
       data: updateData,
-      include: {
-        proprietaire: { select: { id: true, nom: true, prenom: true, email: true } },
-        entites: {
-          include: {
-            entite: { select: { id: true, nom: true, code: true } },
-          },
-        },
-        categories: {
-          include: {
-            categorie: { select: { id: true, nom: true, couleur: true } },
-          },
-        },
-        createdBy: { select: { id: true, nom: true, prenom: true } },
-      },
+      include: processusIncludeList,
     });
   }
 
@@ -282,9 +627,6 @@ export class ProcessusService {
     const updateData: any = { statut };
     if (statut === 'valide' || statut === 'actif') {
       updateData.dateValidation = new Date();
-      if (validatedBy) {
-        // Note: valideBy n'existe pas dans le modèle, on pourrait l'ajouter
-      }
     }
 
     const processus = await prisma.processus.update({
@@ -292,19 +634,12 @@ export class ProcessusService {
       data: updateData,
     });
 
-    // Mettre à jour le statut du dernier document uploadé pour ce processus
     const dernierDocument = await prisma.document.findFirst({
-      where: {
-        referenceType: 'processus',
-        referenceId: id,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      where: { referenceType: 'processus', referenceId: id },
+      orderBy: { createdAt: 'desc' },
     });
 
     if (dernierDocument) {
-      // Mapper le statut du processus au statut du document
       let documentStatut: any = dernierDocument.statut;
       if (statut === 'valide' || statut === 'actif') {
         documentStatut = 'valide';
@@ -324,91 +659,50 @@ export class ProcessusService {
   }
 
   async canDelete(id: string, userId: string, userRole: string): Promise<boolean> {
-    // Le super admin peut toujours supprimer
-    if (userRole === 'admin') {
-      return true;
-    }
-
-    // Récupérer le processus pour vérifier le propriétaire et le créateur
-    const processus = await prisma.processus.findUnique({
-      where: { id },
-      select: {
-        proprietaireId: true,
-        createdById: true,
-      },
-    });
-
-    if (!processus) {
-      return false;
-    }
-
-    // Le propriétaire ou le créateur peut supprimer
-    return processus.proprietaireId === userId || processus.createdById === userId;
+    return this.canSoftDeleteForUser(id, { userId, role: userRole });
   }
 
   async canModifyCode(id: string, userId: string, userRole: string): Promise<boolean> {
-    // Le super admin peut toujours modifier le code
-    if (userRole === 'admin') {
-      return true;
-    }
-
-    // Récupérer le processus pour vérifier le propriétaire et le créateur
+    if (userRole === 'admin') return true;
     const processus = await prisma.processus.findUnique({
       where: { id },
-      select: {
-        proprietaireId: true,
-        createdById: true,
-      },
+      select: { proprietaireId: true, createdById: true },
     });
-
-    if (!processus) {
-      return false;
-    }
-
-    // Le propriétaire ou le créateur peut modifier le code
+    if (!processus) return false;
     return processus.proprietaireId === userId || processus.createdById === userId;
   }
 
   async canAccess(id: string, userId: string, userRole: string): Promise<{ canAccess: boolean; reason?: string }> {
-    // Récupérer le processus pour vérifier le statut et les permissions
-    const processus = await prisma.processus.findUnique({
-      where: { id },
-      select: {
-        statut: true,
-        proprietaireId: true,
-        createdById: true,
-      },
+    const processus = await prisma.processus.findFirst({
+      where: { id, deletedAt: null },
+      select: { statut: true, proprietaireId: true, createdById: true },
     });
-
     if (!processus) {
       return { canAccess: false, reason: 'Processus non trouvé' };
     }
-
-    // Si le processus est archivé ou obsolète, seuls le super admin, le propriétaire ou le créateur peuvent y accéder
-    if (processus.statut === 'archive' || processus.statut === 'obsolete') {
-      // Le super admin peut toujours accéder
-      if (userRole === 'admin') {
-        return { canAccess: true };
+    const permTypes = await myPermTypesForProcessus(id, userId);
+    const ok = canViewProcessusRow(
+      {
+        statut: processus.statut,
+        proprietaireId: processus.proprietaireId,
+        createdById: processus.createdById,
+      },
+      { userId, role: userRole },
+      permTypes
+    );
+    if (!ok) {
+      if (processus.statut === 'archive' || processus.statut === 'obsolete') {
+        return {
+          canAccess: false,
+          reason: `Vous ne pouvez pas accéder à ce processus (${processus.statut}).`,
+        };
       }
-
-      // Le propriétaire ou le créateur peut accéder
-      if (processus.proprietaireId === userId || processus.createdById === userId) {
-        return { canAccess: true };
-      }
-
-      // Les autres utilisateurs ne peuvent pas accéder
-      return { 
-        canAccess: false, 
-        reason: `Vous ne pouvez plus accéder à ce processus car son statut est "${processus.statut === 'archive' ? 'Archivé' : 'Obsolète'}". Seuls le super admin, le propriétaire ou le créateur peuvent accéder aux processus archivés ou obsolètes.` 
-      };
+      return { canAccess: false, reason: 'Accès refusé' };
     }
-
-    // Pour les autres statuts, tout le monde peut accéder
     return { canAccess: true };
   }
 
   async delete(id: string) {
-    // Soft delete : marquer comme supprimé au lieu de supprimer réellement
     return prisma.processus.update({
       where: { id },
       data: { deletedAt: new Date() },

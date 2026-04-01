@@ -1,14 +1,76 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { api } from '../services/api';
+import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
+import { getPaginationPageNumbers } from '../utils/pagination';
+
+const PAGE_SIZE = 15;
+
+const PERMISSION_LABELS: Record<string, string> = {
+  lecture: 'Consultation',
+  modification: 'Modification',
+  suppression: 'Suppression',
+  gestion: 'Gestion des accès',
+};
+
+const PERM_OPTIONS = [
+  { value: 'lecture', label: '👁 Lecture' },
+  { value: 'modification', label: '✏️ Modification' },
+  { value: 'suppression', label: '🗑 Suppression' },
+  { value: 'gestion', label: '🔐 Gestion des accès' },
+];
+
+const LABEL_LOG_ACTION: Record<string, string> = {
+  connexion: 'Connexion',
+  deconnexion: 'Déconnexion',
+  lecture: 'Consultation',
+  creation: 'Création',
+  modification: 'Modification',
+  suppression: 'Suppression',
+  telechargement: 'Téléchargement',
+  export: 'Export',
+};
+
+const LABEL_RESSOURCE: Record<string, string> = {
+  processus: 'Processus',
+  document: 'Document',
+  projet: 'Projet',
+  entite: 'Entité',
+  utilisateur: 'Utilisateur',
+  licence: 'Licence',
+  clientFournisseur: 'Client / fournisseur',
+  contrat: 'Contrat',
+};
+
+function isAccesRestreintProcessus(p: any) {
+  const dels = p.accesApercu?.delegations?.length ?? p.permissions?.length ?? 0;
+  return dels > 0 || !!p.createdById;
+}
+
+function delegationsRowsForCard(p: any) {
+  const d = p.accesApercu?.delegations;
+  if (d?.length) {
+    return d.map((row: any) => ({
+      key: row.user?.id + (row.permissions?.join(',') || ''),
+      user: row.user,
+      label: (row.permissions || []).map((x: string) => PERMISSION_LABELS[x] || x).join(' + '),
+    }));
+  }
+  return (p.permissions || []).map((perm: any) => ({
+    key: perm.id,
+    user: perm.user,
+    label: PERMISSION_LABELS[perm.permission] || perm.permission,
+  }));
+}
 
 export default function Processus() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user: currentUser } = useAuth();
   const isLecteur = currentUser?.role === 'lecteur';
-  const [processus, setProcessus] = useState<any[]>([]);
+
+  const [processusList, setProcessusList] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [entites, setEntites] = useState<any[]>([]);
@@ -30,84 +92,110 @@ export default function Processus() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
-  const pageSize = 10;
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [showFiltres, setShowFiltres] = useState(false);
+
+  const [accesModalProc, setAccesModalProc] = useState<any | null>(null);
+  const [accesDetail, setAccesDetail] = useState<any | null>(null);
+  const [accesLoading, setAccesLoading] = useState(false);
+  const [newPermUserId, setNewPermUserId] = useState('');
+  const [newPermType, setNewPermType] = useState('lecture');
+  const [noAccesModalOpen, setNoAccesModalOpen] = useState(false);
+
+  const [histModalProc, setHistModalProc] = useState<any | null>(null);
+  const [histoList, setHistoList] = useState<any[]>([]);
+  const [histoLoading, setHistoLoading] = useState(false);
+
+  const firstProcessusLoad = useRef(true);
 
   useEffect(() => {
-    // Pré-remplir le filtre statut depuis la query (ex: ?statut=brouillon)
     const params = new URLSearchParams(location.search);
     const qStatut = params.get('statut');
     if (qStatut) {
       setFilters((prev) => ({ ...prev, statut: qStatut }));
     }
-    loadProcessus();
+    void loadUsersOnce();
     loadEntites();
     loadCategories();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    // recharger les processus à chaque changement de filtre
-    loadProcessus();
+    void loadProcessus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.statut, filters.entiteId, filters.categorieId, sortConfig]);
+  }, [filters.search, filters.statut, filters.entiteId, filters.categorieId, sortConfig, location.search]);
+
   useEffect(() => {
     setPage(1);
   }, [filters.search, filters.statut, filters.entiteId, filters.categorieId, sortConfig]);
 
-  const loadProcessus = async () => {
+  const loadUsersOnce = async () => {
     try {
-      const params: any = {};
+      const u = await api.get('/users');
+      setUsers(u.data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const loadProcessus = async () => {
+    const showFullLoading = firstProcessusLoad.current;
+    if (showFullLoading) setLoading(true);
+    try {
+      const urlStatut = new URLSearchParams(location.search).get('statut') || '';
+      const statutEff = filters.statut || urlStatut;
+
+      const params: Record<string, string> = {};
       if (filters.search) params.search = filters.search;
-      if (filters.statut) params.statut = filters.statut;
+      if (statutEff) params.statut = statutEff;
       if (filters.entiteId) params.entiteId = filters.entiteId;
       if (filters.categorieId) params.categorieId = filters.categorieId;
-      if (sortConfig) {
+      if (sortConfig && !['proprietaire', 'entites', 'categories'].includes(sortConfig.key)) {
         params.sortBy = sortConfig.key;
         params.sortOrder = sortConfig.direction;
       }
       const response = await api.get('/processus', { params });
-      let sortedProcessus = response.data;
-      
-      // Tri côté client pour proprietaire, entités, catégories (car relations Prisma)
+      let sortedProcessus = response.data as any[];
+
       if (sortConfig?.key === 'proprietaire') {
-        sortedProcessus = [...response.data].sort((a, b) => {
+        sortedProcessus = [...sortedProcessus].sort((a, b) => {
           const aName = a.proprietaire ? `${a.proprietaire.prenom} ${a.proprietaire.nom}` : '';
           const bName = b.proprietaire ? `${b.proprietaire.prenom} ${b.proprietaire.nom}` : '';
-          if (sortConfig.direction === 'asc') {
-            return aName.localeCompare(bName, 'fr', { sensitivity: 'base' });
-          } else {
-            return bName.localeCompare(aName, 'fr', { sensitivity: 'base' });
-          }
+          return sortConfig.direction === 'asc'
+            ? aName.localeCompare(bName, 'fr', { sensitivity: 'base' })
+            : bName.localeCompare(aName, 'fr', { sensitivity: 'base' });
         });
       } else if (sortConfig?.key === 'entites') {
-        sortedProcessus = [...response.data].sort((a, b) => {
-          const aEntites = a.entites?.map((pe: any) => pe.entite?.nom || '').filter(Boolean).join(', ') || 'N/A';
-          const bEntites = b.entites?.map((pe: any) => pe.entite?.nom || '').filter(Boolean).join(', ') || 'N/A';
-          if (sortConfig.direction === 'asc') {
-            return aEntites.localeCompare(bEntites, 'fr', { sensitivity: 'base' });
-          } else {
-            return bEntites.localeCompare(aEntites, 'fr', { sensitivity: 'base' });
-          }
+        sortedProcessus = [...sortedProcessus].sort((a, b) => {
+          const aEntites =
+            a.entites?.map((pe: any) => pe.entite?.nom || '').filter(Boolean).join(', ') || 'N/A';
+          const bEntites =
+            b.entites?.map((pe: any) => pe.entite?.nom || '').filter(Boolean).join(', ') || 'N/A';
+          return sortConfig.direction === 'asc'
+            ? aEntites.localeCompare(bEntites, 'fr', { sensitivity: 'base' })
+            : bEntites.localeCompare(aEntites, 'fr', { sensitivity: 'base' });
         });
       } else if (sortConfig?.key === 'categories') {
-        sortedProcessus = [...response.data].sort((a, b) => {
-          const aCategories = a.categories?.map((pc: any) => pc.categorie?.nom || '').filter(Boolean).join(', ') || 'N/A';
-          const bCategories = b.categories?.map((pc: any) => pc.categorie?.nom || '').filter(Boolean).join(', ') || 'N/A';
-          if (sortConfig.direction === 'asc') {
-            return aCategories.localeCompare(bCategories, 'fr', { sensitivity: 'base' });
-          } else {
-            return bCategories.localeCompare(aCategories, 'fr', { sensitivity: 'base' });
-          }
+        sortedProcessus = [...sortedProcessus].sort((a, b) => {
+          const aCat =
+            a.categories?.map((pc: any) => pc.categorie?.nom || '').filter(Boolean).join(', ') || 'N/A';
+          const bCat =
+            b.categories?.map((pc: any) => pc.categorie?.nom || '').filter(Boolean).join(', ') || 'N/A';
+          return sortConfig.direction === 'asc'
+            ? aCat.localeCompare(bCat, 'fr', { sensitivity: 'base' })
+            : bCat.localeCompare(aCat, 'fr', { sensitivity: 'base' });
         });
       }
-      
-      setProcessus(sortedProcessus);
+
+      setProcessusList(sortedProcessus);
     } catch (error) {
       console.error('Erreur:', error);
     } finally {
-      setLoading(false);
+      if (showFullLoading) {
+        setLoading(false);
+        firstProcessusLoad.current = false;
+      }
     }
   };
 
@@ -119,9 +207,7 @@ export default function Processus() {
     setSortConfig({ key, direction });
   };
 
-  const resetSort = () => {
-    setSortConfig(null);
-  };
+  const resetSort = () => setSortConfig(null);
 
   const loadEntites = async () => {
     try {
@@ -141,56 +227,116 @@ export default function Processus() {
     }
   };
 
-  const canDeleteProcessus = (p: any): boolean => {
-    if (!currentUser) return false;
-    
-    // Le super admin peut toujours supprimer
-    if (currentUser.role === 'admin') {
-      return true;
-    }
+  const capModify = (p: any) =>
+    p.capabilities?.canModify ??
+    (currentUser?.role === 'admin' ||
+      p.proprietaireId === currentUser?.id ||
+      p.createdById === currentUser?.id);
 
-    // Le propriétaire ou le créateur peut supprimer
-    return p.proprietaireId === currentUser.id || p.createdById === currentUser.id;
-  };
+  const capDelete = (p: any) =>
+    p.capabilities?.canDelete ??
+    (currentUser?.role === 'admin' ||
+      p.proprietaireId === currentUser?.id ||
+      p.createdById === currentUser?.id);
 
-  const canAccessProcessus = (p: any): boolean => {
-    if (!currentUser) return false;
-    
-    // Si le processus est archivé ou obsolète, seuls le super admin, le propriétaire ou le créateur peuvent y accéder
-    if (p.statut === 'archive' || p.statut === 'obsolete') {
-      // Le super admin peut toujours accéder
-      if (currentUser.role === 'admin') {
-        return true;
-      }
-
-      // Le propriétaire ou le créateur peut accéder
-      return p.proprietaireId === currentUser.id || p.createdById === currentUser.id;
-    }
-
-    // Pour les autres statuts, tout le monde peut accéder
-    return true;
+  const capManagePermissions = (p: any) => {
+    if (p.capabilities?.canManagePermissions != null) return !!p.capabilities.canManagePermissions;
+    return (
+      currentUser?.role === 'admin' ||
+      p.proprietaireId === currentUser?.id ||
+      p.createdById === currentUser?.id
+    );
   };
 
   const handleDelete = async (processusId: string, processusNom: string) => {
-    // Message de confirmation
-    if (!window.confirm(`Êtes-vous sûr de vouloir supprimer le processus "${processusNom}" ? Cette action est irréversible.`)) {
+    if (
+      !window.confirm(
+        `Mettre le processus « ${processusNom} » en corbeille ? (restauration possible ; suppression définitive depuis la corbeille)`
+      )
+    ) {
       return;
     }
-
     setDeletingId(processusId);
     try {
       await api.delete(`/processus/${processusId}`);
-      // Message de succès
-      alert(`Le processus "${processusNom}" a été supprimé avec succès.`);
-      // Recharger la liste
-      loadProcessus();
+      await loadProcessus();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Erreur lors de la suppression du processus');
+      alert(err.response?.data?.error || 'Erreur lors de la mise en corbeille');
     } finally {
       setDeletingId(null);
     }
   };
 
+  const onAccesButtonClick = (p: any) => {
+    if (!capManagePermissions(p)) {
+      setNoAccesModalOpen(true);
+      return;
+    }
+    void openAccesModal(p);
+  };
+
+  const openAccesModal = async (p: any) => {
+    setAccesModalProc(p);
+    setAccesDetail(null);
+    setNewPermUserId('');
+    setNewPermType('lecture');
+    setAccesLoading(true);
+    try {
+      const { data } = await api.get(`/processus/${p.id}/acces`);
+      setAccesDetail(data);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur chargement accès');
+      setAccesModalProc(null);
+    } finally {
+      setAccesLoading(false);
+    }
+  };
+
+  const refreshAccesDetail = async (processusId: string) => {
+    const { data } = await api.get(`/processus/${processusId}/acces`);
+    setAccesDetail(data);
+  };
+
+  const handleAddPermission = async () => {
+    if (!accesModalProc || !newPermUserId) return;
+    try {
+      await api.post(`/processus/${accesModalProc.id}/permissions`, {
+        userId: newPermUserId,
+        permission: newPermType,
+      });
+      setNewPermUserId('');
+      await refreshAccesDetail(accesModalProc.id);
+      await loadProcessus();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleRemovePermissionEntry = async (permissionEntryId: string) => {
+    if (!accesModalProc || !confirm('Retirer ce droit ?')) return;
+    try {
+      await api.delete(`/processus/${accesModalProc.id}/permissions/${permissionEntryId}`);
+      await refreshAccesDetail(accesModalProc.id);
+      await loadProcessus();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const openHistoriqueModal = async (p: any) => {
+    setHistModalProc(p);
+    setHistoList([]);
+    setHistoLoading(true);
+    try {
+      const { data } = await api.get(`/processus/${p.id}/history`, { params: { page: 1, limit: 80 } });
+      setHistoList(data?.data || []);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur chargement historique');
+      setHistModalProc(null);
+    } finally {
+      setHistoLoading(false);
+    }
+  };
 
   const statuts = [
     { value: 'brouillon', label: 'Brouillon', color: 'bg-gray-100 text-gray-800' },
@@ -205,13 +351,11 @@ export default function Processus() {
     e.preventDefault();
     setError('');
     setSubmitting(true);
-
     try {
       if (!formData.nom || !formData.codeProcessus) {
         setError('Le nom et le code sont obligatoires');
         return;
       }
-
       await api.post('/processus', {
         nom: formData.nom,
         codeProcessus: formData.codeProcessus,
@@ -220,7 +364,6 @@ export default function Processus() {
         categorieIds: formData.categorieIds || [],
         proprietaireId: formData.proprietaireId || undefined,
       });
-
       setShowModal(false);
       setFormData({
         nom: '',
@@ -230,7 +373,7 @@ export default function Processus() {
         categorieIds: [],
         proprietaireId: '',
       });
-      loadProcessus();
+      await loadProcessus();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Erreur lors de la création');
     } finally {
@@ -238,119 +381,467 @@ export default function Processus() {
     }
   };
 
-  if (loading) return <div className="p-6">Chargement...</div>;
+  const totalPages = Math.max(1, Math.ceil(processusList.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const startIdx = (safePage - 1) * PAGE_SIZE;
+  const pageSlice = processusList.slice(startIdx, startIdx + PAGE_SIZE);
 
-  const totalPages = Math.max(1, Math.ceil(processus.length / pageSize));
-  const startIdx = (page - 1) * pageSize;
-  const pagedProcessus = processus.slice(startIdx, startIdx + pageSize);
-  const getPageNumbers = () => {
-    const pages: (number | string)[] = [];
-    if (totalPages <= 7) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-      return pages;
-    }
-    const addRange = (start: number, end: number) => {
-      for (let i = start; i <= end; i++) pages.push(i);
-    };
-    if (page <= 4) {
-      addRange(1, 5);
-      pages.push('...');
-      pages.push(totalPages);
-    } else if (page >= totalPages - 3) {
-      pages.push(1);
-      pages.push('...');
-      addRange(totalPages - 4, totalPages);
-    } else {
-      pages.push(1);
-      pages.push('...');
-      addRange(page - 1, page + 1);
-      pages.push('...');
-      pages.push(totalPages);
-    }
-    return pages;
+  const droitsAdminLigne = 'consultation, modification, mise en corbeille, gestion des accès';
+
+  const tokenQs = () => {
+    const t = localStorage.getItem('token');
+    return t ? `?token=${encodeURIComponent(t)}` : '';
   };
 
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-6 text-center text-gray-400">Chargement...</div>
+    );
+  }
+
   return (
-    <div className="p-6">
+    <div className="max-w-7xl mx-auto px-4 py-6">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Processus</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Processus</h1>
+          <p className="text-sm text-gray-500 mt-1">{processusList.length} processus accessible(s)</p>
+        </div>
         {!isLecteur && (
           <button
+            type="button"
             onClick={() => setShowModal(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
           >
-            Nouveau processus
+            + Nouveau processus
           </button>
         )}
       </div>
 
-      {/* Filtres */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Recherche</label>
-            <input
-              type="text"
-              value={filters.search}
-              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-              placeholder="Nom, code, description, tags"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Statut</label>
-            <select
-              value={filters.statut}
-              onChange={(e) => setFilters({ ...filters, statut: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="">Tous</option>
-              {statuts.map(s => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Entité</label>
-            <select
-              value={filters.entiteId}
-              onChange={(e) => setFilters({ ...filters, entiteId: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="">Toutes</option>
-              {entites.map((entite) => (
-                <option key={entite.id} value={entite.id}>
-                  {entite.nom}{entite.code ? ` (${entite.code})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Catégorie</label>
-            <select
-              value={filters.categorieId}
-              onChange={(e) => setFilters({ ...filters, categorieId: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="">Toutes</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>{cat.nom}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="flex justify-end mt-4">
+      <div className="mb-5">
+        <div className="flex gap-3 mb-2 flex-wrap">
+          <input
+            type="text"
+            value={filters.search}
+            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+            placeholder="🔍 Rechercher (nom, code, description, tags)…"
+            className="flex-1 min-w-[200px] px-3 py-2 border border-gray-300 rounded-lg text-sm"
+          />
           <button
             type="button"
-            onClick={() => setFilters({ search: '', statut: '', entiteId: '', categorieId: '' })}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+            onClick={() => setShowFiltres(!showFiltres)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+              showFiltres
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+            }`}
           >
-            Réinitialiser
+            🔧 Filtres{' '}
+            {(filters.statut || filters.entiteId || filters.categorieId) ? '●' : ''}
           </button>
+          <button
+            type="button"
+            onClick={() =>
+              setFilters({ search: '', statut: '', entiteId: '', categorieId: '' })
+            }
+            className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg bg-white"
+          >
+            ✕ Réinitialiser
+          </button>
+          {sortConfig && (
+            <button
+              type="button"
+              onClick={resetSort}
+              className="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white text-gray-700 hover:bg-gray-50"
+            >
+              Réinitialiser le tri
+            </button>
+          )}
         </div>
+        {showFiltres && (
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Statut</label>
+              <select
+                value={filters.statut}
+                onChange={(e) => setFilters({ ...filters, statut: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+              >
+                <option value="">Tous</option>
+                {statuts.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Entité</label>
+              <select
+                value={filters.entiteId}
+                onChange={(e) => setFilters({ ...filters, entiteId: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+              >
+                <option value="">Toutes</option>
+                {entites.map((entite) => (
+                  <option key={entite.id} value={entite.id}>
+                    {entite.nom}
+                    {entite.code ? ` (${entite.code})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Catégorie</label>
+              <select
+                value={filters.categorieId}
+                onChange={(e) => setFilters({ ...filters, categorieId: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+              >
+                <option value="">Toutes</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.nom}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Modal de création */}
+      <div className="flex flex-wrap gap-2 mb-4 text-xs text-gray-600">
+        <span className="font-medium">Tri rapide :</span>
+        {(['codeProcessus', 'nom', 'statut', 'proprietaire', 'entites', 'categories'] as const).map(
+          (k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => handleSort(k)}
+              className={`px-2 py-1 rounded border ${
+                sortConfig?.key === k ? 'bg-blue-50 border-blue-300' : 'border-gray-200 bg-white'
+              }`}
+            >
+              {k === 'codeProcessus'
+                ? 'Code'
+                : k === 'proprietaire'
+                  ? 'Propriétaire'
+                  : k === 'entites'
+                    ? 'Entités'
+                    : k === 'categories'
+                      ? 'Catégories'
+                      : k}
+              {sortConfig?.key === k ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : ''}
+            </button>
+          )
+        )}
+      </div>
+
+      <div className="space-y-4">
+        {pageSlice.length === 0 && (
+          <div className="text-center py-10 text-gray-400">Aucun processus trouvé</div>
+        )}
+        {pageSlice.map((p) => {
+          const currentStatut = statuts.find((s) => s.value === p.statut);
+          const rows = delegationsRowsForCard(p);
+          const actifAdmins = users.filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'));
+          const creatorId = p.createdById || p.createdBy?.id;
+
+          return (
+            <div key={p.id} className="bg-white rounded-lg shadow p-5">
+              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-medium ${currentStatut?.color || 'bg-gray-100 text-gray-800'}`}
+                    >
+                      {currentStatut?.label || p.statut}
+                    </span>
+                    <h2 className="text-lg font-semibold text-gray-900">{p.nom}</h2>
+                    <span className="text-sm text-gray-500 font-mono">{p.codeProcessus}</span>
+                  </div>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600">
+                    <div>
+                      <span className="font-medium">Documents : </span>
+                      <span className="text-blue-700 font-semibold">{p.nombreDocuments ?? 0}</span>
+                    </div>
+                    <div>
+                      <span className="font-medium">Tâches liées : </span>
+                      <span>{p.tachesLieesTotal ?? 0}</span>
+                      <span className="text-gray-400 text-xs"> (projets partageant une entité)</span>
+                    </div>
+                    {p.proprietaire && (
+                      <div>
+                        <span className="font-medium">Propriétaire : </span>
+                        {p.proprietaire.prenom} {p.proprietaire.nom}
+                      </div>
+                    )}
+                    {p.createdBy && (
+                      <div>
+                        <span className="font-medium">Créé par : </span>
+                        {p.createdBy.prenom} {p.createdBy.nom}
+                      </div>
+                    )}
+                  </div>
+                  {p.description && (
+                    <p className="text-sm text-gray-600 mt-2 line-clamp-2">{p.description}</p>
+                  )}
+
+                  {p.entites?.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-xs font-medium text-gray-500 uppercase mb-1">Entités</p>
+                      <div className="flex flex-wrap gap-1">
+                        {p.entites.map((pe: any) => {
+                          const eid = pe.entite?.id || pe.entiteId;
+                          return (
+                            <button
+                              key={eid}
+                              type="button"
+                              onClick={() => eid && navigate(`/entites/${eid}`)}
+                              className="px-2 py-0.5 bg-teal-100 text-teal-800 rounded text-xs hover:bg-teal-200"
+                            >
+                              🏢 {pe.entite?.nom || '—'}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {p.categories?.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {p.categories.map((pc: any) => (
+                        <span
+                          key={pc.categorie?.id || pc.categorieId}
+                          className="px-2 py-0.5 text-xs rounded"
+                          style={{
+                            backgroundColor: pc.categorie?.couleur ? `${pc.categorie.couleur}20` : '#E5E7EB',
+                            color: pc.categorie?.couleur || '#374151',
+                          }}
+                        >
+                          {pc.categorie?.nom}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {(p.documentsListe?.length > 0 || p.licencesListe?.length > 0 || p.projetsListe?.length > 0) && (
+                    <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+                      {p.documentsListe?.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-gray-500 uppercase mb-1">Documents liés</p>
+                          <div className="flex flex-wrap gap-1">
+                            {p.documentsListe.map((d: any) => (
+                              <a
+                                key={d.id}
+                                href={`${API_BASE_URL}/documents/${d.id}/view${tokenQs()}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-2 py-0.5 bg-gray-100 rounded text-xs text-blue-600 hover:underline"
+                              >
+                                📎 {d.nom}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {p.licencesListe?.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-gray-500 uppercase mb-1">Licences</p>
+                          <div className="flex flex-wrap gap-1">
+                            {p.licencesListe.map((l: any) => (
+                              <span
+                                key={l.id}
+                                className="px-2 py-0.5 bg-amber-50 text-amber-900 rounded text-xs border border-amber-100"
+                              >
+                                📜 {l.nom} ({l.reference})
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {p.projetsListe?.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-gray-500 uppercase mb-1">Projets (entités communes)</p>
+                          <div className="flex flex-wrap gap-1">
+                            {p.projetsListe.map((pr: any) => (
+                              <button
+                                key={pr.id}
+                                type="button"
+                                onClick={() => navigate(`/projets/${pr.id}`)}
+                                className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs hover:bg-purple-200"
+                              >
+                                📁 {pr.nom}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex flex-wrap items-start gap-2 sm:gap-3 text-xs text-gray-700 border border-slate-100 rounded-lg px-3 py-2.5 bg-slate-50/90">
+                    <span className="font-semibold text-gray-600 uppercase shrink-0 pt-0.5">Accès :</span>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0 flex-1">
+                      {isAccesRestreintProcessus(p) ? (
+                        <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-red-50 border border-red-100 text-red-900 shrink-0">
+                          <span className="text-sm leading-none" aria-hidden>
+                            🔒
+                          </span>
+                          <span className="text-[10px] font-semibold leading-tight mt-0.5 text-center">
+                            Accès restreint
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-green-50 border border-green-100 text-green-900 shrink-0">
+                          <span className="text-[10px] font-semibold leading-tight text-center">Accès élargi</span>
+                        </div>
+                      )}
+                      {actifAdmins.map((a: any) => {
+                        const isCreator = creatorId === a.id;
+                        return (
+                          <div key={`adm-${p.id}-${a.id}`} className="min-w-0">
+                            <span className="font-medium text-gray-900">
+                              {a.prenom} {a.nom}
+                            </span>
+                            <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                              {isCreator
+                                ? `(Administrateur et créateur : ${droitsAdminLigne})`
+                                : `(Admin : ${droitsAdminLigne})`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      {p.createdBy && creatorId && !actifAdmins.some((a: any) => a.id === creatorId) && (
+                        <div className="min-w-0">
+                          <span className="font-medium text-gray-900">
+                            {p.createdBy.prenom} {p.createdBy.nom}
+                          </span>
+                          <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                            (Créateur : {droitsAdminLigne})
+                          </span>
+                        </div>
+                      )}
+                      {rows.map((r: any) => (
+                        <div key={r.key} className="min-w-0">
+                          <span className="font-medium text-gray-900">
+                            {r.user.prenom} {r.user.nom}
+                          </span>
+                          <span className="text-gray-500 italic block sm:inline sm:ml-1">({r.label})</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/processus/${p.id}`)}
+                    className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
+                  >
+                    📋 Détails
+                  </button>
+                  {capModify(p) && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/processus/${p.id}`, { state: { openEdit: true } })}
+                      className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                    >
+                      ✏️ Modifier
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onAccesButtonClick(p)}
+                    className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
+                  >
+                    🔐 Accès
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openHistoriqueModal(p)}
+                    className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                  >
+                    📜 Historique
+                  </button>
+                  {capDelete(p) && (
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(p.id, p.nom)}
+                      disabled={deletingId === p.id}
+                      className={`px-3 py-1.5 text-xs rounded ${
+                        deletingId === p.id
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : 'bg-red-100 text-red-700 hover:bg-red-200'
+                      }`}
+                    >
+                      {deletingId === p.id ? '…' : '🗑 Mettre en corbeille'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {processusList.length > PAGE_SIZE && (
+        <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4 flex-wrap gap-3">
+          <div className="text-sm text-gray-700">
+            Affichage {startIdx + 1}-{Math.min(startIdx + PAGE_SIZE, processusList.length)} sur{' '}
+            {processusList.length}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((pg) => Math.max(1, pg - 1))}
+              disabled={safePage === 1}
+              className={`px-4 py-2 rounded text-sm font-medium ${
+                safePage === 1
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
+            >
+              Précédent
+            </button>
+            <div className="flex gap-1 flex-wrap items-center">
+              {getPaginationPageNumbers(safePage, totalPages).map((pg, idx) =>
+                typeof pg === 'string' ? (
+                  <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">
+                    {pg}
+                  </span>
+                ) : (
+                  <button
+                    key={pg}
+                    type="button"
+                    onClick={() => setPage(pg)}
+                    className={`px-3 py-2 rounded text-sm font-medium ${
+                      safePage === pg
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {pg}
+                  </button>
+                )
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setPage((pg) => Math.min(totalPages, pg + 1))}
+              disabled={safePage === totalPages}
+              className={`px-4 py-2 rounded text-sm font-medium ${
+                safePage === totalPages
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
+            >
+              Suivant
+            </button>
+          </div>
+        </div>
+      )}
+
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto py-4">
           <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 my-auto">
@@ -358,6 +849,7 @@ export default function Processus() {
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold">Nouveau processus</h2>
                 <button
+                  type="button"
                   onClick={() => {
                     setShowModal(false);
                     setError('');
@@ -375,67 +867,51 @@ export default function Processus() {
                   ✕
                 </button>
               </div>
-
               {error && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded">
-                  {error}
-                </div>
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded">{error}</div>
               )}
-
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nom * <span className="text-red-500">*</span>
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nom *</label>
                   <input
                     type="text"
                     required
                     value={formData.nom}
                     onChange={(e) => setFormData({ ...formData, nom: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Nom du processus"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Code processus <span className="text-red-500">*</span>
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Code processus *</label>
                   <input
                     type="text"
                     required
                     value={formData.codeProcessus}
-                    onChange={(e) => setFormData({ ...formData, codeProcessus: e.target.value.toUpperCase() })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="PROC-001"
+                    onChange={(e) =>
+                      setFormData({ ...formData, codeProcessus: e.target.value.toUpperCase() })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
                   <textarea
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Description du processus"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Entité(s)
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Entité(s)</label>
                   <select
                     multiple
                     value={formData.entiteIds}
                     onChange={(e) => {
-                      const selected = Array.from(e.target.selectedOptions, option => option.value);
+                      const selected = Array.from(e.target.selectedOptions, (o) => o.value);
                       setFormData({ ...formData, entiteIds: selected });
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     size={5}
                   >
                     {entites.map((entite) => (
@@ -444,35 +920,17 @@ export default function Processus() {
                       </option>
                     ))}
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Maintenez Ctrl (ou Cmd sur Mac) pour sélectionner plusieurs entités
-                  </p>
-                  {formData.entiteIds.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {formData.entiteIds.map((entiteId) => {
-                        const entite = entites.find(e => e.id === entiteId);
-                        return entite ? (
-                          <span key={entiteId} className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">
-                            {entite.nom} ({entite.code})
-                          </span>
-                        ) : null;
-                      })}
-                    </div>
-                  )}
                 </div>
-
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Catégorie(s)
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Catégorie(s)</label>
                   <select
                     multiple
                     value={formData.categorieIds}
                     onChange={(e) => {
-                      const selected = Array.from(e.target.selectedOptions, option => option.value);
+                      const selected = Array.from(e.target.selectedOptions, (o) => o.value);
                       setFormData({ ...formData, categorieIds: selected });
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     size={5}
                   >
                     {categories.map((cat) => (
@@ -481,54 +939,22 @@ export default function Processus() {
                       </option>
                     ))}
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Maintenez Ctrl (ou Cmd sur Mac) pour sélectionner plusieurs catégories
-                  </p>
-                  {formData.categorieIds.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {formData.categorieIds.map((categorieId) => {
-                        const categorie = categories.find(c => c.id === categorieId);
-                        return categorie ? (
-                          <span
-                            key={categorieId}
-                            className="px-2 py-1 text-xs rounded flex items-center gap-1"
-                            style={{ 
-                              backgroundColor: categorie.couleur ? `${categorie.couleur}20` : '#E5E7EB',
-                              color: categorie.couleur || '#374151',
-                            }}
-                          >
-                            {categorie.icone && <span>{categorie.icone}</span>}
-                            <span>{categorie.nom}</span>
-                          </span>
-                        ) : null;
-                      })}
-                    </div>
-                  )}
                 </div>
-
                 <div className="flex justify-end space-x-3 pt-4">
                   <button
                     type="button"
                     onClick={() => {
                       setShowModal(false);
                       setError('');
-                      setFormData({
-                        nom: '',
-                        codeProcessus: '',
-                        description: '',
-                        entiteIds: [],
-                        categorieIds: [],
-                        proprietaireId: '',
-                      });
                     }}
-                    className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                    className="px-4 py-2 border border-gray-300 rounded-md"
                   >
                     Annuler
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md disabled:opacity-50"
                   >
                     {submitting ? 'Création...' : 'Créer'}
                   </button>
@@ -539,221 +965,222 @@ export default function Processus() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="flex justify-between items-center p-4 border-b">
-          <h2 className="text-lg font-semibold">Liste des processus</h2>
-          {sortConfig && (
-            <button
-              onClick={resetSort}
-              className="px-3 py-1 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-              title="Réinitialiser le tri"
-            >
-              Réinitialiser le tri
-            </button>
-          )}
-        </div>
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('codeProcessus')}
-              >
-                <div className="flex items-center gap-1">
-                  Code
-                  {sortConfig?.key === 'codeProcessus' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
+      {accesModalProc && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-6">
+          <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
+            <h3 className="text-xl font-semibold mb-2">Accès — {accesModalProc.nom}</h3>
+            <p className="text-sm text-gray-600 mb-5 leading-relaxed">
+              Les comptes <span className="font-medium">administrateur</span> ont tous les droits. Le{' '}
+              <span className="font-medium">créateur</span> et le <span className="font-medium">propriétaire</span>{' '}
+              peuvent modifier, mettre en corbeille et gérer les accès délégués (selon les règles métier).
+            </p>
+            {accesLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : accesDetail ? (
+              <div className="space-y-5 text-sm">
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    Administrateurs
+                  </p>
+                  <ul className="space-y-1.5 text-gray-700">
+                    {(accesDetail.admins || []).map((a: any) => (
+                      <li key={a.id}>
+                        <span className="font-medium">
+                          {a.prenom} {a.nom}
+                        </span>
+                        <span className="text-gray-400"> (accès complet)</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-              </th>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('nom')}
-              >
-                <div className="flex items-center gap-1">
-                  Nom
-                  {sortConfig?.key === 'nom' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </div>
-              </th>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('statut')}
-              >
-                <div className="flex items-center gap-1">
-                  Statut
-                  {sortConfig?.key === 'statut' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </div>
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documents</th>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('categories')}
-              >
-                <div className="flex items-center gap-1">
-                  Catégorie
-                  {sortConfig?.key === 'categories' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </div>
-              </th>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('entites')}
-              >
-                <div className="flex items-center gap-1">
-                  Entité
-                  {sortConfig?.key === 'entites' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </div>
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {pagedProcessus.map((p) => {
-              const currentStatut = statuts.find(s => s.value === p.statut);
-              return (
-                <tr key={p.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{p.codeProcessus}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    {canAccessProcessus(p) ? (
-                      <button
-                        onClick={() => navigate(`/processus/${p.id}`)}
-                        className="text-blue-600 hover:text-blue-800 hover:underline"
-                      >
-                        {p.nom}
-                      </button>
-                    ) : (
-                      <span
-                        className="text-gray-400 cursor-not-allowed"
-                        title={`Vous ne pouvez plus accéder à ce processus car son statut est "${p.statut === 'archive' ? 'Archivé' : 'Obsolète'}". Seuls le super admin, le propriétaire ou le créateur peuvent accéder aux processus archivés ou obsolètes.`}
-                      >
-                        {p.nom}
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Créateur</p>
+                  {accesDetail.creator ? (
+                    <p>
+                      <span className="font-medium">
+                        {accesDetail.creator.prenom} {accesDetail.creator.nom}
                       </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs rounded ${
-                      currentStatut?.color || 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {currentStatut?.label || p.statut}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
-                    <span className="px-2 py-1 text-xs font-semibold bg-blue-100 text-blue-800 rounded">
-                      {p.nombreDocuments || 0}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    {p.categories && p.categories.length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {p.categories.slice(0, 2).map((pc: any) => (
-                          <span
-                            key={pc.categorie?.id || pc.categorieId}
-                            className="px-2 py-1 text-xs rounded flex items-center gap-1"
-                            style={{ 
-                              backgroundColor: pc.categorie?.couleur ? `${pc.categorie.couleur}20` : '#E5E7EB',
-                              color: pc.categorie?.couleur || '#374151',
-                            }}
-                          >
-                            {pc.categorie?.icone && <span>{pc.categorie.icone}</span>}
-                            <span>{pc.categorie?.nom || '-'}</span>
-                          </span>
-                        ))}
-                        {p.categories.length > 2 && (
-                          <span className="text-xs text-gray-500">+{p.categories.length - 2}</span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-gray-400 italic">N/A</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    {p.entites && p.entites.length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {p.entites.slice(0, 2).map((pe: any) => (
-                          <span key={pe.entite?.id || pe.entiteId} className="text-xs">
-                            {pe.entite?.nom || '-'}
-                          </span>
-                        ))}
-                        {p.entites.length > 2 && (
-                          <span className="text-xs text-gray-500">+{p.entites.length - 2}</span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-gray-400 italic">N/A</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    {canDeleteProcessus(p) ? (
-                      <button
-                        onClick={() => handleDelete(p.id, p.nom)}
-                        disabled={deletingId === p.id}
-                        className={`px-3 py-1 text-xs rounded ${
-                          deletingId === p.id
-                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-red-100 text-red-700 hover:bg-red-200'
-                        }`}
-                        title="Supprimer le processus"
-                      >
-                        {deletingId === p.id ? 'Suppression...' : 'Supprimer'}
-                      </button>
-                    ) : (
-                      <span className="text-gray-400 text-xs">-</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {processus.length === 0 && (
-          <div className="text-center py-8 text-gray-500">Aucun processus</div>
-        )}
-        {processus.length > pageSize && (
-          <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4">
-            <div className="text-sm text-gray-700">
-              Affichage {startIdx + 1}-{Math.min(startIdx + pageSize, processus.length)} sur {processus.length}
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className={`px-4 py-2 rounded text-sm font-medium ${page === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-              >
-                Précédent
-              </button>
-              <div className="flex gap-1">
-                {getPageNumbers().map((p, idx) => (
-                  typeof p === 'string' ? (
-                    <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">{p}</span>
+                      <span className="text-gray-400"> — droits étendus sur le processus</span>
+                    </p>
                   ) : (
-                    <button
-                      key={p as number}
-                      onClick={() => setPage(p as number)}
-                      className={`px-3 py-2 rounded text-sm font-medium ${page === p ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
-                    >
-                      {p}
-                    </button>
-                  )
-                ))}
+                    <p className="text-amber-800 text-sm">Créateur non résolu (processus système ou sans créateur).</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    Droits délégués
+                  </p>
+                  {(accesDetail.delegations || []).length === 0 ? (
+                    <p className="text-gray-400 text-xs italic">Aucun droit délégué</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {(accesDetail.delegations || []).map((d: any) => (
+                        <li
+                          key={d.id}
+                          className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50"
+                        >
+                          <span className="font-medium">
+                            {d.user.prenom} {d.user.nom}
+                          </span>
+                          <span className="text-gray-500">
+                            — {PERMISSION_LABELS[d.permission] || d.permission}
+                          </span>
+                          {accesDetail.canManagePermissions && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemovePermissionEntry(d.id)}
+                              className="text-xs text-red-600 hover:underline ml-auto"
+                            >
+                              Retirer
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {accesDetail.canManagePermissions && (
+                  <div className="border-t border-gray-200 pt-4 space-y-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      Accorder un droit
+                    </p>
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3 items-end">
+                      <select
+                        value={newPermUserId}
+                        onChange={(e) => setNewPermUserId(e.target.value)}
+                        className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        <option value="">— Utilisateur —</option>
+                        {users
+                          .filter(
+                            (u: any) =>
+                              (!u.statut || u.statut === 'actif') &&
+                              u.role !== 'admin' &&
+                              u.id !== accesDetail.creator?.id &&
+                              u.id !== accesModalProc.proprietaireId
+                          )
+                          .map((u: any) => (
+                            <option key={u.id} value={u.id}>
+                              {u.prenom} {u.nom} ({u.email})
+                            </option>
+                          ))}
+                      </select>
+                      <select
+                        value={newPermType}
+                        onChange={(e) => setNewPermType(e.target.value)}
+                        className="w-full lg:w-56 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        {PERM_OPTIONS.map((n) => (
+                          <option key={n.value} value={n.value}>
+                            {n.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleAddPermission}
+                        disabled={!newPermUserId}
+                        className="w-full lg:w-auto px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shrink-0"
+                      >
+                        Ajouter
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
+            ) : null}
+            <div className="flex justify-end mt-4">
               <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className={`px-4 py-2 rounded text-sm font-medium ${page === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                type="button"
+                onClick={() => setAccesModalProc(null)}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
               >
-                Suivant
+                Fermer
               </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {histModalProc && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">Historique — {histModalProc.nom}</h3>
+            {histoLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : histoList.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">Aucun événement enregistré</p>
+            ) : (
+              <ul className="space-y-3 text-sm">
+                {histoList.map((h: any) => (
+                  <li key={h.id} className="border-b border-gray-100 pb-2">
+                    <div className="flex flex-wrap justify-between gap-1 text-xs text-gray-500">
+                      <span>{new Date(h.timestamp).toLocaleString('fr-FR')}</span>
+                      <span>
+                        {h.user?.prenom} {h.user?.nom}
+                      </span>
+                    </div>
+                    <p className="font-medium text-gray-800">
+                      {LABEL_LOG_ACTION[h.action] || h.action}
+                      {h.ressourceType && (
+                        <span className="text-gray-500 font-normal">
+                          {' '}
+                          · {LABEL_RESSOURCE[h.ressourceType] || h.ressourceType}
+                        </span>
+                      )}
+                    </p>
+                    {h.ressourceNom && <p className="text-gray-600 text-xs mt-0.5">{h.ressourceNom}</p>}
+                    {h.details != null && (
+                      <pre className="text-xs bg-gray-50 rounded p-2 mt-1 overflow-x-auto max-h-32">
+                        {typeof h.details === 'string' ? h.details : JSON.stringify(h.details, null, 2)}
+                      </pre>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex justify-end mt-4">
+              <button
+                type="button"
+                onClick={() => setHistModalProc(null)}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {noAccesModalOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setNoAccesModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Gestion des accès</h3>
+            <p className="text-sm text-gray-600 leading-relaxed">
+              Vous n&apos;avez pas les droits nécessaires pour gérer les accès de ce processus. Seuls les
+              administrateurs, le propriétaire, le créateur ou les utilisateurs avec la permission « gestion »
+              peuvent modifier les droits délégués.
+            </p>
+            <div className="flex justify-end mt-5">
+              <button
+                type="button"
+                onClick={() => setNoAccesModalOpen(false)}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
