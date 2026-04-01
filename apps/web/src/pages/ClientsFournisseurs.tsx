@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
+import { getPaginationPageNumbers } from '../utils/pagination';
 
 function isoToDateInput(iso: string | null | undefined): string {
   if (!iso) return '';
@@ -67,6 +68,8 @@ export default function ClientsFournisseurs() {
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [showProjetSelect, setShowProjetSelect] = useState<string | null>(null);
@@ -119,6 +122,10 @@ export default function ClientsFournisseurs() {
   };
 
   useEffect(() => { load(); }, [typeFilter, search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [typeFilter, search]);
 
   useEffect(() => {
     (async () => {
@@ -304,6 +311,11 @@ export default function ClientsFournisseurs() {
     load();
   };
 
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const startIdx = (safePage - 1) * pageSize;
+  const pagedItems = items.slice(startIdx, startIdx + pageSize);
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
@@ -325,7 +337,7 @@ export default function ClientsFournisseurs() {
       {loading ? <div className="text-center py-10 text-gray-400">Chargement...</div> : (
         <div className="space-y-4">
           {items.length === 0 && <div className="text-center py-10 text-gray-400">Aucune fiche trouvée</div>}
-          {items.map(item => (
+          {pagedItems.map((item) => (
             <div key={item.id} className="bg-white rounded-lg shadow p-5">
               <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
                 <div className="flex-1 min-w-0">
@@ -524,6 +536,49 @@ export default function ClientsFournisseurs() {
               </div>
             </div>
           ))}
+          {items.length > pageSize && (
+            <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4 flex-wrap gap-3">
+              <div className="text-sm text-gray-700">
+                Affichage {startIdx + 1}-{Math.min(startIdx + pageSize, items.length)} sur {items.length}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={safePage === 1}
+                  className={`px-4 py-2 rounded text-sm font-medium ${safePage === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                >
+                  Précédent
+                </button>
+                <div className="flex gap-1 flex-wrap items-center">
+                  {getPaginationPageNumbers(safePage, totalPages).map((p, idx) =>
+                    typeof p === 'string' ? (
+                      <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">
+                        {p}
+                      </span>
+                    ) : (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setPage(p)}
+                        className={`px-3 py-2 rounded text-sm font-medium ${safePage === p ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safePage === totalPages}
+                  className={`px-4 py-2 rounded text-sm font-medium ${safePage === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                >
+                  Suivant
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

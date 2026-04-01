@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, API_BASE_URL } from '../services/api';
 import axios from 'axios';
 import { useAuth } from '../store/auth';
+import { getPaginationPageNumbers } from '../utils/pagination';
 
 const uploadApi = axios.create({ baseURL: API_BASE_URL });
 uploadApi.interceptors.request.use((config) => {
@@ -330,7 +331,8 @@ export default function Contrats() {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const pageSlice = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const startIdx = (safePage - 1) * PAGE_SIZE;
+  const pageSlice = filtered.slice(startIdx, startIdx + PAGE_SIZE);
 
   const alertes = contrats.filter((c) => c.dateExpiration && joursRestants(c.dateExpiration) <= 30 && joursRestants(c.dateExpiration) > 0);
 
@@ -343,7 +345,6 @@ export default function Contrats() {
           <h1 className="text-2xl font-bold text-gray-900">📄 Contrats</h1>
           <p className="text-sm text-gray-500 mt-1">
             {filtered.length} contrat(s) sur {contrats.length} accessible(s)
-            {filtered.length > PAGE_SIZE && ` — page ${safePage} / ${totalPages}`}
           </p>
         </div>
         <button onClick={openNew} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">+ Nouveau contrat</button>
@@ -551,10 +552,46 @@ export default function Contrats() {
           </div>
 
           {filtered.length > PAGE_SIZE && (
-            <div className="flex flex-wrap items-center justify-center gap-2 mt-6 pt-4 border-t border-gray-200">
-              <button type="button" disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-3 py-1.5 text-sm border rounded-md disabled:opacity-40 hover:bg-gray-50">Précédent</button>
-              <span className="text-sm text-gray-600 px-2">Page {safePage} / {totalPages}</span>
-              <button type="button" disabled={safePage >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="px-3 py-1.5 text-sm border rounded-md disabled:opacity-40 hover:bg-gray-50">Suivant</button>
+            <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4 flex-wrap gap-3">
+              <div className="text-sm text-gray-700">
+                Affichage {startIdx + 1}-{Math.min(startIdx + PAGE_SIZE, filtered.length)} sur {filtered.length}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={safePage === 1}
+                  className={`px-4 py-2 rounded text-sm font-medium ${safePage === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                >
+                  Précédent
+                </button>
+                <div className="flex gap-1 flex-wrap items-center">
+                  {getPaginationPageNumbers(safePage, totalPages).map((p, idx) =>
+                    typeof p === 'string' ? (
+                      <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">
+                        {p}
+                      </span>
+                    ) : (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setPage(p)}
+                        className={`px-3 py-2 rounded text-sm font-medium ${safePage === p ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safePage === totalPages}
+                  className={`px-4 py-2 rounded text-sm font-medium ${safePage === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                >
+                  Suivant
+                </button>
+              </div>
             </div>
           )}
         </>
