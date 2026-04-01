@@ -28,6 +28,7 @@ export default function ClientsFournisseurs() {
   const [repTarget, setRepTarget] = useState<any>(null);
   const [repEditingRep, setRepEditingRep] = useState<any | null>(null);
   const [repForm, setRepForm] = useState({ nom: '', prenom: '', fonction: '', statut: 'en_exercice', dateDebut: '', dateFin: '' });
+  const [usersList, setUsersList] = useState<any[]>([]);
 
   const emptyForm = { type: 'client', nom: '', typeSocieteId: '', matriculeFiscale: '', adresse: '', pays: '', projetIds: [] as string[] };
   const [form, setForm] = useState<any>(emptyForm);
@@ -50,6 +51,17 @@ export default function ClientsFournisseurs() {
   };
 
   useEffect(() => { load(); }, [typeFilter, search]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await api.get('/users');
+        setUsersList(Array.isArray(r.data) ? r.data : []);
+      } catch {
+        setUsersList([]);
+      }
+    })();
+  }, []);
 
   const openCreate = () => { setForm(emptyForm); setEditing(null); setShowModal(true); };
   const openEdit = (item: any) => {
@@ -122,15 +134,9 @@ export default function ClientsFournisseurs() {
     load();
   };
 
-  const droitsLigne = () => {
-    if (user?.role === 'admin') {
-      return 'Administrateur : vous pouvez ajouter, modifier ou supprimer la fiche, les représentants légaux, les projets et les contrats liés.';
-    }
-    if (user?.role === 'contributeur') {
-      return 'Contributeur : vous pouvez ajouter, modifier ou supprimer la fiche, les représentants légaux, les projets et les contrats liés.';
-    }
-    return 'Lecteur : consultation uniquement — pas d’ajout, de modification ni de suppression.';
-  };
+  const roleOrdre = (r: string) => (r === 'admin' ? 0 : r === 'contributeur' ? 1 : 2);
+  const libelleRoleAcces = (r: string) =>
+    r === 'admin' ? 'Admin' : r === 'contributeur' ? 'Contributeur' : 'Lecteur — consultation seule';
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -149,6 +155,31 @@ export default function ClientsFournisseurs() {
         </select>
       </div>
 
+      <div className="mb-6 text-xs text-gray-600 bg-slate-50 border border-slate-100 rounded-md px-3 py-2.5">
+        <p className="font-semibold text-slate-700 mb-1.5">Accès</p>
+        <div className="space-y-0.5">
+          {(() => {
+            const actifs = usersList.filter((u: any) => !u.statut || u.statut === 'actif');
+            if (actifs.length === 0) {
+              return <span className="italic text-gray-400">Liste des utilisateurs non disponible</span>;
+            }
+            const sorted = [...actifs].sort((a, b) => {
+              const d = roleOrdre(a.role) - roleOrdre(b.role);
+              if (d !== 0) return d;
+              const na = `${a.prenom || ''} ${a.nom || ''}`.trim().toLowerCase();
+              const nb = `${b.prenom || ''} ${b.nom || ''}`.trim().toLowerCase();
+              return na.localeCompare(nb, 'fr');
+            });
+            return sorted.map((u: any) => (
+              <div key={u.id}>
+                <span className="font-medium">{u.prenom} {u.nom}</span>{' '}
+                <span className="text-gray-400">({libelleRoleAcces(u.role)})</span>
+              </div>
+            ));
+          })()}
+        </div>
+      </div>
+
       {/* Liste */}
       {loading ? <div className="text-center py-10 text-gray-400">Chargement...</div> : (
         <div className="space-y-4">
@@ -163,10 +194,6 @@ export default function ClientsFournisseurs() {
                     </span>
                     <h2 className="text-lg font-semibold text-gray-900">{item.nom}</h2>
                   </div>
-                  <p className="text-xs text-gray-600 bg-slate-50 border border-slate-100 rounded-md px-2.5 py-2 mt-2 leading-relaxed">
-                    <span className="font-semibold text-slate-700">Qui peut agir sur cette fiche ?</span>{' '}
-                    {droitsLigne()}
-                  </p>
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm text-gray-600 mt-3">
                     {item.typeSociete && <div><span className="font-medium">Type : </span>{item.typeSociete.nom}</div>}
                     {item.matriculeFiscale && <div><span className="font-medium">MF/ID : </span>{item.matriculeFiscale}</div>}
