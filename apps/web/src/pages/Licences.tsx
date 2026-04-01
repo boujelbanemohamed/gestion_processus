@@ -33,21 +33,23 @@ const ACTION_JOURNAL: Record<string, string> = {
   export: 'Export',
 };
 
-function lignesResumeAcces(l: any) {
-  const lines: string[] = [];
-  lines.push('Administrateurs : lecture, modification, suppression');
-  if (l.createdBy) {
-    lines.push(`Créateur (${l.createdBy.prenom} ${l.createdBy.nom}) : tous droits`);
-  } else if (l.createdById) {
-    lines.push('Créateur : (utilisateur inconnu ou supprimé)');
-  }
-  (l.permissions || []).forEach((p: any) => {
-    const nom = p.user ? `${p.user.prenom} ${p.user.nom}` : 'Utilisateur';
-    const label = NIVEAUX.find((n) => n.value === p.niveau)?.label || p.niveau;
-    lines.push(`${nom} : ${label}`);
-  });
-  return lines;
+const LABEL_NIVEAU_ROW: Record<string, string> = {
+  lecture: 'lecture',
+  modification: 'modification',
+  suppression: 'suppression',
+};
+
+function niveauSummaryLicence(n: string) {
+  if (n === 'suppression') return 'modification + suppression + lecture';
+  if (n === 'modification') return 'modification + lecture';
+  return LABEL_NIVEAU_ROW[n] || n;
 }
+
+function isAccesRestreintLicence(l: any) {
+  return !!l.createdById || (l.permissions?.length ?? 0) > 0;
+}
+
+const droitsAdminLigneLicence = 'modification + suppression + gestion des accès + lecture';
 
 function joursRestants(date: string) {
   return Math.ceil((new Date(date).getTime() - Date.now()) / 86400000);
@@ -94,6 +96,10 @@ export default function Licences() {
   const [corbeilleLicences, setCorbeilleLicences] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [noAccesModalOpen, setNoAccesModalOpen] = useState(false);
+  const [histModalLicence, setHistModalLicence] = useState<any | null>(null);
+  const [histoListRow, setHistoListRow] = useState<any[]>([]);
+  const [histoLoadingRow, setHistoLoadingRow] = useState(false);
   const detailFileRef = useRef<HTMLInputElement>(null);
   const [detailDocUploading, setDetailDocUploading] = useState(false);
 
@@ -132,7 +138,33 @@ export default function Licences() {
     setLoading(false);
   };
 
-  const isOwner = (l: any) => user?.role === 'admin' || l.createdById === user?.id;
+  const canManagePermissionsLicence = (l: any) => user?.role === 'admin' || l.createdById === user?.id;
+
+  const onAccesButtonClick = (l: any) => {
+    if (!canManagePermissionsLicence(l)) {
+      setNoAccesModalOpen(true);
+      return;
+    }
+    setShowPermModal(l);
+    setPermForm({ userId: '', niveau: 'lecture' });
+  };
+
+  const openHistoriqueRowModal = async (l: any) => {
+    setHistModalLicence(l);
+    setHistoListRow([]);
+    setHistoLoadingRow(true);
+    try {
+      const r = await api.get(`/licences/${l.id}/history`);
+      setHistoListRow(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setHistoListRow([]);
+      alert('Impossible de charger l’historique.');
+      setHistModalLicence(null);
+    } finally {
+      setHistoLoadingRow(false);
+    }
+  };
+
   const canEditLicence = (l: any) => {
     if (user?.role === 'admin' || l.createdById === user?.id) return true;
     return l.permissions?.some((p: any) => p.userId === user?.id && ['modification','suppression'].includes(p.niveau));
@@ -224,7 +256,7 @@ export default function Licences() {
   };
 
   const handleDelete = async (id: string, nom: string) => {
-    if (!confirm(`Mettre « ${nom} » dans la corbeille ? Vous pourrez la restaurer depuis la corbeille (ou la page Licences > Corbeille).`)) return;
+    if (!confirm(`Mettre la licence « ${nom} » en corbeille ? Vous pourrez la restaurer depuis la corbeille.`)) return;
     try {
       await api.delete(`/licences/${id}`);
       await loadAll();
@@ -236,11 +268,25 @@ export default function Licences() {
   const handleAddPerm = async () => {
     if (!permForm.userId) return;
     await api.post(`/licences/${showPermModal.id}/permissions`, permForm);
-    setPermForm({ userId: '', niveau: 'lecture' }); loadAll();
+    setPermForm({ userId: '', niveau: 'lecture' });
+    try {
+      const res = await api.get(`/licences/${showPermModal.id}`);
+      setShowPermModal(res.data);
+    } catch {
+      /* ignore */
+    }
+    loadAll();
   };
 
   const handleRemovePerm = async (licenceId: string, userId: string) => {
-    await api.delete(`/licences/${licenceId}/permissions/${userId}`); loadAll();
+    await api.delete(`/licences/${licenceId}/permissions/${userId}`);
+    try {
+      const res = await api.get(`/licences/${licenceId}`);
+      setShowPermModal(res.data);
+    } catch {
+      setShowPermModal(null);
+    }
+    loadAll();
   };
 
   const handleAddComment = async () => {
@@ -332,8 +378,8 @@ export default function Licences() {
             const jours = l.dateFin ? joursRestants(l.dateFin) : null;
             return (
               <div key={l.id} className={`bg-white border rounded-lg p-4 shadow-sm ${jours !== null && jours <= 30 && jours > 0 ? 'border-orange-300' : 'border-gray-200'}`}>
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
+                <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${statut?.color}`}>{statut?.label}</span>
                       <h3 className="font-semibold text-gray-900 cursor-pointer hover:text-blue-600" onClick={() => openDetail(l)}>{l.nom}</h3>
@@ -353,31 +399,84 @@ export default function Licences() {
                       {l.processus && <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded">⚙️ {l.processus.nom}</span>}
                       {l.clientFournisseur && <span className="px-2 py-0.5 bg-green-50 text-green-700 rounded">🏢 {l.clientFournisseur.nom}</span>}
                     </div>
-                    <div className="mt-2 text-xs text-gray-600 space-y-0.5 border-t border-gray-100 pt-2">
-                      <p>
-                        <span className="font-medium text-gray-700">Créé par : </span>
-                        {l.createdBy ? (
-                          <span>{l.createdBy.prenom} {l.createdBy.nom}</span>
-                        ) : (
-                          <span className="text-amber-600">Non renseigné</span>
-                        )}
-                      </p>
-                      <p className="font-medium text-gray-700">Qui peut voir / modifier / supprimer :</p>
-                      <ul className="list-disc list-inside text-gray-600 space-y-0.5">
-                        {lignesResumeAcces(l).map((line, i) => (
-                          <li key={i}>{line}</li>
-                        ))}
-                      </ul>
-                      {l._count?.commentaires > 0 && (
-                        <p className="text-gray-400">💬 {l._count.commentaires} commentaire(s)</p>
+                    <p className="mt-2 text-sm text-gray-600">
+                      <span className="font-medium text-gray-700">Créé par : </span>
+                      {l.createdBy ? (
+                        <span>{l.createdBy.prenom} {l.createdBy.nom}</span>
+                      ) : (
+                        <span className="text-amber-600">Non renseigné</span>
                       )}
+                    </p>
+                    {l._count?.commentaires > 0 && (
+                      <p className="text-xs text-gray-400 mt-1">💬 {l._count.commentaires} commentaire(s)</p>
+                    )}
+
+                    <div className="mt-3 flex flex-wrap items-start gap-2 sm:gap-3 text-xs text-gray-700 border border-slate-100 rounded-lg px-3 py-2.5 bg-slate-50/90">
+                      <span className="font-semibold text-gray-600 uppercase shrink-0 pt-0.5">Accès :</span>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0 flex-1">
+                        {isAccesRestreintLicence(l) ? (
+                          <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-red-50 border border-red-100 text-red-900 shrink-0">
+                            <span className="text-sm leading-none" aria-hidden>🔒</span>
+                            <span className="text-[10px] font-semibold leading-tight mt-0.5 text-center">Accès restreint</span>
+                          </div>
+                        ) : (
+                          <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-green-50 border border-green-100 text-green-900 shrink-0">
+                            <span className="text-[10px] font-semibold leading-tight text-center">Accès élargi</span>
+                            <span className="text-[10px] text-green-800/90 text-center mt-0.5">Visibilité selon droits</span>
+                          </div>
+                        )}
+                        {(() => {
+                          const actifAdmins = users.filter(
+                            (u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif')
+                          );
+                          const creatorId = l.createdById || l.createdBy?.id;
+                          return (
+                            <>
+                              {actifAdmins.map((a: any) => {
+                                const isCreator = creatorId === a.id;
+                                return (
+                                  <div key={`adm-${l.id}-${a.id}`} className="min-w-0">
+                                    <span className="font-medium text-gray-900">{a.prenom} {a.nom}</span>
+                                    <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                      {isCreator
+                                        ? `(Administrateur et créateur : ${droitsAdminLigneLicence})`
+                                        : `(Admin : ${droitsAdminLigneLicence})`}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                              {l.createdBy && creatorId && !actifAdmins.some((a: any) => a.id === creatorId) && (
+                                <div className="min-w-0">
+                                  <span className="font-medium text-gray-900">{l.createdBy.prenom} {l.createdBy.nom}</span>
+                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">(Créateur : {droitsAdminLigneLicence})</span>
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
+                        {(l.permissions || []).map((p: any) => (
+                          <div key={p.id} className="min-w-0">
+                            <span className="font-medium text-gray-900">{p.user?.prenom} {p.user?.nom}</span>
+                            <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                              {p.niveau === 'lecture' ? (
+                                <>👁 ({NIVEAUX.find((n) => n.value === p.niveau)?.label} : {LABEL_NIVEAU_ROW[p.niveau] || p.niveau})</>
+                              ) : (
+                                <> ({NIVEAUX.find((n) => n.value === p.niveau)?.label} : {niveauSummaryLicence(p.niveau)})</>
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex flex-col gap-1 ml-4">
-                    <button type="button" onClick={() => openDetail(l)} className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200">👁 Détails</button>
-                    {canEditLicence(l) && <button type="button" onClick={() => openEdit(l)} className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">✏️ Modifier</button>}
-                    {isOwner(l) && <button type="button" onClick={() => { setShowPermModal(l); setPermForm({ userId: '', niveau: 'lecture' }); }} className="px-3 py-1 text-xs bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200">🔑 Accès</button>}
-                    {canSoftDelete(l) && <button type="button" onClick={() => handleDelete(l.id, l.nom)} className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">🗑 Corbeille</button>}
+                  <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
+                    <button type="button" onClick={() => openDetail(l)} className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200">👁 Détails</button>
+                    {canEditLicence(l) && <button type="button" onClick={() => openEdit(l)} className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">✏️ Modifier</button>}
+                    <button type="button" onClick={() => onAccesButtonClick(l)} className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200">🔐 Accès</button>
+                    <button type="button" onClick={() => openHistoriqueRowModal(l)} className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200">📜 Historique</button>
+                    {canSoftDelete(l) && (
+                      <button type="button" onClick={() => handleDelete(l.id, l.nom)} className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">🗑 Mettre en corbeille</button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -523,7 +622,13 @@ export default function Licences() {
                   className="flex-1 min-w-0 border border-gray-300 rounded-lg px-4 py-2.5 text-sm bg-white"
                 >
                   <option value="">Sélectionner un utilisateur</option>
-                  {users.filter((u: any) => u.id !== user?.id).map((u: any) => <option key={u.id} value={u.id}>{u.prenom} {u.nom}</option>)}
+                  {users
+                    .filter((u: any) => u.id !== user?.id && u.role !== 'admin' && (!u.statut || u.statut === 'actif'))
+                    .map((u: any) => (
+                      <option key={u.id} value={u.id}>
+                        {u.prenom} {u.nom}
+                      </option>
+                    ))}
                 </select>
                 <select
                   value={permForm.niveau}
@@ -551,6 +656,64 @@ export default function Licences() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {histModalLicence && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">Historique — {histModalLicence.nom}</h3>
+            <p className="text-xs text-gray-500 mb-3">Consultations, modifications et autres actions enregistrées dans le journal.</p>
+            {histoLoadingRow ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : histoListRow.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">Aucune entrée pour le moment.</p>
+            ) : (
+              <ul className="space-y-3 text-sm max-h-[min(60vh,480px)] overflow-y-auto">
+                {histoListRow.map((h: any) => (
+                  <li key={h.id} className="border-b border-gray-100 pb-2">
+                    <div className="flex flex-wrap justify-between gap-1 text-xs text-gray-500">
+                      <span>{h.timestamp ? new Date(h.timestamp).toLocaleString('fr-FR') : ''}</span>
+                      <span>{h.user ? `${h.user.prenom} ${h.user.nom}` : 'Utilisateur'}</span>
+                    </div>
+                    <p className="font-medium text-gray-800">{ACTION_JOURNAL[h.action] || h.action}</p>
+                    {h.ressourceNom && <p className="text-gray-600 text-xs mt-0.5">{h.ressourceNom}</p>}
+                    {h.details && typeof h.details === 'object' && Object.keys(h.details).length > 0 && (
+                      <pre className="text-xs bg-gray-50 rounded p-2 mt-1 overflow-x-auto max-h-32">{JSON.stringify(h.details, null, 2)}</pre>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex justify-end mt-4">
+              <button type="button" onClick={() => setHistModalLicence(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {noAccesModalOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="no-acces-licence-title"
+          onClick={() => setNoAccesModalOpen(false)}
+        >
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <h3 id="no-acces-licence-title" className="text-lg font-semibold text-gray-900 mb-2">Accès au bouton « Accès »</h3>
+            <p className="text-sm text-gray-600 leading-relaxed">
+              Vous n&apos;avez pas les droits nécessaires pour gérer les accès de cette licence. Seuls les{' '}
+              <span className="font-medium">administrateurs</span> et le <span className="font-medium">créateur</span> de la licence peuvent utiliser ce bouton.
+            </p>
+            <div className="flex justify-end mt-5">
+              <button type="button" onClick={() => setNoAccesModalOpen(false)} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                Fermer
+              </button>
             </div>
           </div>
         </div>
