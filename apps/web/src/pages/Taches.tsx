@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import TachesGanttView from '../components/TachesGanttView';
+import TachesKanbanView from '../components/TachesKanbanView';
 import TachesEnRetardBloc, { type TacheEnRetardItem } from '../components/TachesEnRetardBloc';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
@@ -1168,7 +1169,7 @@ export default function Taches() {
   const [showModal, setShowModal] = useState(false);
   const [editTache, setEditTache] = useState<Tache | undefined>();
   const [showDashboard, setShowDashboard] = useState(false);
-  const [viewMode, setViewMode] = useState<'list' | 'gantt'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'gantt' | 'kanban'>('list');
   const [filters, setFilters] = useState({ nom: '', statut: '', projetId: '', assigneIds: [] as string[], entiteIds: [] as string[], dateDebutFrom: '', dateDebutTo: '', dateFinFrom: '', dateFinTo: '' });
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -1204,6 +1205,17 @@ export default function Taches() {
       console.error('Erreur chargement:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleKanbanMove = async (tacheId: string, newStatut: string) => {
+    try {
+      await api.put(`/taches/${tacheId}`, { statut: newStatut });
+      const tRes = await api.get('/taches');
+      setTaches(tRes.data);
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Impossible de mettre à jour le statut');
+      throw err;
     }
   };
 
@@ -1255,8 +1267,9 @@ export default function Taches() {
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Tâches</h1>
           <p className="text-xs text-gray-500 mt-1">
-            Basculez entre <span className="font-medium text-gray-700">Liste</span> et{' '}
-            <span className="font-medium text-gray-700">Gantt</span> via les boutons à droite.
+            Vues : <span className="font-medium text-gray-700">Liste</span>,{' '}
+            <span className="font-medium text-gray-700">Kanban</span> (glisser-déposer du statut),{' '}
+            <span className="font-medium text-gray-700">Gantt</span>.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
@@ -1267,6 +1280,13 @@ export default function Taches() {
               className={`px-3 py-2 text-sm font-medium ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
             >
               Liste
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('kanban')}
+              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${viewMode === 'kanban' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Kanban
             </button>
             <button
               type="button"
@@ -1392,7 +1412,7 @@ export default function Taches() {
         }}
       />
 
-      {/* Liste ou Gantt */}
+      {/* Liste, Kanban ou Gantt */}
       {viewMode === 'gantt' ? (
         <div className="space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1412,6 +1432,17 @@ export default function Taches() {
             }}
           />
         </div>
+      ) : viewMode === 'kanban' ? (
+        <TachesKanbanView
+          taches={visibleTaches}
+          columns={STATUT_OPTIONS}
+          getCanEdit={canEdit}
+          onMoveTache={handleKanbanMove}
+          onCardClick={(t) => {
+            setEditTache(t as Tache);
+            setShowModal(true);
+          }}
+        />
       ) : (
         <>
           <div className="space-y-3">
