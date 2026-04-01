@@ -508,20 +508,20 @@ export default function ClientsFournisseurs() {
       )}
 
       {accesModalItem && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold mb-2">Accès — {accesModalItem.nom}</h3>
-            <p className="text-xs text-gray-600 mb-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-6">
+          <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
+            <h3 className="text-xl font-semibold mb-2">Accès — {accesModalItem.nom}</h3>
+            <p className="text-sm text-gray-600 mb-5 leading-relaxed">
               Les comptes <span className="font-medium">administrateur</span> ont tous les droits sur toutes les fiches. Le{' '}
               <span className="font-medium">créateur</span> de la fiche dispose par défaut de la modification, de la suppression et de la gestion des droits.
             </p>
             {accesLoading ? (
               <p className="text-sm text-gray-500">Chargement…</p>
             ) : accesDetail ? (
-              <div className="space-y-4 text-sm">
+              <div className="space-y-5 text-sm">
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Administrateurs</p>
-                  <ul className="space-y-1 text-gray-700">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
+                  <ul className="space-y-1.5 text-gray-700 text-base">
                     {(accesDetail.admins || []).map((a: any) => (
                       <li key={a.id}>
                         <span className="font-medium">{a.prenom} {a.nom}</span>
@@ -531,26 +531,26 @@ export default function ClientsFournisseurs() {
                   </ul>
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Créateur</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Créateur</p>
                   {accesDetail.creator ? (
                     <p>
                       <span className="font-medium">{accesDetail.creator.prenom} {accesDetail.creator.nom}</span>
                       <span className="text-gray-400"> — modification, suppression, octroi des droits</span>
                     </p>
                   ) : (
-                    <p className="text-amber-800 text-xs">
+                    <p className="text-amber-800 text-sm leading-relaxed">
                       Aucun créateur enregistré (fiche existante avant la traçabilité). Tous les contributeurs peuvent modifier tant qu’aucun créateur n’est défini ; seuls les administrateurs peuvent attribuer des droits explicites.
                     </p>
                   )}
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Droits explicites</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Droits explicites</p>
                   {(accesDetail.delegations || []).length === 0 ? (
                     <p className="text-gray-400 text-xs italic">Aucun droit délégué</p>
                   ) : (
                     <ul className="space-y-2">
                       {(accesDetail.delegations || []).map((d: any) => (
-                        <li key={d.id} className="flex flex-wrap items-center gap-2 border border-gray-100 rounded px-2 py-1.5 bg-gray-50">
+                        <li key={d.id} className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50">
                           <span className="font-medium">{d.user.prenom} {d.user.nom}</span>
                           <span className="text-gray-500">— {LABEL_PERM[d.permission] || d.permission}</span>
                           {d.grantedBy && (
@@ -571,13 +571,13 @@ export default function ClientsFournisseurs() {
                   )}
                 </div>
                 {accesDetail.canManagePermissions && (
-                  <div className="border-t pt-3 space-y-2">
-                    <p className="text-xs font-semibold text-gray-500 uppercase">Accorder un droit</p>
-                    <div className="flex flex-col sm:flex-row gap-2">
+                  <div className="border-t border-gray-200 pt-4 space-y-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accorder un droit</p>
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3 items-end">
                       <select
                         value={newPermUserId}
                         onChange={(e) => setNewPermUserId(e.target.value)}
-                        className="flex-1 border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                        className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm"
                       >
                         <option value="">— Utilisateur —</option>
                         {usersList
@@ -589,7 +589,7 @@ export default function ClientsFournisseurs() {
                       <select
                         value={newPermType}
                         onChange={(e) => setNewPermType(e.target.value)}
-                        className="border border-gray-300 rounded-md px-2 py-1.5 text-sm"
+                        className="w-full lg:w-56 border border-gray-300 rounded-md px-3 py-2 text-sm"
                       >
                         <option value="lecture">Consultation</option>
                         <option value="modification">Modification</option>
@@ -600,7 +600,7 @@ export default function ClientsFournisseurs() {
                         type="button"
                         onClick={handleAddPermission}
                         disabled={!newPermUserId}
-                        className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                        className="w-full lg:w-auto px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shrink-0"
                       >
                         Ajouter
                       </button>
