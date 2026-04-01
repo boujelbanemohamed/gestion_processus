@@ -163,6 +163,7 @@ model User {
   clientsFournisseursCrees       ClientFournisseur[]              @relation("ClientFournisseurCreatedBy")
   clientFournisseurHistorique    ClientFournisseurHistorique[]
   contratHistorique              ContratHistorique[]
+  entitesCreees                  Entite[]                         @relation("EntiteCreatedBy")
 }
 
 model Entite {
@@ -176,6 +177,9 @@ model Entite {
   responsable      User?       @relation("EntiteResponsable", fields: [responsableId], references: [id], onDelete: SetNull)
   code              String      @unique
   description      String?
+  createdById       String?
+  createdBy         User?       @relation("EntiteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedAt         DateTime?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
@@ -187,6 +191,8 @@ model Entite {
 
   @@index([parentId])
   @@index([code])
+  @@index([deletedAt])
+  @@index([createdById])
 }
 
 model UserEntite {

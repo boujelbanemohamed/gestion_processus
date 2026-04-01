@@ -2,8 +2,10 @@ import { prisma } from '../utils/prisma';
 import { LicenceService } from './licence.service';
 import { clientFournisseurService, logCfHistory } from './client-fournisseur.service';
 import { contratService } from './contrat.service';
+import { EntiteService } from './entite.service';
 
 const licenceService = new LicenceService();
+const entiteService = new EntiteService();
 
 export class CorbeilleService {
   // Récupérer tous les processus supprimés
@@ -200,5 +202,17 @@ export class CorbeilleService {
 
   async supprimerDefinitivementContrat(id: string) {
     return contratService.deletePermanent(id);
+  }
+
+  async getEntitesSupprimees() {
+    return entiteService.listDeletedForCorbeille();
+  }
+
+  async restaurerEntite(id: string) {
+    return entiteService.restoreFromCorbeille(id);
+  }
+
+  async supprimerDefinitivementEntite(id: string) {
+    return entiteService.deletePermanent(id);
   }
 }

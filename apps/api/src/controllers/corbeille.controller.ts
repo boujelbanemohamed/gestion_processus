@@ -17,12 +17,13 @@ export const getCorbeille = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut accéder à la corbeille.' });
     }
 
-    const [processus, documents, licences, clientsFournisseurs, contrats] = await Promise.all([
+    const [processus, documents, licences, clientsFournisseurs, contrats, entites] = await Promise.all([
       corbeilleService.getProcessusSupprimes(),
       corbeilleService.getDocumentsSupprimes(),
       corbeilleService.getLicencesSupprimees(),
       corbeilleService.getClientsFournisseursSupprimes(),
       corbeilleService.getContratsSupprimes(),
+      corbeilleService.getEntitesSupprimees(),
     ]);
 
     res.json({
@@ -31,6 +32,7 @@ export const getCorbeille = async (req: AuthRequest, res: Response) => {
       licences,
       clientsFournisseurs,
       contrats,
+      entites,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -221,6 +223,40 @@ export const supprimerDefinitivementContrat = async (req: AuthRequest, res: Resp
     }
     await corbeilleService.supprimerDefinitivementContrat(req.params.id);
     await logAccess(req, res, 'suppression', 'contrat', req.params.id, undefined, {
+      action: 'suppression_definitive',
+    });
+    res.status(204).send();
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const restaurerEntite = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut restaurer des éléments.' });
+    }
+    const row = await corbeilleService.restaurerEntite(req.params.id);
+    await logAccess(req, res, 'modification', 'entite', row.id, row.nom, { action: 'restauration' });
+    res.json(row);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const supprimerDefinitivementEntite = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé.' });
+    }
+    await corbeilleService.supprimerDefinitivementEntite(req.params.id);
+    await logAccess(req, res, 'suppression', 'entite', req.params.id, undefined, {
       action: 'suppression_definitive',
     });
     res.status(204).send();

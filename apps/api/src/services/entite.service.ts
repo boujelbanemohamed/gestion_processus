@@ -1,33 +1,171 @@
 import { prisma } from '../utils/prisma';
-import { EntiteType } from '@prisma/client';
+import { EntiteType, PermissionType } from '../generated/prisma/enums';
+
+const entiteIncludeList = {
+  responsable: {
+    select: { id: true, email: true, nom: true, prenom: true },
+  },
+  parent: {
+    select: { id: true, nom: true, code: true, type: true },
+  },
+  createdBy: { select: { id: true, email: true, nom: true, prenom: true } },
+  membres: {
+    include: {
+      user: {
+        select: { id: true, email: true, nom: true, prenom: true, role: true },
+      },
+    },
+  },
+  _count: {
+    select: { membres: true, processus: true },
+  },
+} as const;
+
+function isAdminRole(role: string) {
+  return role === 'admin';
+}
+
+async function permissionEntiteIdsForUser(userId: string): Promise<string[]> {
+  const rows = await prisma.permission.findMany({
+    where: { ressourceType: 'entite', userId },
+    select: { ressourceId: true },
+  });
+  return [...new Set(rows.map((r) => r.ressourceId).filter(Boolean))];
+}
+
+async function myPermTypesForEntite(entiteId: string, userId: string): Promise<PermissionType[]> {
+  const rows = await prisma.permission.findMany({
+    where: { ressourceType: 'entite', ressourceId: entiteId, userId },
+    select: { permission: true },
+  });
+  return rows.map((r) => r.permission);
+}
+
+function canViewEntite(
+  row: { id: string; createdById: string | null; responsableId: string | null },
+  auth: { userId: string; role: string },
+  permTypes: PermissionType[],
+  isMembre: boolean
+) {
+  if (isAdminRole(auth.role)) return true;
+  if (row.createdById == null) return true;
+  if (row.createdById === auth.userId) return true;
+  if (row.responsableId === auth.userId) return true;
+  if (isMembre) return true;
+  return permTypes.length > 0;
+}
+
+function canModifyEntite(
+  row: { createdById: string | null; responsableId: string | null },
+  auth: { userId: string; role: string },
+  permTypes: PermissionType[]
+) {
+  if (isAdminRole(auth.role)) return true;
+  if (row.createdById === auth.userId) return true;
+  if (row.responsableId === auth.userId) return true;
+  return permTypes.some((p) => ['modification', 'suppression', 'gestion'].includes(p));
+}
+
+function canSoftDeleteEntite(row: { createdById: string | null }, auth: { userId: string; role: string }, permTypes: PermissionType[]) {
+  if (isAdminRole(auth.role)) return true;
+  if (row.createdById === auth.userId) return true;
+  return permTypes.includes('suppression');
+}
+
+function canManageEntitePermissions(row: { createdById: string | null }, auth: { userId: string; role: string }, permTypes: PermissionType[]) {
+  if (isAdminRole(auth.role)) return true;
+  if (row.createdById === auth.userId) return true;
+  return permTypes.includes('gestion');
+}
+
+async function delegationsGrouped(entiteId: string) {
+  const rows = await prisma.permission.findMany({
+    where: { ressourceType: 'entite', ressourceId: entiteId },
+    include: {
+      user: { select: { id: true, nom: true, prenom: true, email: true } },
+      grantedBy: { select: { id: true, nom: true, prenom: true } },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+  const map = new Map<string, { user: (typeof rows)[0]['user']; permissions: PermissionType[]; ids: string[] }>();
+  for (const r of rows) {
+    const k = r.userId;
+    if (!map.has(k)) {
+      map.set(k, { user: r.user, permissions: [], ids: [] });
+    }
+    const e = map.get(k)!;
+    e.permissions.push(r.permission);
+    e.ids.push(r.id);
+  }
+  return Array.from(map.values()).map((v) => ({
+    user: v.user,
+    permissions: v.permissions,
+    /** Première entrée id pour retrait (supprime toutes les permissions de l’utilisateur via boucle côté API si besoin) */
+    permissionEntryIds: v.ids,
+  }));
+}
+
+function capabilitiesFor(row: any, auth: { userId: string; role: string }, permTypes: PermissionType[], isMembre: boolean) {
+  const view = canViewEntite(row, auth, permTypes, isMembre);
+  return {
+    canView: view,
+    canModify: view && canModifyEntite(row, auth, permTypes),
+    canDelete: view && canSoftDeleteEntite(row, auth, permTypes),
+    canManagePermissions: view && canManageEntitePermissions(row, auth, permTypes),
+  };
+}
+
+export type EntiteAuth = { userId: string; role: string };
 
 export class EntiteService {
-  async findAll(filters?: { 
-    parentId?: string; 
-    type?: EntiteType; 
-    search?: string; 
-    responsableId?: string;
-    sortBy?: string;
-    sortOrder?: 'asc' | 'desc';
-  }) {
-    const where: any = {};
+  private async buildVisibilityWhere(auth: EntiteAuth) {
+    if (isAdminRole(auth.role)) {
+      return {};
+    }
+    const permIds = await permissionEntiteIdsForUser(auth.userId);
+    return {
+      OR: [
+        { createdById: null },
+        { createdById: auth.userId },
+        { responsableId: auth.userId },
+        { membres: { some: { userId: auth.userId } } },
+        ...(permIds.length ? [{ id: { in: permIds } }] : []),
+      ],
+    };
+  }
+
+  async findAll(
+    auth: EntiteAuth,
+    filters?: {
+      parentId?: string;
+      type?: EntiteType;
+      search?: string;
+      responsableId?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+    }
+  ) {
+    const extraWhere = await this.buildVisibilityWhere(auth);
+    const where: any = { deletedAt: null, ...extraWhere };
     if (filters?.parentId !== undefined && filters.parentId !== '') where.parentId = filters.parentId;
     if (filters?.type) where.type = filters.type;
     if (filters?.responsableId) where.responsableId = filters.responsableId;
     if (filters?.search) {
-      where.OR = [
-        { nom: { contains: filters.search, mode: 'insensitive' } },
-        { code: { contains: filters.search, mode: 'insensitive' } },
-        { description: { contains: filters.search, mode: 'insensitive' } },
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { nom: { contains: filters.search, mode: 'insensitive' } },
+            { code: { contains: filters.search, mode: 'insensitive' } },
+            { description: { contains: filters.search, mode: 'insensitive' } },
+          ],
+        },
       ];
     }
 
-    // Définir l'ordre de tri
-    let orderBy: any = { nom: 'asc' }; // Par défaut, tri par nom croissant
-    
+    let orderBy: any = { nom: 'asc' };
     if (filters?.sortBy) {
       const sortOrder = filters.sortOrder || 'asc';
-      
       switch (filters.sortBy) {
         case 'nom':
           orderBy = { nom: sortOrder };
@@ -39,11 +177,9 @@ export class EntiteService {
           orderBy = { type: sortOrder };
           break;
         case 'responsable':
-          // Pour responsable, on trie par nom de l'utilisateur (via relation)
           orderBy = { responsable: { nom: sortOrder } };
           break;
         case 'parent':
-          // Pour parent, on trie par nom de l'entité parente (via relation)
           orderBy = { parent: { nom: sortOrder } };
           break;
         default:
@@ -51,79 +187,202 @@ export class EntiteService {
       }
     }
 
-    return prisma.entite.findMany({
+    const list = await prisma.entite.findMany({
       where,
-      include: {
-        responsable: {
-          select: { id: true, email: true, nom: true, prenom: true },
-        },
-        parent: {
-          select: { id: true, nom: true, code: true, type: true },
-        },
-        membres: {
-          include: {
-            user: {
-              select: { id: true, email: true, nom: true, prenom: true, role: true },
-            },
-          },
-        },
-        _count: {
-          select: { membres: true, processus: true },
-        },
-      },
+      include: entiteIncludeList,
       orderBy,
+    });
+
+    const ids = list.map((e) => e.id);
+    const byEntiteUser = new Map<string, Map<string, { user: { id: string; nom: string; prenom: string; email: string }; permissions: PermissionType[] }>>();
+    if (ids.length > 0) {
+      const allPermRows = await prisma.permission.findMany({
+        where: { ressourceType: 'entite', ressourceId: { in: ids } },
+        include: { user: { select: { id: true, nom: true, prenom: true, email: true } } },
+      });
+      for (const r of allPermRows) {
+        if (!byEntiteUser.has(r.ressourceId)) byEntiteUser.set(r.ressourceId, new Map());
+        const m = byEntiteUser.get(r.ressourceId)!;
+        if (!m.has(r.userId)) {
+          m.set(r.userId, { user: r.user, permissions: [] });
+        }
+        m.get(r.userId)!.permissions.push(r.permission);
+      }
+    }
+
+    const myPermsByEntite = new Map<string, PermissionType[]>();
+    if (ids.length > 0) {
+      const mine = await prisma.permission.findMany({
+        where: { ressourceType: 'entite', ressourceId: { in: ids }, userId: auth.userId },
+        select: { ressourceId: true, permission: true },
+      });
+      for (const p of mine) {
+        if (!myPermsByEntite.has(p.ressourceId)) myPermsByEntite.set(p.ressourceId, []);
+        myPermsByEntite.get(p.ressourceId)!.push(p.permission);
+      }
+    }
+
+    return list.map((e) => {
+      const permTypes = myPermsByEntite.get(e.id) || [];
+      const isMembre = e.membres?.some((m) => m.userId === auth.userId) ?? false;
+      const delegMap = byEntiteUser.get(e.id);
+      const delegations = delegMap ? Array.from(delegMap.values()) : [];
+      return {
+        ...e,
+        capabilities: capabilitiesFor(
+          { id: e.id, createdById: e.createdById, responsableId: e.responsableId },
+          auth,
+          permTypes,
+          isMembre
+        ),
+        accesApercu: { delegations },
+      };
     });
   }
 
-  async findOne(id: string) {
-    return prisma.entite.findUnique({
-      where: { id },
+  async findOne(id: string, auth: EntiteAuth) {
+    const e = await prisma.entite.findFirst({
+      where: { id, deletedAt: null },
       include: {
-        responsable: true,
-        parent: {
-          select: { id: true, nom: true, code: true, type: true },
-        },
+        ...entiteIncludeList,
         children: {
+          where: { deletedAt: null },
           include: {
             responsable: { select: { id: true, nom: true, prenom: true } },
             _count: { select: { membres: true } },
           },
         },
-        membres: {
-          include: {
-            user: {
-              select: { id: true, email: true, nom: true, prenom: true, role: true },
-            },
-          },
-        },
-        _count: { select: { processus: true, membres: true } },
       },
     });
+    if (!e) return null;
+    const permTypes = await myPermTypesForEntite(id, auth.userId);
+    const isMembre = e.membres?.some((m) => m.userId === auth.userId) ?? false;
+    if (!canViewEntite({ id: e.id, createdById: e.createdById, responsableId: e.responsableId }, auth, permTypes, isMembre)) {
+      return null;
+    }
+    const dels = await delegationsGrouped(id);
+    return {
+      ...e,
+      capabilities: capabilitiesFor(
+        { id: e.id, createdById: e.createdById, responsableId: e.responsableId },
+        auth,
+        permTypes,
+        isMembre
+      ),
+      accesApercu: {
+        delegations: dels.map((d) => ({ user: d.user, permissions: d.permissions })),
+      },
+    };
   }
 
-  async create(data: {
-    nom: string;
-    type: EntiteType;
-    code: string;
-    parentId?: string;
-    responsableId?: string;
-    description?: string;
-    membreIds?: string[];
-  }) {
+  async getAccesDetail(entiteId: string, auth: EntiteAuth) {
+    const e = await prisma.entite.findFirst({
+      where: { id: entiteId, deletedAt: null },
+      select: { id: true, createdById: true, responsableId: true },
+    });
+    if (!e) throw new Error('NOT_FOUND');
+    const permTypes = await myPermTypesForEntite(entiteId, auth.userId);
+    const membreRow = await prisma.userEntite.findFirst({ where: { entiteId, userId: auth.userId } });
+    if (!canViewEntite(e, auth, permTypes, !!membreRow)) throw new Error('FORBIDDEN');
+    const canManage = canManageEntitePermissions(e, auth, permTypes);
+    const admins = await prisma.user.findMany({
+      where: { role: 'admin', statut: 'actif' },
+      select: { id: true, nom: true, prenom: true, email: true },
+    });
+    const creator = e.createdById
+      ? await prisma.user.findUnique({
+          where: { id: e.createdById },
+          select: { id: true, nom: true, prenom: true, email: true },
+        })
+      : null;
+    const raw = await prisma.permission.findMany({
+      where: { ressourceType: 'entite', ressourceId: entiteId },
+      include: {
+        user: { select: { id: true, nom: true, prenom: true, email: true } },
+        grantedBy: { select: { id: true, nom: true, prenom: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    return {
+      canManagePermissions: canManage,
+      admins,
+      creator,
+      delegations: raw.map((r) => ({
+        id: r.id,
+        user: r.user,
+        permission: r.permission,
+        grantedBy: r.grantedBy,
+      })),
+    };
+  }
+
+  async addPermission(entiteId: string, targetUserId: string, permission: PermissionType, auth: EntiteAuth) {
+    const e = await prisma.entite.findFirst({ where: { id: entiteId, deletedAt: null } });
+    if (!e) throw new Error('NOT_FOUND');
+    const permTypes = await myPermTypesForEntite(entiteId, auth.userId);
+    if (!canManageEntitePermissions({ createdById: e.createdById }, auth, permTypes)) throw new Error('FORBIDDEN');
+    const target = await prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, role: true, nom: true, prenom: true } });
+    if (!target) throw new Error('Utilisateur introuvable');
+    if (target.role === 'admin') throw new Error('Les administrateurs ont déjà tous les droits');
+    if (e.createdById === targetUserId) throw new Error('Le créateur a déjà tous les droits');
+    const created = await prisma.permission.create({
+      data: {
+        userId: targetUserId,
+        ressourceType: 'entite',
+        ressourceId: entiteId,
+        permission,
+        grantedById: auth.userId,
+      },
+      include: {
+        user: { select: { id: true, nom: true, prenom: true, email: true } },
+        grantedBy: { select: { id: true, nom: true, prenom: true } },
+      },
+    });
+    return created;
+  }
+
+  async removePermission(entiteId: string, permissionId: string, auth: EntiteAuth) {
+    const e = await prisma.entite.findFirst({ where: { id: entiteId, deletedAt: null } });
+    if (!e) throw new Error('NOT_FOUND');
+    const permTypes = await myPermTypesForEntite(entiteId, auth.userId);
+    if (!canManageEntitePermissions({ createdById: e.createdById }, auth, permTypes)) throw new Error('FORBIDDEN');
+    const perm = await prisma.permission.findFirst({
+      where: { id: permissionId, ressourceType: 'entite', ressourceId: entiteId },
+    });
+    if (!perm) throw new Error('NOT_FOUND');
+    await prisma.permission.delete({ where: { id: permissionId } });
+  }
+
+  async create(
+    data: {
+      nom: string;
+      type: EntiteType;
+      code: string;
+      parentId?: string;
+      responsableId?: string;
+      description?: string;
+      membreIds?: string[];
+    },
+    auth: EntiteAuth
+  ) {
     const { membreIds, ...entiteData } = data;
-    
     return prisma.entite.create({
       data: {
         ...entiteData,
-        membres: membreIds && membreIds.length > 0 ? {
-          create: membreIds.map((userId) => ({
-            userId,
-          })),
-        } : undefined,
+        createdById: auth.userId,
+        membres:
+          membreIds && membreIds.length > 0
+            ? {
+                create: membreIds.map((userId) => ({
+                  userId,
+                })),
+              }
+            : undefined,
       },
       include: {
         responsable: { select: { id: true, nom: true, prenom: true } },
         parent: { select: { id: true, nom: true } },
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
         membres: {
           include: {
             user: { select: { id: true, nom: true, prenom: true, email: true } },
@@ -133,41 +392,41 @@ export class EntiteService {
     });
   }
 
-  async update(id: string, data: {
-    nom?: string;
-    type?: EntiteType;
-    code?: string;
-    parentId?: string;
-    responsableId?: string;
-    description?: string;
-    membreIds?: string[];
-  }) {
+  async update(
+    id: string,
+    data: {
+      nom?: string;
+      type?: EntiteType;
+      code?: string;
+      parentId?: string;
+      responsableId?: string;
+      description?: string;
+      membreIds?: string[];
+    },
+    auth: EntiteAuth
+  ) {
+    const existing = await prisma.entite.findFirst({ where: { id, deletedAt: null } });
+    if (!existing) throw new Error('Entité non trouvée');
+    const permTypes = await myPermTypesForEntite(id, auth.userId);
+    if (!canModifyEntite({ createdById: existing.createdById, responsableId: existing.responsableId }, auth, permTypes)) {
+      throw new Error('Accès refusé');
+    }
     const { membreIds, ...updateData } = data;
-    
-    // Si membreIds est fourni, mettre à jour les relations
     if (membreIds !== undefined) {
-      // Supprimer toutes les relations existantes
-      await prisma.userEntite.deleteMany({
-        where: { entiteId: id },
-      });
-      
-      // Créer les nouvelles relations
+      await prisma.userEntite.deleteMany({ where: { entiteId: id } });
       if (membreIds.length > 0) {
         await prisma.userEntite.createMany({
-          data: membreIds.map((userId) => ({
-            entiteId: id,
-            userId,
-          })),
+          data: membreIds.map((userId) => ({ entiteId: id, userId })),
         });
       }
     }
-    
     return prisma.entite.update({
       where: { id },
       data: updateData,
       include: {
         responsable: { select: { id: true, nom: true, prenom: true } },
         parent: { select: { id: true, nom: true } },
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
         membres: {
           include: {
             user: { select: { id: true, nom: true, prenom: true, email: true } },
@@ -177,36 +436,72 @@ export class EntiteService {
     });
   }
 
-  async delete(id: string) {
-    // Vérifier qu'il n'y a pas d'enfants
-    const children = await prisma.entite.findMany({ where: { parentId: id } });
+  async softDelete(id: string, auth: EntiteAuth) {
+    const existing = await prisma.entite.findFirst({ where: { id, deletedAt: null } });
+    if (!existing) throw new Error('Entité non trouvée');
+    const permTypes = await myPermTypesForEntite(id, auth.userId);
+    if (!canSoftDeleteEntite({ createdById: existing.createdById }, auth, permTypes)) {
+      throw new Error('Accès refusé');
+    }
+    const children = await prisma.entite.findMany({ where: { parentId: id, deletedAt: null } });
     if (children.length > 0) {
-      throw new Error('Impossible de supprimer une entité avec des sous-entités');
+      throw new Error('Impossible de mettre en corbeille : des sous-entités actives existent encore');
     }
+    return prisma.entite.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+      include: {
+        responsable: { select: { id: true, nom: true, prenom: true } },
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+      },
+    });
+  }
 
-    // Vérifier qu'il n'y a pas de membres
-    const membres = await prisma.userEntite.findMany({ where: { entiteId: id } });
-    if (membres.length > 0) {
-      throw new Error('Impossible de supprimer une entité avec des membres');
+  async restoreFromCorbeille(id: string) {
+    const row = await prisma.entite.findFirst({ where: { id, deletedAt: { not: null } } });
+    if (!row) throw new Error('Élément introuvable ou non supprimé');
+    return prisma.entite.update({
+      where: { id },
+      data: { deletedAt: null },
+      include: { responsable: true, parent: true, createdBy: true },
+    });
+  }
+
+  async deletePermanent(id: string) {
+    const row = await prisma.entite.findFirst({ where: { id, deletedAt: { not: null } } });
+    if (!row) throw new Error('Élément introuvable ou non en corbeille');
+    const children = await prisma.entite.findMany({ where: { parentId: id, deletedAt: null } });
+    if (children.length > 0) {
+      throw new Error('Supprimez ou mettez en corbeille les sous-entités actives avant suppression définitive');
     }
-
+    await prisma.permission.deleteMany({ where: { ressourceType: 'entite', ressourceId: id } });
     return prisma.entite.delete({ where: { id } });
   }
 
-  async getTree() {
-    const all = await this.findAll();
-    const root = all.filter(e => !e.parentId);
-    
+  async listDeletedForCorbeille() {
+    return prisma.entite.findMany({
+      where: { deletedAt: { not: null } },
+      include: {
+        responsable: { select: { id: true, nom: true, prenom: true } },
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+        parent: { select: { id: true, nom: true, code: true } },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+  }
+
+  async getTree(auth: EntiteAuth) {
+    const all = await this.findAll(auth);
+    const root = all.filter((e) => !e.parentId);
     const buildTree = (parentId: string | null): any[] => {
       return all
-        .filter(e => e.parentId === parentId)
-        .map(e => ({
+        .filter((e) => e.parentId === parentId)
+        .map((e) => ({
           ...e,
           children: buildTree(e.id),
         }));
     };
-
-    return root.map(e => ({
+    return root.map((e) => ({
       ...e,
       children: buildTree(e.id),
     }));

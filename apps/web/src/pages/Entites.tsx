@@ -1,11 +1,49 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
+import { getPaginationPageNumbers } from '../utils/pagination';
+
+const LABEL_PERM_ROW: Record<string, string> = {
+  lecture: 'lecture',
+  modification: 'modification',
+  suppression: 'suppression',
+  gestion: 'gestion des droits',
+};
+
+const LABEL_PERM_MODAL: Record<string, string> = {
+  lecture: 'Consultation',
+  modification: 'Modification',
+  suppression: 'Suppression',
+  gestion: 'Gestion des droits',
+};
+
+const ACTION_JOURNAL: Record<string, string> = {
+  connexion: 'Connexion',
+  deconnexion: 'Déconnexion',
+  lecture: 'Lecture / consultation',
+  creation: 'Création',
+  modification: 'Modification',
+  suppression: 'Suppression',
+  telechargement: 'Téléchargement',
+  export: 'Export',
+};
+
+function permSummaryLine(perms: string[]) {
+  return perms.map((p) => LABEL_PERM_ROW[p] || p).join(' + ');
+}
+
+function isAccesRestreintEntite(e: any) {
+  return !!e.createdById || (e.accesApercu?.delegations?.length ?? 0) > 0;
+}
+
+const droitsAdminLigne = 'modification + suppression + gestion des accès + lecture';
 
 export default function Entites() {
+  const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   const isLecteur = currentUser?.role === 'lecteur';
+
   const [entites, setEntites] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,6 +70,16 @@ export default function Entites() {
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
+  const [accesModalEntite, setAccesModalEntite] = useState<any | null>(null);
+  const [accesDetail, setAccesDetail] = useState<any | null>(null);
+  const [accesLoading, setAccesLoading] = useState(false);
+  const [newPermUserId, setNewPermUserId] = useState('');
+  const [newPermType, setNewPermType] = useState('lecture');
+  const [noAccesModalOpen, setNoAccesModalOpen] = useState(false);
+  const [histModalEntite, setHistModalEntite] = useState<any | null>(null);
+  const [histoList, setHistoList] = useState<any[]>([]);
+  const [histoLoading, setHistoLoading] = useState(false);
+
   useEffect(() => {
     loadEntites();
     loadUsers();
@@ -41,9 +89,91 @@ export default function Entites() {
     loadEntites();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.search, filters.type, filters.parentId, filters.responsableId, sortConfig]);
+
   useEffect(() => {
     setPage(1);
   }, [filters.search, filters.type, filters.parentId, filters.responsableId, sortConfig]);
+
+  const cap = (e: any) => ({
+    canView: e.capabilities?.canView !== false,
+    canModify: !!e.capabilities?.canModify,
+    canDelete: !!e.capabilities?.canDelete,
+    canManagePermissions: !!e.capabilities?.canManagePermissions,
+  });
+
+  const canManagePermissionsEntite = (e: any) => cap(e).canManagePermissions;
+
+  const onAccesButtonClick = (e: any) => {
+    if (!canManagePermissionsEntite(e)) {
+      setNoAccesModalOpen(true);
+      return;
+    }
+    void openAccesModal(e);
+  };
+
+  const openAccesModal = async (entite: any) => {
+    setAccesModalEntite(entite);
+    setAccesDetail(null);
+    setNewPermUserId('');
+    setNewPermType('lecture');
+    setAccesLoading(true);
+    try {
+      const { data } = await api.get(`/entites/${entite.id}/acces`);
+      setAccesDetail(data);
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur chargement accès');
+      setAccesModalEntite(null);
+    } finally {
+      setAccesLoading(false);
+    }
+  };
+
+  const refreshAccesDetail = async (id: string) => {
+    const { data } = await api.get(`/entites/${id}/acces`);
+    setAccesDetail(data);
+  };
+
+  const handleAddPermission = async () => {
+    if (!accesModalEntite || !newPermUserId) return;
+    try {
+      await api.post(`/entites/${accesModalEntite.id}/permissions`, {
+        userId: newPermUserId,
+        permission: newPermType,
+      });
+      setNewPermUserId('');
+      await refreshAccesDetail(accesModalEntite.id);
+      loadEntites();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur');
+    }
+  };
+
+  const handleRemovePermission = async (permissionId: string) => {
+    if (!accesModalEntite || !confirm('Retirer ce droit ?')) return;
+    try {
+      await api.delete(`/entites/${accesModalEntite.id}/permissions/${permissionId}`);
+      await refreshAccesDetail(accesModalEntite.id);
+      loadEntites();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur');
+    }
+  };
+
+  const openHistoriqueModal = async (e: any) => {
+    setHistModalEntite(e);
+    setHistoList([]);
+    setHistoLoading(true);
+    try {
+      const { data } = await api.get(`/entites/${e.id}/history?page=1&limit=200`);
+      setHistoList(data?.data || []);
+    } catch {
+      setHistoList([]);
+      alert('Impossible de charger l’historique.');
+      setHistModalEntite(null);
+    } finally {
+      setHistoLoading(false);
+    }
+  };
 
   const loadEntites = async () => {
     try {
@@ -58,33 +188,28 @@ export default function Entites() {
       }
       const response = await api.get('/entites', { params });
       let sortedEntites = response.data;
-      
-      // Tri côté client pour responsable et parent (car relations Prisma)
+
       if (sortConfig?.key === 'responsable') {
         sortedEntites = [...response.data].sort((a, b) => {
           const aName = a.responsable ? `${a.responsable.prenom} ${a.responsable.nom}` : '';
           const bName = b.responsable ? `${b.responsable.prenom} ${b.responsable.nom}` : '';
-          if (sortConfig.direction === 'asc') {
-            return aName.localeCompare(bName, 'fr', { sensitivity: 'base' });
-          } else {
-            return bName.localeCompare(aName, 'fr', { sensitivity: 'base' });
-          }
+          return sortConfig.direction === 'asc'
+            ? aName.localeCompare(bName, 'fr', { sensitivity: 'base' })
+            : bName.localeCompare(aName, 'fr', { sensitivity: 'base' });
         });
       } else if (sortConfig?.key === 'parent') {
         sortedEntites = [...response.data].sort((a, b) => {
           const aName = a.parent ? `${a.parent.nom} (${a.parent.code})` : 'N/A';
           const bName = b.parent ? `${b.parent.nom} (${b.parent.code})` : 'N/A';
-          if (sortConfig.direction === 'asc') {
-            return aName.localeCompare(bName, 'fr', { sensitivity: 'base' });
-          } else {
-            return bName.localeCompare(aName, 'fr', { sensitivity: 'base' });
-          }
+          return sortConfig.direction === 'asc'
+            ? aName.localeCompare(bName, 'fr', { sensitivity: 'base' })
+            : bName.localeCompare(aName, 'fr', { sensitivity: 'base' });
         });
       }
-      
+
       setEntites(sortedEntites);
-    } catch (error) {
-      console.error('Erreur:', error);
+    } catch (err) {
+      console.error('Erreur:', err);
     } finally {
       setLoading(false);
     }
@@ -106,13 +231,13 @@ export default function Entites() {
     try {
       const response = await api.get('/users');
       setUsers(response.data);
-    } catch (error) {
-      console.error('Erreur chargement utilisateurs:', error);
+    } catch (err) {
+      console.error('Erreur chargement utilisateurs:', err);
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
     setError('');
     setSubmitting(true);
 
@@ -123,7 +248,6 @@ export default function Entites() {
       }
 
       if (isEditing && editingId) {
-        // Mode édition
         await api.put(`/entites/${editingId}`, {
           nom: formData.nom,
           code: formData.code.toUpperCase(),
@@ -133,16 +257,15 @@ export default function Entites() {
           description: formData.description || undefined,
         });
       } else {
-        // Mode création
-      await api.post('/entites', {
-        nom: formData.nom,
-        code: formData.code.toUpperCase(),
-        type: formData.type,
-        parentId: formData.parentId || undefined,
-        responsableId: formData.responsableId || undefined,
-        description: formData.description || undefined,
-        membreIds: [],
-      });
+        await api.post('/entites', {
+          nom: formData.nom,
+          code: formData.code.toUpperCase(),
+          type: formData.type,
+          parentId: formData.parentId || undefined,
+          responsableId: formData.responsableId || undefined,
+          description: formData.description || undefined,
+          membreIds: [],
+        });
       }
 
       setShowModal(false);
@@ -168,7 +291,7 @@ export default function Entites() {
     try {
       const response = await api.get(`/entites/${entiteId}`);
       const entite = response.data;
-      
+
       setFormData({
         nom: entite.nom || '',
         code: entite.code || '',
@@ -177,13 +300,13 @@ export default function Entites() {
         responsableId: entite.responsableId || '',
         description: entite.description || '',
       });
-      
+
       setIsEditing(true);
       setEditingId(entiteId);
       setShowModal(true);
       setError('');
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Erreur lors du chargement de l\'entité');
+      setError(err.response?.data?.error || "Erreur lors du chargement de l'entité");
     }
   };
 
@@ -202,36 +325,20 @@ export default function Entites() {
     });
   };
 
-  if (loading) return <div className="p-6">Chargement...</div>;
-  const totalPages = Math.max(1, Math.ceil(entites.length / pageSize));
-  const startIdx = (page - 1) * pageSize;
-  const pagedEntites = entites.slice(startIdx, startIdx + pageSize);
-  const getPageNumbers = () => {
-    const pages: (number | string)[] = [];
-    if (totalPages <= 7) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-      return pages;
+  const handleSoftDelete = async (id: string, nom: string) => {
+    if (!confirm(`Mettre l’entité « ${nom} » en corbeille ? (restauration par un administrateur)`)) return;
+    try {
+      await api.delete(`/entites/${id}`);
+      loadEntites();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur');
     }
-    const addRange = (start: number, end: number) => {
-      for (let i = start; i <= end; i++) pages.push(i);
-    };
-    if (page <= 4) {
-      addRange(1, 5);
-      pages.push('...');
-      pages.push(totalPages);
-    } else if (page >= totalPages - 3) {
-      pages.push(1);
-      pages.push('...');
-      addRange(totalPages - 4, totalPages);
-    } else {
-      pages.push(1);
-      pages.push('...');
-      addRange(page - 1, page + 1);
-      pages.push('...');
-      pages.push(totalPages);
-    }
-    return pages;
   };
+
+  const totalPages = Math.max(1, Math.ceil(entites.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const startIdx = (safePage - 1) * pageSize;
+  const pagedEntites = entites.slice(startIdx, startIdx + pageSize);
 
   const entiteTypes = [
     { value: 'direction', label: 'Direction' },
@@ -242,12 +349,24 @@ export default function Entites() {
     { value: 'equipe', label: 'Équipe' },
   ];
 
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        <div className="text-center py-10 text-gray-400">Chargement...</div>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-6">
+    <div className="max-w-7xl mx-auto px-4 py-6">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Entités</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">🏛 Entités</h1>
+          <p className="text-sm text-gray-500 mt-1">{entites.length} entité(s)</p>
+        </div>
         {!isLecteur && (
           <button
+            type="button"
             onClick={() => {
               setIsEditing(false);
               setEditingId(null);
@@ -261,36 +380,37 @@ export default function Entites() {
               });
               setShowModal(true);
             }}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
           >
-            Nouvelle entité
+            + Nouvelle entité
           </button>
         )}
       </div>
 
-      {/* Filtres */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
+      <div className="bg-white rounded-lg shadow p-4 mb-6 border border-gray-100">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Recherche</label>
             <input
               type="text"
               value={filters.search}
-              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+              onChange={(ev) => setFilters({ ...filters, search: ev.target.value })}
               placeholder="Nom, code, description"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
             <select
               value={filters.type}
-              onChange={(e) => setFilters({ ...filters, type: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              onChange={(ev) => setFilters({ ...filters, type: ev.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
             >
               <option value="">Tous</option>
               {entiteTypes.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
               ))}
             </select>
           </div>
@@ -298,13 +418,14 @@ export default function Entites() {
             <label className="block text-sm font-medium text-gray-700 mb-1">Entité parente</label>
             <select
               value={filters.parentId}
-              onChange={(e) => setFilters({ ...filters, parentId: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              onChange={(ev) => setFilters({ ...filters, parentId: ev.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
             >
               <option value="">Toutes</option>
               {entites.map((entite) => (
                 <option key={entite.id} value={entite.id}>
-                  {entite.nom}{entite.code ? ` (${entite.code})` : ''}
+                  {entite.nom}
+                  {entite.code ? ` (${entite.code})` : ''}
                 </option>
               ))}
             </select>
@@ -313,51 +434,62 @@ export default function Entites() {
             <label className="block text-sm font-medium text-gray-700 mb-1">Responsable</label>
             <select
               value={filters.responsableId}
-              onChange={(e) => setFilters({ ...filters, responsableId: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              onChange={(ev) => setFilters({ ...filters, responsableId: ev.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
             >
               <option value="">Tous</option>
               {users
                 .filter((u) => u.role === 'admin' || u.role === 'contributeur')
-                .map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.prenom} {user.nom}
+                .map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.prenom} {u.nom}
                   </option>
                 ))}
             </select>
           </div>
         </div>
-        <div className="flex justify-end mt-4">
+        <div className="flex flex-wrap justify-between items-center gap-2 mt-4">
+          <div className="flex gap-2 text-xs text-gray-500">
+            <span className="font-medium">Tri rapide :</span>
+            {['code', 'nom', 'type', 'responsable', 'parent'].map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => handleSort(k)}
+                className={`hover:text-blue-600 ${sortConfig?.key === k ? 'text-blue-600 font-semibold' : ''}`}
+              >
+                {k}
+                {sortConfig?.key === k ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : ''}
+              </button>
+            ))}
+            {sortConfig && (
+              <button type="button" onClick={resetSort} className="text-gray-600 hover:underline ml-2">
+                Réinitialiser
+              </button>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => setFilters({ search: '', type: '', parentId: '', responsableId: '' })}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+            className="px-3 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
           >
-            Réinitialiser
+            Réinitialiser filtres
           </button>
         </div>
       </div>
 
-      {/* Modal de création */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto py-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 my-auto">
-            <div className="p-6 max-h-[85vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto py-4 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">{isEditing ? 'Modifier l\'entité' : 'Nouvelle entité'}</h2>
-                <button
-                  onClick={handleCloseModal}
-                  className="text-gray-500 hover:text-gray-700"
-                >
+                <h2 className="text-lg font-semibold">{isEditing ? '✏️ Modifier l’entité' : '+ Nouvelle entité'}</h2>
+                <button type="button" onClick={handleCloseModal} className="text-gray-400 hover:text-gray-600 text-xl leading-none">
                   ✕
                 </button>
               </div>
 
-              {error && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded">
-                  {error}
-                </div>
-              )}
+              {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
@@ -368,8 +500,8 @@ export default function Entites() {
                     type="text"
                     required
                     value={formData.nom}
-                    onChange={(e) => setFormData({ ...formData, nom: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    onChange={(ev) => setFormData({ ...formData, nom: ev.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                     placeholder="Nom de l'entité"
                   />
                 </div>
@@ -382,25 +514,21 @@ export default function Entites() {
                     type="text"
                     required
                     value={formData.code}
-                    onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    onChange={(ev) => setFormData({ ...formData, code: ev.target.value.toUpperCase() })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                     placeholder="ENT-001"
                     disabled={isEditing}
                   />
-                  {isEditing && (
-                    <p className="text-xs text-gray-500 mt-1">Le code ne peut pas être modifié</p>
-                  )}
+                  {isEditing && <p className="text-xs text-gray-500 mt-1">Le code ne peut pas être modifié</p>}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Type <span className="text-red-500">*</span>
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
                   <select
                     required
                     value={formData.type}
-                    onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    onChange={(ev) => setFormData({ ...formData, type: ev.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                   >
                     {entiteTypes.map((type) => (
                       <option key={type.value} value={type.value}>
@@ -411,75 +539,62 @@ export default function Entites() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Entité parente
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Entité parente</label>
                   <select
                     value={formData.parentId}
-                    onChange={(e) => setFormData({ ...formData, parentId: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    onChange={(ev) => setFormData({ ...formData, parentId: ev.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                   >
-                    <option value="">Aucune (entité racine)</option>
+                    <option value="">Aucune (racine)</option>
                     {entites
                       .filter((entite) => !isEditing || entite.id !== editingId)
                       .map((entite) => (
                         <option key={entite.id} value={entite.id}>
-                          {entite.nom} ({entite.code}) - {entite.type}
+                          {entite.nom} ({entite.code}) — {entite.type}
                         </option>
                       ))}
                   </select>
-                  {isEditing && (
-                    <p className="text-xs text-gray-500 mt-1">Une entité ne peut pas être sa propre parente</p>
-                  )}
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Responsable
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Responsable</label>
                   <select
                     value={formData.responsableId}
-                    onChange={(e) => setFormData({ ...formData, responsableId: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    onChange={(ev) => setFormData({ ...formData, responsableId: ev.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                   >
-                    <option value="">Sélectionner un responsable</option>
+                    <option value="">—</option>
                     {users
                       .filter((u) => u.role === 'admin' || u.role === 'contributeur')
-                      .map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {user.prenom} {user.nom} ({user.email})
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.prenom} {u.nom} ({u.email})
                         </option>
                       ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
                   <textarea
                     value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    onChange={(ev) => setFormData({ ...formData, description: ev.target.value })}
                     rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Description de l'entité"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    placeholder="Description"
                   />
                 </div>
 
-                <div className="flex justify-end space-x-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={handleCloseModal}
-                    className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-                  >
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                  <button type="button" onClick={handleCloseModal} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">
                     Annuler
                   </button>
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {submitting ? (isEditing ? 'Modification...' : 'Création...') : (isEditing ? 'Modifier' : 'Créer')}
+                    {submitting ? 'Enregistrement…' : isEditing ? 'Enregistrer' : 'Créer'}
                   </button>
                 </div>
               </form>
@@ -488,144 +603,372 @@ export default function Entites() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="flex justify-between items-center p-4 border-b">
-          <h2 className="text-lg font-semibold">Liste des entités</h2>
-          {sortConfig && (
-            <button
-              onClick={resetSort}
-              className="px-3 py-1 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-              title="Réinitialiser le tri"
-            >
-              Réinitialiser le tri
-            </button>
-          )}
-        </div>
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('code')}
-              >
-                <div className="flex items-center gap-1">
-                  Code
-                  {sortConfig?.key === 'code' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
+      <div className="space-y-4">
+        {entites.length === 0 && <div className="text-center py-10 text-gray-400 bg-white rounded-lg border">Aucune entité</div>}
+        {pagedEntites.map((e) => {
+          const c = cap(e);
+          const typeLabel = entiteTypes.find((t) => t.value === e.type)?.label || e.type;
+          return (
+            <div key={e.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded text-xs font-medium">{e.code}</span>
+                    <h3 className="text-lg font-semibold text-gray-900">{e.nom}</h3>
+                    <span className="px-2 py-0.5 bg-blue-50 text-blue-800 rounded text-xs">{typeLabel}</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600">
+                    <div>
+                      <span className="font-medium text-gray-700">Responsable : </span>
+                      {e.responsable ? `${e.responsable.prenom} ${e.responsable.nom}` : '—'}
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Parent : </span>
+                      {e.parent ? `${e.parent.nom} (${e.parent.code})` : <span className="text-gray-400">Racine</span>}
+                    </div>
+                    {e.description && (
+                      <div className="sm:col-span-2 text-xs text-gray-500 line-clamp-2">{e.description}</div>
+                    )}
+                    <div className="sm:col-span-2 text-sm">
+                      <span className="font-medium text-gray-700">Créé par : </span>
+                      {e.createdBy ? `${e.createdBy.prenom} ${e.createdBy.nom}` : <span className="text-amber-600">Non renseigné (héritage)</span>}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-start gap-2 sm:gap-3 text-xs text-gray-700 border border-slate-100 rounded-lg px-3 py-2.5 bg-slate-50/90">
+                    <span className="font-semibold text-gray-600 uppercase shrink-0 pt-0.5">Accès :</span>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0 flex-1">
+                      {isAccesRestreintEntite(e) ? (
+                        <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-red-50 border border-red-100 text-red-900 shrink-0">
+                          <span className="text-sm leading-none" aria-hidden>
+                            🔒
+                          </span>
+                          <span className="text-[10px] font-semibold leading-tight mt-0.5 text-center">Accès restreint</span>
+                        </div>
+                      ) : (
+                        <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-green-50 border border-green-100 text-green-900 shrink-0">
+                          <span className="text-[10px] font-semibold leading-tight text-center">Accès élargi</span>
+                          <span className="text-[10px] text-green-800/90 text-center mt-0.5">Tous les utilisateurs authentifiés</span>
+                        </div>
+                      )}
+                      {(() => {
+                        const actifAdmins = users.filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'));
+                        const creatorId = e.createdById || e.createdBy?.id;
+                        return (
+                          <>
+                            {actifAdmins.map((a: any) => {
+                              const isCreator = creatorId === a.id;
+                              return (
+                                <div key={`adm-${e.id}-${a.id}`} className="min-w-0">
+                                  <span className="font-medium text-gray-900">
+                                    {a.prenom} {a.nom}
+                                  </span>
+                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                    {isCreator ? `(Administrateur et créateur : ${droitsAdminLigne})` : `(Admin : ${droitsAdminLigne})`}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                            {e.createdBy && creatorId && !actifAdmins.some((a: any) => a.id === creatorId) && (
+                              <div className="min-w-0">
+                                <span className="font-medium text-gray-900">
+                                  {e.createdBy.prenom} {e.createdBy.nom}
+                                </span>
+                                <span className="text-gray-500 italic block sm:inline sm:ml-1">(Créateur : {droitsAdminLigne})</span>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+                      {(e.accesApercu?.delegations || []).map((d: any) => (
+                        <div key={d.user.id} className="min-w-0">
+                          <span className="font-medium text-gray-900">
+                            {d.user.prenom} {d.user.nom}
+                          </span>
+                          <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                            {d.permissions?.includes('lecture') && d.permissions?.length === 1 ? (
+                              <>👁 ({permSummaryLine(d.permissions)})</>
+                            ) : (
+                              <> ({permSummaryLine(d.permissions)})</>
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </th>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('nom')}
-              >
-                <div className="flex items-center gap-1">
-                  Nom
-                  {sortConfig?.key === 'nom' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </div>
-              </th>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('type')}
-              >
-                <div className="flex items-center gap-1">
-                  Type
-                  {sortConfig?.key === 'type' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </div>
-              </th>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('responsable')}
-              >
-                <div className="flex items-center gap-1">
-                  Responsable
-                  {sortConfig?.key === 'responsable' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </div>
-              </th>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('parent')}
-              >
-                <div className="flex items-center gap-1">
-                  Entité parente
-                  {sortConfig?.key === 'parent' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </div>
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {pagedEntites.map((e) => (
-              <tr key={e.id}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{e.code}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  <Link
-                    to={`/entites/${e.id}`}
-                    className="text-blue-600 hover:text-blue-800 hover:underline"
-                  >
-                    {e.nom}
-                  </Link>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm capitalize">{e.type}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  {e.responsable ? `${e.responsable.prenom} ${e.responsable.nom}` : '-'}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  {e.parent ? `${e.parent.nom}${e.parent.code ? ` (${e.parent.code})` : ''}` : <span className="text-gray-500 italic">N/A</span>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {entites.length === 0 && (
-          <div className="text-center py-8 text-gray-500">Aucune entité</div>
-        )}
-        {entites.length > pageSize && (
-          <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4">
-            <div className="text-sm text-gray-700">
-              Affichage {startIdx + 1}-{Math.min(startIdx + pageSize, entites.length)} sur {entites.length}
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className={`px-4 py-2 rounded text-sm font-medium ${page === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-              >
-                Précédent
-              </button>
-              <div className="flex gap-1">
-                {getPageNumbers().map((p, idx) => (
-                  typeof p === 'string' ? (
-                    <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">{p}</span>
-                  ) : (
+
+                <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
+                  {c.canView && (
                     <button
-                      key={p as number}
-                      onClick={() => setPage(p as number)}
-                      className={`px-3 py-2 rounded text-sm font-medium ${page === p ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                      type="button"
+                      onClick={() => navigate(`/entites/${e.id}`)}
+                      className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
                     >
-                      {p}
+                      👁 Détails
                     </button>
-                  )
-                ))}
+                  )}
+                  {c.canModify && (
+                    <button type="button" onClick={() => handleEdit(e.id)} className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
+                      ✏️ Modifier
+                    </button>
+                  )}
+                  <button type="button" onClick={() => onAccesButtonClick(e)} className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200">
+                    🔐 Accès
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openHistoriqueModal(e)}
+                    className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                  >
+                    📜 Historique
+                  </button>
+                  {c.canDelete && (
+                    <button
+                      type="button"
+                      onClick={() => handleSoftDelete(e.id, e.nom)}
+                      className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                    >
+                      🗑 Mettre en corbeille
+                    </button>
+                  )}
+                </div>
               </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {entites.length > pageSize && (
+        <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4 flex-wrap gap-3">
+          <div className="text-sm text-gray-700">
+            Affichage {startIdx + 1}-{Math.min(startIdx + pageSize, entites.length)} sur {entites.length}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={safePage === 1}
+              className={`px-4 py-2 rounded text-sm font-medium ${safePage === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+            >
+              Précédent
+            </button>
+            <div className="flex gap-1 flex-wrap items-center">
+              {getPaginationPageNumbers(safePage, totalPages).map((p, idx) =>
+                typeof p === 'string' ? (
+                  <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">
+                    {p}
+                  </span>
+                ) : (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPage(p)}
+                    className={`px-3 py-2 rounded text-sm font-medium ${safePage === p ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  >
+                    {p}
+                  </button>
+                )
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={safePage === totalPages}
+              className={`px-4 py-2 rounded text-sm font-medium ${safePage === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+            >
+              Suivant
+            </button>
+          </div>
+        </div>
+      )}
+
+      {accesModalEntite && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-6">
+          <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
+            <h3 className="text-xl font-semibold mb-2">Accès — {accesModalEntite.nom}</h3>
+            <p className="text-sm text-gray-600 mb-5 leading-relaxed">
+              Les <span className="font-medium">administrateurs</span> ont tous les droits. Le <span className="font-medium">créateur</span> peut modifier l’entité, la mettre en corbeille et gérer les droits délégués.
+            </p>
+            {accesLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : accesDetail ? (
+              <div className="space-y-5 text-sm">
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
+                  <ul className="space-y-1.5 text-gray-700 text-base">
+                    {(accesDetail.admins || []).map((a: any) => (
+                      <li key={a.id}>
+                        <span className="font-medium">
+                          {a.prenom} {a.nom}
+                        </span>
+                        <span className="text-gray-400"> (accès complet)</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Créateur</p>
+                  {accesDetail.creator ? (
+                    <p>
+                      <span className="font-medium">
+                        {accesDetail.creator.prenom} {accesDetail.creator.nom}
+                      </span>
+                      <span className="text-gray-400"> — modification, mise en corbeille, gestion des accès</span>
+                    </p>
+                  ) : (
+                    <p className="text-amber-800 text-sm">Aucun créateur enregistré (données historiques).</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Droits explicites</p>
+                  {(accesDetail.delegations || []).length === 0 ? (
+                    <p className="text-gray-400 text-xs italic">Aucun droit délégué</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {(accesDetail.delegations || []).map((d: any) => (
+                        <li key={d.id} className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50">
+                          <span className="font-medium">
+                            {d.user.prenom} {d.user.nom}
+                          </span>
+                          <span className="text-gray-500">— {LABEL_PERM_MODAL[d.permission] || d.permission}</span>
+                          {d.grantedBy && (
+                            <span className="text-xs text-gray-400">
+                              par {d.grantedBy.prenom} {d.grantedBy.nom}
+                            </span>
+                          )}
+                          {accesDetail.canManagePermissions && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemovePermission(d.id)}
+                              className="text-xs text-red-600 hover:underline ml-auto"
+                            >
+                              Retirer
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {accesDetail.canManagePermissions && (
+                  <div className="border-t border-gray-200 pt-4 space-y-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accorder un droit</p>
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3 items-end">
+                      <select
+                        value={newPermUserId}
+                        onChange={(ev) => setNewPermUserId(ev.target.value)}
+                        className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        <option value="">— Utilisateur —</option>
+                        {users
+                          .filter(
+                            (u: any) =>
+                              (!u.statut || u.statut === 'actif') && u.role !== 'admin' && u.id !== accesDetail.creator?.id
+                          )
+                          .map((u: any) => (
+                            <option key={u.id} value={u.id}>
+                              {u.prenom} {u.nom} ({u.email})
+                            </option>
+                          ))}
+                      </select>
+                      <select
+                        value={newPermType}
+                        onChange={(ev) => setNewPermType(ev.target.value)}
+                        className="w-full lg:w-56 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        <option value="lecture">Consultation</option>
+                        <option value="modification">Modification</option>
+                        <option value="suppression">Suppression (mise en corbeille)</option>
+                        <option value="gestion">Gestion des droits</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleAddPermission}
+                        disabled={!newPermUserId}
+                        className="w-full lg:w-auto px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shrink-0"
+                      >
+                        Ajouter
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
+            <div className="flex justify-end mt-4">
               <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className={`px-4 py-2 rounded text-sm font-medium ${page === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                type="button"
+                onClick={() => setAccesModalEntite(null)}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
               >
-                Suivant
+                Fermer
               </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {histModalEntite && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">Historique — {histModalEntite.nom}</h3>
+            {histoLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : histoList.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">Aucun événement enregistré</p>
+            ) : (
+              <ul className="space-y-3 text-sm max-h-[60vh] overflow-y-auto">
+                {histoList.map((h: any) => (
+                  <li key={h.id} className="border-b border-gray-100 pb-2">
+                    <div className="flex flex-wrap justify-between gap-1 text-xs text-gray-500">
+                      <span>{h.timestamp ? new Date(h.timestamp).toLocaleString('fr-FR') : ''}</span>
+                      <span>
+                        {h.user?.prenom} {h.user?.nom}
+                      </span>
+                    </div>
+                    <p className="font-medium text-gray-800">{ACTION_JOURNAL[h.action] || h.action}</p>
+                    {h.ressourceNom && <p className="text-gray-600 text-xs mt-0.5">{h.ressourceNom}</p>}
+                    {h.details && typeof h.details === 'object' && Object.keys(h.details).length > 0 && (
+                      <pre className="text-xs bg-gray-50 rounded p-2 mt-1 overflow-x-auto max-h-32">{JSON.stringify(h.details, null, 2)}</pre>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex justify-end mt-4">
+              <button type="button" onClick={() => setHistModalEntite(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {noAccesModalOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="no-acces-entite-title"
+          onClick={() => setNoAccesModalOpen(false)}
+        >
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full" onClick={(ev) => ev.stopPropagation()}>
+            <h3 id="no-acces-entite-title" className="text-lg font-semibold text-gray-900 mb-2">
+              Accès au bouton « Accès »
+            </h3>
+            <p className="text-sm text-gray-600 leading-relaxed">
+              Vous n&apos;avez pas les droits nécessaires pour gérer les accès de cette entité. Seuls les{' '}
+              <span className="font-medium">administrateurs</span>, le <span className="font-medium">créateur</span> ou les utilisateurs avec la permission{' '}
+              <span className="font-medium">gestion des droits</span> peuvent utiliser ce bouton.
+            </p>
+            <div className="flex justify-end mt-5">
+              <button type="button" onClick={() => setNoAccesModalOpen(false)} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

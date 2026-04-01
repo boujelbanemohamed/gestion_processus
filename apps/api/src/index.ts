@@ -94,8 +94,11 @@ app.get("/api/v1/dashboard/taches-en-retard", dashboardController.getTachesEnRet
 // Entités
 app.get("/api/v1/entites", entiteController.getAllEntites);
 app.get("/api/v1/entites/tree", entiteController.getEntiteTree);
-app.get("/api/v1/entites/:id", entiteController.getEntite);
+app.get("/api/v1/entites/:id/acces", entiteController.getEntiteAcces);
 app.get("/api/v1/entites/:id/history", entiteController.getEntiteHistory);
+app.post("/api/v1/entites/:id/permissions", entiteController.addEntitePermission);
+app.delete("/api/v1/entites/:id/permissions/:permissionId", entiteController.removeEntitePermission);
+app.get("/api/v1/entites/:id", entiteController.getEntite);
 app.post("/api/v1/entites", entiteController.createEntite);
 app.put("/api/v1/entites/:id", entiteController.updateEntite);
 app.delete("/api/v1/entites/:id", entiteController.deleteEntite);
@@ -171,6 +174,8 @@ app.post("/api/v1/corbeille/clients-fournisseurs/:id/restaurer", corbeilleContro
 app.delete("/api/v1/corbeille/clients-fournisseurs/:id", corbeilleController.supprimerDefinitivementClientFournisseur);
 app.post("/api/v1/corbeille/contrats/:id/restaurer", corbeilleController.restaurerContrat);
 app.delete("/api/v1/corbeille/contrats/:id", corbeilleController.supprimerDefinitivementContrat);
+app.post("/api/v1/corbeille/entites/:id/restaurer", corbeilleController.restaurerEntite);
+app.delete("/api/v1/corbeille/entites/:id", corbeilleController.supprimerDefinitivementEntite);
 
 // Favoris
 app.get("/api/v1/favoris", favorisController.getFavoris);

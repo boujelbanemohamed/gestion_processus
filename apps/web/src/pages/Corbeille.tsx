@@ -7,9 +7,10 @@ export default function Corbeille() {
   const [licences, setLicences] = useState<any[]>([]);
   const [clientsFournisseurs, setClientsFournisseurs] = useState<any[]>([]);
   const [contrats, setContrats] = useState<any[]>([]);
+  const [entites, setEntites] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
-    'processus' | 'documents' | 'licences' | 'clientsFournisseurs' | 'contrats'
+    'processus' | 'documents' | 'licences' | 'clientsFournisseurs' | 'contrats' | 'entites'
   >('processus');
 
   useEffect(() => {
@@ -24,6 +25,7 @@ export default function Corbeille() {
       setLicences(response.data.licences || []);
       setClientsFournisseurs(response.data.clientsFournisseurs || []);
       setContrats(response.data.contrats || []);
+      setEntites(response.data.entites || []);
     } catch (error) {
       console.error('Erreur chargement corbeille:', error);
     } finally {
@@ -131,6 +133,26 @@ export default function Corbeille() {
     }
   };
 
+  const handleRestaurerEntite = async (id: string) => {
+    if (!window.confirm('Restaurer cette entité ?')) return;
+    try {
+      await api.post(`/corbeille/entites/${id}/restaurer`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur restauration:', error);
+    }
+  };
+
+  const handleSupprimerEntite = async (id: string) => {
+    if (!window.confirm('Supprimer définitivement cette entité ? Irréversible.')) return;
+    try {
+      await api.delete(`/corbeille/entites/${id}`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur suppression:', error);
+    }
+  };
+
   if (loading) return <div className="p-6">Chargement...</div>;
 
   return (
@@ -188,6 +210,16 @@ export default function Corbeille() {
           }`}
         >
           Contrats ({contrats.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('entites')}
+          className={`pb-2 px-1 text-sm font-medium border-b-2 ${
+            activeTab === 'entites'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Entités ({entites.length})
         </button>
       </div>
 
@@ -422,6 +454,55 @@ export default function Corbeille() {
           </table>
           {contrats.length === 0 && (
             <div className="text-center py-8 text-gray-500">Aucun contrat en corbeille</div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'entites' && (
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entité parente</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supprimé le</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {entites.map((e) => (
+                <tr key={e.id}>
+                  <td className="px-6 py-4 text-sm text-gray-900">{e.nom}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">{e.code || '—'}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">{e.parent?.nom || '—'}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {e.deletedAt ? new Date(e.deletedAt).toLocaleDateString('fr-FR') : '—'}
+                  </td>
+                  <td className="px-6 py-4 text-sm">
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleRestaurerEntite(e.id)}
+                        className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
+                      >
+                        Restaurer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSupprimerEntite(e.id)}
+                        className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200"
+                      >
+                        Supprimer définitivement
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {entites.length === 0 && (
+            <div className="text-center py-8 text-gray-500">Aucune entité en corbeille</div>
           )}
         </div>
       )}
