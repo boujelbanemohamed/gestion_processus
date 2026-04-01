@@ -75,6 +75,36 @@ async function myPermTypesForCfs(cfIds: string[], userId: string): Promise<Map<s
   return map;
 }
 
+/** Tous les utilisateurs ayant au moins une permission explicite sur chaque fiche (pour affichage liste). */
+async function allDelegationsByCf(cfIds: string[]) {
+  type Entry = {
+    user: { id: string; nom: string; prenom: string; email: string; role: string };
+    permissions: PermissionType[];
+  };
+  const map = new Map<string, Map<string, Entry>>();
+  if (cfIds.length === 0) return map;
+  const rows = await prisma.permission.findMany({
+    where: { ressourceType: 'clientFournisseur', ressourceId: { in: cfIds } },
+    include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
+  for (const r of rows) {
+    const cfId = r.ressourceId;
+    let um = map.get(cfId);
+    if (!um) {
+      um = new Map();
+      map.set(cfId, um);
+    }
+    const ex = um.get(r.userId);
+    if (ex) {
+      if (!ex.permissions.includes(r.permission)) ex.permissions.push(r.permission);
+    } else {
+      um.set(r.userId, { user: r.user, permissions: [r.permission] });
+    }
+  }
+  return map;
+}
+
 export async function logCfHistory(
   clientFournisseurId: string,
   userId: string,
@@ -173,7 +203,17 @@ export const clientFournisseurService = {
       auth,
       permMap
     );
-    return attachContratsLies(filtered);
+    const delMap = await allDelegationsByCf(filtered.map((r) => r.id));
+    const withAcces = filtered.map((r) => ({
+      ...r,
+      accesApercu: {
+        delegations: Array.from(delMap.get(r.id)?.values() ?? []).map((d) => ({
+          user: d.user,
+          permissions: d.permissions,
+        })),
+      },
+    }));
+    return attachContratsLies(withAcces);
   },
 
   async findOne(id: string, auth: CfAuth) {
@@ -190,10 +230,16 @@ export const clientFournisseurService = {
     const perms = await myPermTypesForCf(id, auth.userId);
     const acl = { id: row.id, createdById: row.createdById };
     if (!canViewCf(acl, auth, perms)) return null;
+    const delMap = await allDelegationsByCf([row.id]);
+    const delegations = Array.from(delMap.get(row.id)?.values() ?? []).map((d) => ({
+      user: d.user,
+      permissions: d.permissions,
+    }));
     const [withContrats] = await attachContratsLies([
       {
         ...row,
         capabilities: capabilitiesFor(acl, auth, perms),
+        accesApercu: { delegations },
       },
     ]);
     return withContrats;

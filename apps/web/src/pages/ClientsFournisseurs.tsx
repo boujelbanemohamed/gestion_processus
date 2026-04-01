@@ -8,12 +8,29 @@ function isoToDateInput(iso: string | null | undefined): string {
   return iso.slice(0, 10);
 }
 
+/** Libellés courts sur la ligne (style aperçu type Documents). */
+const LABEL_PERM_ROW: Record<string, string> = {
+  lecture: 'lecture',
+  modification: 'modification',
+  suppression: 'suppression',
+  gestion: 'gestion des droits',
+};
+
 const LABEL_PERM: Record<string, string> = {
   lecture: 'Consultation',
   modification: 'Modification',
   suppression: 'Suppression (fiche)',
   gestion: 'Gestion',
 };
+
+function permSummaryLine(perms: string[]) {
+  return perms.map((p) => LABEL_PERM_ROW[p] || p).join(' + ');
+}
+
+function isAccesRestreint(item: any) {
+  const dels = item.accesApercu?.delegations?.length ?? 0;
+  return !!item.createdById || dels > 0;
+}
 
 const LABEL_HISTO: Record<string, string> = {
   creation: 'Création de la fiche',
@@ -40,6 +57,11 @@ export default function ClientsFournisseurs() {
     item.capabilities?.canModify ?? (user?.role === 'admin' || user?.role === 'contributeur');
   const capDelete = (item: any) =>
     item.capabilities?.canDelete ?? (user?.role === 'admin' || user?.role === 'contributeur');
+  /** Gestion des droits (bouton Accès → modale complète). */
+  const capManagePermissions = (item: any) => {
+    if (item.capabilities?.canManagePermissions != null) return !!item.capabilities.canManagePermissions;
+    return user?.role === 'admin';
+  };
 
   const [items, setItems] = useState<any[]>([]);
   const [typeFilter, setTypeFilter] = useState<string>('');
@@ -65,6 +87,7 @@ export default function ClientsFournisseurs() {
   const [histModalItem, setHistModalItem] = useState<any | null>(null);
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
+  const [noAccesModalOpen, setNoAccesModalOpen] = useState(false);
 
   const emptyForm = { type: 'client', nom: '', typeSocieteId: '', matriculeFiscale: '', adresse: '', pays: '', projetIds: [] as string[] };
   const [form, setForm] = useState<any>(emptyForm);
@@ -125,6 +148,14 @@ export default function ClientsFournisseurs() {
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
+  };
+
+  const onAccesButtonClick = (item: any) => {
+    if (!capManagePermissions(item)) {
+      setNoAccesModalOpen(true);
+      return;
+    }
+    void openAccesModal(item);
   };
 
   const openAccesModal = async (item: any) => {
@@ -270,6 +301,77 @@ export default function ClientsFournisseurs() {
                     </span>
                     <h2 className="text-lg font-semibold text-gray-900">{item.nom}</h2>
                   </div>
+
+                  {/* Aperçu accès (comme colonne Documents) */}
+                  <div className="mt-3 flex flex-wrap items-start gap-2 sm:gap-3 text-xs text-gray-700 border border-slate-100 rounded-lg px-3 py-2.5 bg-slate-50/90">
+                    <span className="font-semibold text-gray-600 uppercase shrink-0 pt-0.5">Accès :</span>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0 flex-1">
+                      {isAccesRestreint(item) ? (
+                        <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-red-50 border border-red-100 text-red-900 shrink-0">
+                          <span className="text-sm leading-none" aria-hidden>🔒</span>
+                          <span className="text-[10px] font-semibold leading-tight mt-0.5 text-center">Accès restreint</span>
+                        </div>
+                      ) : (
+                        <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-green-50 border border-green-100 text-green-900 shrink-0">
+                          <span className="text-[10px] font-semibold leading-tight text-center">Accès élargi</span>
+                          <span className="text-[10px] text-green-800/90 text-center mt-0.5">Tous les contributeurs</span>
+                        </div>
+                      )}
+                      {(() => {
+                        const actifAdmins = usersList.filter(
+                          (u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif')
+                        );
+                        const creatorId = item.createdById || item.createdBy?.id;
+                        const droitsComplet = 'modification + suppression + gestion des droits + lecture';
+                        return (
+                          <>
+                            {actifAdmins.map((a: any) => {
+                              const isCreator = creatorId === a.id;
+                              return (
+                                <div key={`adm-${item.id}-${a.id}`} className="min-w-0">
+                                  <span className="font-medium text-gray-900">
+                                    {a.prenom} {a.nom}
+                                  </span>
+                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                    {isCreator
+                                      ? `(Administrateur et créateur : ${droitsComplet})`
+                                      : `(Admin : ${droitsComplet})`}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                            {item.createdBy &&
+                              creatorId &&
+                              !actifAdmins.some((a: any) => a.id === creatorId) && (
+                                <div className="min-w-0">
+                                  <span className="font-medium text-gray-900">
+                                    {item.createdBy.prenom} {item.createdBy.nom}
+                                  </span>
+                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                    (Créateur : {droitsComplet})
+                                  </span>
+                                </div>
+                              )}
+                          </>
+                        );
+                      })()}
+                      {(item.accesApercu?.delegations || []).map((d: any) => (
+                        <div key={d.user.id} className="min-w-0">
+                          <span className="font-medium text-gray-900">
+                            {d.user.prenom} {d.user.nom}
+                          </span>
+                          <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                            {d.permissions?.includes('lecture') && d.permissions?.length === 1 ? (
+                              <>👁 ({permSummaryLine(d.permissions)})</>
+                            ) : (
+                              <> ({permSummaryLine(d.permissions)})</>
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm text-gray-600 mt-3">
                     {item.typeSociete && <div><span className="font-medium">Type : </span>{item.typeSociete.nom}</div>}
                     {item.matriculeFiscale && <div><span className="font-medium">MF/ID : </span>{item.matriculeFiscale}</div>}
@@ -373,7 +475,7 @@ export default function ClientsFournisseurs() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
-                  <button type="button" onClick={() => openAccesModal(item)} className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200">🔐 Accès</button>
+                  <button type="button" onClick={() => onAccesButtonClick(item)} className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200">🔐 Accès</button>
                   <button type="button" onClick={() => openHistoriqueModal(item)} className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200">📜 Historique</button>
                   {capModify(item) && (
                     <>
@@ -643,6 +745,37 @@ export default function ClientsFournisseurs() {
             )}
             <div className="flex justify-end mt-4">
               <button type="button" onClick={() => setHistModalItem(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {noAccesModalOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="no-acces-title"
+          onClick={() => setNoAccesModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="no-acces-title" className="text-lg font-semibold text-gray-900 mb-2">Accès au bouton « Accès »</h3>
+            <p className="text-sm text-gray-600 leading-relaxed">
+              Vous n&apos;avez pas les droits nécessaires pour ouvrir la gestion des accès de cette fiche. Seuls les{' '}
+              <span className="font-medium">administrateurs</span> et le <span className="font-medium">créateur</span>{' '}
+              de la fiche peuvent utiliser ce bouton.
+            </p>
+            <div className="flex justify-end mt-5">
+              <button
+                type="button"
+                onClick={() => setNoAccesModalOpen(false)}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Fermer
+              </button>
             </div>
           </div>
         </div>
