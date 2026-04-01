@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
+import { getPaginationPageNumbers } from '../utils/pagination';
 import axios from 'axios';
 
 const uploadApi = axios.create({ baseURL: API_BASE_URL });
@@ -76,6 +77,8 @@ export default function Licences() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filtreStatut, setFiltreStatut] = useState('');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [form, setForm] = useState({ ...emptyForm });
@@ -332,6 +335,11 @@ export default function Licences() {
     return matchSearch && matchStatut;
   });
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const startIdx = (safePage - 1) * pageSize;
+  const pagedFiltered = filtered.slice(startIdx, startIdx + pageSize);
+
   const alertes = licences.filter(l => l.dateFin && joursRestants(l.dateFin) <= 30 && joursRestants(l.dateFin) > 0);
 
   return (
@@ -339,7 +347,9 @@ export default function Licences() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">🔑 Licences</h1>
-          <p className="text-sm text-gray-500 mt-1">{licences.length} licence(s)</p>
+          <p className="text-sm text-gray-500 mt-1">
+            {filtered.length} licence(s) affichée(s) sur {licences.length} au total
+          </p>
         </div>
         <div className="flex gap-2">
           <button
@@ -373,7 +383,7 @@ export default function Licences() {
       {loading ? <div className="text-center py-10 text-gray-400">Chargement...</div> : (
         <div className="space-y-4">
           {filtered.length === 0 && <div className="text-center py-10 text-gray-400">Aucune licence</div>}
-          {filtered.map(l => {
+          {pagedFiltered.map((l) => {
             const statut = STATUTS.find(s => s.value === l.statut);
             const jours = l.dateFin ? joursRestants(l.dateFin) : null;
             return (
@@ -399,6 +409,24 @@ export default function Licences() {
                       {l.processus && <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded">⚙️ {l.processus.nom}</span>}
                       {l.clientFournisseur && <span className="px-2 py-0.5 bg-green-50 text-green-700 rounded">🏢 {l.clientFournisseur.nom}</span>}
                     </div>
+                    {l.documents?.length > 0 && (
+                      <div className="mt-2">
+                        <p className="text-xs font-medium text-gray-500 uppercase mb-1">Pièces jointes :</p>
+                        <div className="flex flex-wrap gap-1">
+                          {l.documents.map((d: any) => (
+                            <a
+                              key={d.id}
+                              href={`${API_BASE_URL}/documents/${d.document?.id}/view?token=${localStorage.getItem('token')}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 rounded text-xs text-blue-600 hover:bg-gray-200 hover:underline"
+                            >
+                              📎 {d.document?.nom || 'Document'}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <p className="mt-2 text-sm text-gray-600">
                       <span className="font-medium text-gray-700">Créé par : </span>
                       {l.createdBy ? (
@@ -482,6 +510,49 @@ export default function Licences() {
               </div>
             );
           })}
+          {filtered.length > pageSize && (
+            <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4 flex-wrap gap-3">
+              <div className="text-sm text-gray-700">
+                Affichage {startIdx + 1}-{Math.min(startIdx + pageSize, filtered.length)} sur {filtered.length}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={safePage === 1}
+                  className={`px-4 py-2 rounded text-sm font-medium ${safePage === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                >
+                  Précédent
+                </button>
+                <div className="flex gap-1 flex-wrap items-center">
+                  {getPaginationPageNumbers(safePage, totalPages).map((p, idx) =>
+                    typeof p === 'string' ? (
+                      <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">
+                        {p}
+                      </span>
+                    ) : (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setPage(p)}
+                        className={`px-3 py-2 rounded text-sm font-medium ${safePage === p ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safePage === totalPages}
+                  className={`px-4 py-2 rounded text-sm font-medium ${safePage === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                >
+                  Suivant
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
