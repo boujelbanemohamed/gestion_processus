@@ -16,6 +16,10 @@ Référence détaillée : **`DEPLOY_SERVEUR_REDHAT.md`** à la racine du dépôt
 - **Images** (ex. serveur actuel) : `applications-api-app1`, `applications-web-app1` — le préfixe suit le **nom du projet Docker Compose** (souvent le nom du dossier parent).
 - **Ports** : **4000** (API), **5173** (front), **5434** (PostgreSQL sur l’hôte).
 
+## Docker Compose
+
+Sur le serveur : **`docker compose`** (espace), pas `docker-compose` — le binaire V1 est en général absent (`command not found`).
+
 ## Mise à jour typique
 
 ```bash

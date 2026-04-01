@@ -16,6 +16,19 @@ Après connexion SSH au serveur :
 cd /data/applications
 ```
 
+## Docker Compose : `docker compose` (avec espace)
+
+Sur Red Hat avec le **plugin Compose V2**, la commande correcte est **`docker compose`** (sous-commande de Docker), et non `docker-compose` (binaire V1, souvent **non installé**).
+
+Si vous voyez `bash: docker-compose: command not found`, utilisez systématiquement :
+
+```bash
+docker compose build ...
+docker compose up -d ...
+docker compose ps
+docker compose logs -f api-app1
+```
+
 ## Docker — noms observés
 
 Les images Docker construites à partir de ce dépôt suivent le **nom du projet Compose** (par défaut : nom du dossier courant). Sur le serveur actuel, les images sont préfixées par `applications` :
