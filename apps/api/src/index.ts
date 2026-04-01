@@ -191,6 +191,8 @@ app.delete("/api/v1/clients-fournisseurs/:id", clientFournisseurController.delet
 app.post("/api/v1/clients-fournisseurs/:id/representants", clientFournisseurController.addRepresentant);
 app.put("/api/v1/clients-fournisseurs/:id/representants/:repId", clientFournisseurController.updateRepresentant);
 app.delete("/api/v1/clients-fournisseurs/:id/representants/:repId", clientFournisseurController.deleteRepresentant);
+app.post("/api/v1/clients-fournisseurs/:id/contrats", clientFournisseurController.linkContratClientFournisseur);
+app.delete("/api/v1/clients-fournisseurs/:id/contrats/:contratId", clientFournisseurController.unlinkContratClientFournisseur);
 app.post("/api/v1/clients-fournisseurs/:id/projets", clientFournisseurController.addProjet);
 app.delete("/api/v1/clients-fournisseurs/:id/projets/:projetId", clientFournisseurController.removeProjet);
 

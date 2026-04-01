@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { typeSocieteService, clientFournisseurService } from '../services/client-fournisseur.service';
+import { contratService } from '../services/contrat.service';
 import { prisma } from '../utils/prisma';
+import { AuthRequest } from '../middleware/auth';
 
 // Types de société
 export const getTypesSociete = async (req: Request, res: Response) => {
@@ -71,13 +73,35 @@ export const addRepresentant = async (req: Request, res: Response) => {
 };
 export const updateRepresentant = async (req: Request, res: Response) => {
   try {
-    const data = await clientFournisseurService.updateRepresentant(req.params.repId, req.body);
+    const data = await clientFournisseurService.updateRepresentant(req.params.id, req.params.repId, req.body);
     res.json(data);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 };
 export const deleteRepresentant = async (req: Request, res: Response) => {
   try {
-    await clientFournisseurService.deleteRepresentant(req.params.repId);
+    await clientFournisseurService.deleteRepresentant(req.params.id, req.params.repId);
+    res.json({ success: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+};
+
+export const linkContratClientFournisseur = async (req: AuthRequest, res: Response) => {
+  try {
+    const { contratId } = req.body as { contratId?: string };
+    if (!contratId) return res.status(400).json({ error: 'contratId requis' });
+    const user = req.user!;
+    const contrat = await contratService.findOne(contratId, user.userId!, user.role!);
+    if (!contrat) return res.status(403).json({ error: 'Contrat introuvable ou accès refusé' });
+    const row = await clientFournisseurService.linkContrat(req.params.id, contratId);
+    res.status(201).json(row);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+};
+
+export const unlinkContratClientFournisseur = async (req: AuthRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    const contrat = await contratService.findOne(req.params.contratId, user.userId!, user.role!);
+    if (!contrat) return res.status(403).json({ error: 'Contrat introuvable ou accès refusé' });
+    await clientFournisseurService.unlinkContrat(req.params.id, req.params.contratId);
     res.json({ success: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 };

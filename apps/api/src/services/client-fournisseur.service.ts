@@ -1,5 +1,22 @@
 import { prisma } from '../utils/prisma';
 
+function parseRepresentantDate(v: unknown): Date | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (s === '') return null;
+  const iso = s.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T12:00:00.000Z` : s;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+async function assertRepresentantBelongsToClient(repId: string, clientFournisseurId: string) {
+  const rep = await prisma.representantLegal.findFirst({
+    where: { id: repId, clientFournisseurId },
+    select: { id: true },
+  });
+  if (!rep) throw new Error('Représentant introuvable pour cette fiche');
+}
+
 export const typeSocieteService = {
   async findAll() {
     return prisma.typeSociete.findMany({ orderBy: { nom: 'asc' } });
@@ -15,9 +32,30 @@ export const typeSocieteService = {
   },
 };
 
+async function attachContratsLies<T extends { id: string }>(clients: T[]) {
+  if (clients.length === 0) return clients as (T & { contratsLies: { id: string; nom: string; statut: string }[] })[];
+  const ids = clients.map((c) => c.id);
+  const liens = await prisma.contratPartiePrenante.findMany({
+    where: { clientFournisseurId: { in: ids } },
+    include: { contrat: { select: { id: true, nom: true, statut: true } } },
+  });
+  const map = new Map<string, { id: string; nom: string; statut: string }[]>();
+  for (const l of liens) {
+    const cfId = l.clientFournisseurId;
+    if (!cfId || !l.contrat) continue;
+    const arr = map.get(cfId) ?? [];
+    arr.push({ id: l.contrat.id, nom: l.contrat.nom, statut: l.contrat.statut });
+    map.set(cfId, arr);
+  }
+  return clients.map((c) => ({
+    ...c,
+    contratsLies: map.get(c.id) ?? [],
+  })) as (T & { contratsLies: { id: string; nom: string; statut: string }[] })[];
+}
+
 export const clientFournisseurService = {
   async findAll(type?: string, search?: string) {
-    return prisma.clientFournisseur.findMany({
+    const rows = await prisma.clientFournisseur.findMany({
       where: {
         ...(type ? { type } : {}),
         ...(search ? { nom: { contains: search, mode: 'insensitive' } } : {}),
@@ -29,9 +67,10 @@ export const clientFournisseurService = {
       },
       orderBy: { nom: 'asc' },
     });
+    return attachContratsLies(rows);
   },
   async findOne(id: string) {
-    return prisma.clientFournisseur.findUnique({
+    const row = await prisma.clientFournisseur.findUnique({
       where: { id },
       include: {
         typeSociete: true,
@@ -39,6 +78,9 @@ export const clientFournisseurService = {
         projets: { include: { projet: { select: { id: true, nom: true, codeProjet: true } } } },
       },
     });
+    if (!row) return null;
+    const [withContrats] = await attachContratsLies([row]);
+    return withContrats;
   },
   async create(data: any) {
     const { representants, projetIds, ...rest } = data;
@@ -73,16 +115,6 @@ export const clientFournisseurService = {
     return prisma.clientFournisseur.delete({ where: { id } });
   },
   async addRepresentant(clientFournisseurId: string, raw: any) {
-    const parseDate = (v: unknown): Date | null => {
-      if (v === null || v === undefined) return null;
-      const s = String(v).trim();
-      if (s === '') return null;
-      // input type="date" → "YYYY-MM-DD" ; Prisma/PostgreSQL attend un instant valide
-      const iso = s.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T12:00:00.000Z` : s;
-      const d = new Date(iso);
-      return Number.isNaN(d.getTime()) ? null : d;
-    };
-
     const nom = String(raw?.nom ?? '').trim();
     const prenom = String(raw?.prenom ?? '').trim();
     if (!nom || !prenom) {
@@ -103,26 +135,67 @@ export const clientFournisseurService = {
         prenom,
         fonction,
         statut,
-        dateDebut: parseDate(raw?.dateDebut),
-        dateFin: parseDate(raw?.dateFin),
+        dateDebut: parseRepresentantDate(raw?.dateDebut),
+        dateFin: parseRepresentantDate(raw?.dateFin),
       },
     });
   },
-  async updateRepresentant(id: string, data: any) {
-    const patch: any = { ...data };
-    if (patch.dateDebut === '') patch.dateDebut = null;
-    if (patch.dateFin === '') patch.dateFin = null;
-    if (patch.dateDebut !== undefined && patch.dateDebut !== null && typeof patch.dateDebut === 'string') {
-      const s = patch.dateDebut.trim();
-      if (s.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(s)) patch.dateDebut = new Date(`${s}T12:00:00.000Z`);
+  async updateRepresentant(clientFournisseurId: string, repId: string, raw: any) {
+    await assertRepresentantBelongsToClient(repId, clientFournisseurId);
+
+    const data: {
+      nom?: string;
+      prenom?: string;
+      fonction?: string | null;
+      statut?: string;
+      dateDebut?: Date | null;
+      dateFin?: Date | null;
+    } = {};
+
+    if (raw.nom !== undefined) data.nom = String(raw.nom).trim();
+    if (raw.prenom !== undefined) data.prenom = String(raw.prenom).trim();
+    if (raw.fonction !== undefined) {
+      const f = String(raw.fonction ?? '').trim();
+      data.fonction = f === '' ? null : f;
     }
-    if (patch.dateFin !== undefined && patch.dateFin !== null && typeof patch.dateFin === 'string') {
-      const s = patch.dateFin.trim();
-      if (s.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(s)) patch.dateFin = new Date(`${s}T12:00:00.000Z`);
+    if (raw.statut !== undefined) {
+      data.statut = raw.statut === 'fin_exercice' ? 'fin_exercice' : 'en_exercice';
     }
-    return prisma.representantLegal.update({ where: { id }, data: patch });
+    if (raw.dateDebut !== undefined) data.dateDebut = parseRepresentantDate(raw.dateDebut);
+    if (raw.dateFin !== undefined) data.dateFin = parseRepresentantDate(raw.dateFin);
+
+    if (
+      (data.nom !== undefined && data.nom === '') ||
+      (data.prenom !== undefined && data.prenom === '')
+    ) {
+      throw new Error('Le nom et le prénom ne peuvent pas être vides');
+    }
+
+    return prisma.representantLegal.update({ where: { id: repId }, data });
   },
-  async deleteRepresentant(id: string) {
-    return prisma.representantLegal.delete({ where: { id } });
+  async deleteRepresentant(clientFournisseurId: string, repId: string) {
+    await assertRepresentantBelongsToClient(repId, clientFournisseurId);
+    return prisma.representantLegal.delete({ where: { id: repId } });
+  },
+
+  async linkContrat(clientFournisseurId: string, contratId: string) {
+    const cf = await prisma.clientFournisseur.findUnique({ where: { id: clientFournisseurId } });
+    if (!cf) throw new Error('Client / fournisseur introuvable');
+    const existing = await prisma.contratPartiePrenante.findFirst({
+      where: { contratId, clientFournisseurId },
+    });
+    if (existing) return existing;
+    return prisma.contratPartiePrenante.create({
+      data: {
+        contratId,
+        nom: cf.nom,
+        clientFournisseurId,
+      },
+    });
+  },
+  async unlinkContrat(clientFournisseurId: string, contratId: string) {
+    await prisma.contratPartiePrenante.deleteMany({
+      where: { contratId, clientFournisseurId },
+    });
   },
 };
