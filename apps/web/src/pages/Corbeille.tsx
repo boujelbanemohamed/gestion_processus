@@ -8,9 +8,10 @@ export default function Corbeille() {
   const [clientsFournisseurs, setClientsFournisseurs] = useState<any[]>([]);
   const [contrats, setContrats] = useState<any[]>([]);
   const [entites, setEntites] = useState<any[]>([]);
+  const [projets, setProjets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
-    'processus' | 'documents' | 'licences' | 'clientsFournisseurs' | 'contrats' | 'entites'
+    'processus' | 'documents' | 'licences' | 'clientsFournisseurs' | 'contrats' | 'entites' | 'projets'
   >('processus');
 
   useEffect(() => {
@@ -26,6 +27,7 @@ export default function Corbeille() {
       setClientsFournisseurs(response.data.clientsFournisseurs || []);
       setContrats(response.data.contrats || []);
       setEntites(response.data.entites || []);
+      setProjets(response.data.projets || []);
     } catch (error) {
       console.error('Erreur chargement corbeille:', error);
     } finally {
@@ -153,6 +155,26 @@ export default function Corbeille() {
     }
   };
 
+  const handleRestaurerProjet = async (id: string) => {
+    if (!window.confirm('Restaurer ce projet ?')) return;
+    try {
+      await api.post(`/corbeille/projets/${id}/restaurer`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur restauration:', error);
+    }
+  };
+
+  const handleSupprimerProjet = async (id: string) => {
+    if (!window.confirm('Supprimer définitivement ce projet ? Irréversible.')) return;
+    try {
+      await api.delete(`/corbeille/projets/${id}`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur suppression:', error);
+    }
+  };
+
   if (loading) return <div className="p-6">Chargement...</div>;
 
   return (
@@ -220,6 +242,16 @@ export default function Corbeille() {
           }`}
         >
           Entités ({entites.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('projets')}
+          className={`pb-2 px-1 text-sm font-medium border-b-2 ${
+            activeTab === 'projets'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Projets ({projets.length})
         </button>
       </div>
 
@@ -503,6 +535,55 @@ export default function Corbeille() {
           </table>
           {entites.length === 0 && (
             <div className="text-center py-8 text-gray-500">Aucune entité en corbeille</div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'projets' && (
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supprimé le</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {projets.map((pr) => (
+                <tr key={pr.id}>
+                  <td className="px-6 py-4 text-sm text-gray-900">{pr.nom}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">{pr.codeProjet || '—'}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500 capitalize">{pr.statut || '—'}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {pr.deletedAt ? new Date(pr.deletedAt).toLocaleDateString('fr-FR') : '—'}
+                  </td>
+                  <td className="px-6 py-4 text-sm">
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleRestaurerProjet(pr.id)}
+                        className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
+                      >
+                        Restaurer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSupprimerProjet(pr.id)}
+                        className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200"
+                      >
+                        Supprimer définitivement
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {projets.length === 0 && (
+            <div className="text-center py-8 text-gray-500">Aucun projet en corbeille</div>
           )}
         </div>
       )}

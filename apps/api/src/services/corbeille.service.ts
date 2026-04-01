@@ -3,9 +3,11 @@ import { LicenceService } from './licence.service';
 import { clientFournisseurService, logCfHistory } from './client-fournisseur.service';
 import { contratService } from './contrat.service';
 import { EntiteService } from './entite.service';
+import { ProjetService } from './projet.service';
 
 const licenceService = new LicenceService();
 const entiteService = new EntiteService();
+const projetService = new ProjetService();
 
 export class CorbeilleService {
   // Récupérer tous les processus supprimés
@@ -214,5 +216,17 @@ export class CorbeilleService {
 
   async supprimerDefinitivementEntite(id: string) {
     return entiteService.deletePermanent(id);
+  }
+
+  async getProjetsSupprimes() {
+    return projetService.listDeletedForCorbeille();
+  }
+
+  async restaurerProjet(id: string) {
+    return projetService.restoreFromCorbeille(id);
+  }
+
+  async supprimerDefinitivementProjet(id: string) {
+    return projetService.deletePermanent(id);
   }
 }

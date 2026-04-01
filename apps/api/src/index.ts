@@ -114,8 +114,11 @@ app.delete("/api/v1/processus/:id", processusController.deleteProcessus);
 
 // Projets
 app.get("/api/v1/projets", projetController.getAllProjets);
-app.get("/api/v1/projets/:id", projetController.getProjet);
+app.get("/api/v1/projets/:id/acces", projetController.getProjetAcces);
 app.get("/api/v1/projets/:id/history", projetController.getProjetHistory);
+app.post("/api/v1/projets/:id/permissions", projetController.addProjetPermission);
+app.delete("/api/v1/projets/:id/permissions/:permissionId", projetController.removeProjetPermission);
+app.get("/api/v1/projets/:id", projetController.getProjet);
 app.post("/api/v1/projets", projetController.createProjet);
 app.put("/api/v1/projets/:id", projetController.updateProjet);
 app.delete("/api/v1/projets/:id", projetController.deleteProjet);
@@ -176,6 +179,8 @@ app.post("/api/v1/corbeille/contrats/:id/restaurer", corbeilleController.restaur
 app.delete("/api/v1/corbeille/contrats/:id", corbeilleController.supprimerDefinitivementContrat);
 app.post("/api/v1/corbeille/entites/:id/restaurer", corbeilleController.restaurerEntite);
 app.delete("/api/v1/corbeille/entites/:id", corbeilleController.supprimerDefinitivementEntite);
+app.post("/api/v1/corbeille/projets/:id/restaurer", corbeilleController.restaurerProjet);
+app.delete("/api/v1/corbeille/projets/:id", corbeilleController.supprimerDefinitivementProjet);
 
 // Favoris
 app.get("/api/v1/favoris", favorisController.getFavoris);

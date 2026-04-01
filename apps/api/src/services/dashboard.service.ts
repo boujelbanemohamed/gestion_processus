@@ -166,7 +166,7 @@ export class DashboardService {
   async getKPIs(userId?: string, userRole?: string) {
     let whereClause: any = {};
     let entitesWhereClause: any = {};
-    let projetWhereClause: any = {};
+    let projetWhereClause: any = { deletedAt: null };
 
     if (userRole === 'lecteur' || userRole === 'contributeur') {
       const user = await prisma.user.findUnique({
@@ -190,12 +190,13 @@ export class DashboardService {
         };
         entitesWhereClause = { id: { in: entiteIds } };
         projetWhereClause = {
+          deletedAt: null,
           entites: { some: { entiteId: { in: entiteIds } } },
         };
       } else {
         whereClause = { id: { in: [] } };
         entitesWhereClause = { id: { in: [] } };
-        projetWhereClause = { id: { in: [] } };
+        projetWhereClause = { deletedAt: null, id: { in: [] } };
       }
     }
 
@@ -218,6 +219,7 @@ export class DashboardService {
       }),
       prisma.projet.groupBy({
         by: ['statut'],
+        where: projetWhereClause,
         _count: true,
       }),
       prisma.document.findMany({

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import ProjetTachesSection from '../components/ProjetTachesSection';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
@@ -29,9 +29,15 @@ const PARTIES_PRENANTES_OPTIONS = [
 
 type UserOption = { id: string; nom: string; prenom: string; role?: string; };
 
+function relationUserIds(rel: any[] | undefined): string[] {
+  if (!rel?.length) return [];
+  return rel.map((x: any) => x.userId ?? x.user?.id ?? x.id).filter(Boolean);
+}
+
 export default function ProjetDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user: currentUser } = useAuth();
   const [showAccesModal, setShowAccesModal] = useState(false);
   const [acceDoc, setAcceDoc] = useState<any>(null);
@@ -84,6 +90,14 @@ export default function ProjetDetail() {
     loadClientsFournisseurs();
   }, [id]);
 
+  useEffect(() => {
+    const st = location.state as { openEdit?: boolean } | null;
+    if (st?.openEdit) {
+      setEditing(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, location.pathname, navigate]);
+
   const loadProjet = async () => {
     try {
       const response = await api.get(`/projets/${id}`);
@@ -97,10 +111,10 @@ export default function ProjetDetail() {
         dateFinPrevue: p.dateFinPrevue ? p.dateFinPrevue.substring(0, 10) : '',
         statut: p.statut || 'en_preparation',
         priorite: p.priorite || 'moyenne',
-        sponsorIds: p.sponsors?.map((u: any) => u.id) || [],
-        chefProjetIds: p.chefsProjet?.map((u: any) => u.id) || [],
-        techLeadIds: p.techLeads?.map((u: any) => u.id) || [],
-        equipeIds: p.equipe?.map((u: any) => u.id) || [],
+        sponsorIds: relationUserIds(p.sponsors),
+        chefProjetIds: relationUserIds(p.chefsProjet),
+        techLeadIds: relationUserIds(p.techLeads),
+        equipeIds: relationUserIds(p.equipe),
         contexte: p.contexte || '',
         mission: p.mission || '',
         vision: p.vision || '',
@@ -326,7 +340,7 @@ export default function ProjetDetail() {
   };
 
   const handleDelete = async () => {
-    if (!window.confirm('Supprimer ce projet ?')) return;
+    if (!window.confirm('Mettre ce projet en corbeille ? Vous pourrez le restaurer ou le supprimer définitivement depuis la corbeille (admin).')) return;
     try {
       await api.delete(`/projets/${id}`);
       navigate('/projets');

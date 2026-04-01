@@ -1,34 +1,84 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import ClientFournisseurQuickCreateModal from '../components/ClientFournisseurQuickCreateModal';
-import { api } from '../services/api';
+import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
+import { getPaginationPageNumbers } from '../utils/pagination';
+
+const PAGE_SIZE = 15;
 
 const STATUS_COLORS: Record<string, string> = {
-  'en_preparation': 'bg-yellow-100 text-yellow-800',
-  'en_cours': 'bg-blue-100 text-blue-800',
-  'termine': 'bg-green-100 text-green-800',
-  'en_pause': 'bg-gray-100 text-gray-800',
+  en_preparation: 'bg-yellow-100 text-yellow-800',
+  en_cours: 'bg-blue-100 text-blue-800',
+  termine: 'bg-green-100 text-green-800',
+  en_pause: 'bg-gray-100 text-gray-800',
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  'en_preparation': 'En préparation',
-  'en_cours': 'En cours',
-  'termine': 'Terminé',
-  'en_pause': 'En pause',
+  en_preparation: 'En préparation',
+  en_cours: 'En cours',
+  termine: 'Terminé',
+  en_pause: 'En pause',
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
-  'haute': 'bg-red-100 text-red-800',
-  'moyenne': 'bg-orange-100 text-orange-800',
-  'basse': 'bg-green-100 text-green-800',
+  haute: 'bg-red-100 text-red-800',
+  moyenne: 'bg-orange-100 text-orange-800',
+  basse: 'bg-green-100 text-green-800',
 };
 
+const LABEL_PERM_ROW: Record<string, string> = {
+  lecture: 'lecture',
+  modification: 'modification',
+  suppression: 'suppression',
+  gestion: 'gestion des droits',
+};
+
+const LABEL_PERM_MODAL: Record<string, string> = {
+  lecture: 'Consultation',
+  modification: 'Modification',
+  suppression: 'Suppression',
+  gestion: 'Gestion des droits',
+};
+
+const ACTION_JOURNAL: Record<string, string> = {
+  connexion: 'Connexion',
+  deconnexion: 'Déconnexion',
+  lecture: 'Lecture / consultation',
+  creation: 'Création',
+  modification: 'Modification',
+  suppression: 'Suppression',
+  telechargement: 'Téléchargement',
+  export: 'Export',
+};
+
+const TACHE_STATUT_LABELS: Record<string, string> = {
+  cree: 'Créée',
+  a_faire: 'À faire',
+  en_cours: 'En cours',
+  en_attente: 'En attente',
+  bloque: 'Bloquée',
+  termine: 'Terminée',
+  archive: 'Archivée',
+};
+
+function permSummaryLine(perms: string[]) {
+  return perms.map((p) => LABEL_PERM_ROW[p] || p).join(' + ');
+}
+
+function isAccesRestreintProjet(p: any) {
+  return !!p.createdById || (p.accesApercu?.delegations?.length ?? 0) > 0;
+}
+
+const droitsAdminLigne = 'modification + suppression + gestion des accès + lecture';
+
 export default function Projets() {
-  const { user } = useAuth();
-  const canEditClients = user?.role === 'admin' || user?.role === 'contributeur';
+  const navigate = useNavigate();
+  const { user: currentUser } = useAuth();
+  const canEditClients = currentUser?.role === 'admin' || currentUser?.role === 'contributeur';
 
   const [projets, setProjets] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showQuickClientModal, setShowQuickClientModal] = useState(false);
@@ -36,15 +86,35 @@ export default function Projets() {
   const [error, setError] = useState('');
   const [filters, setFilters] = useState({ nom: '', statut: '', priorite: '', type: '' });
   const [page, setPage] = useState(1);
-  const pageSize = 10;
-  /** Remonte le <form> à chaque ouverture : valeurs réelles = FormData (évite décalage React / autofill). */
+  const [showFiltres, setShowFiltres] = useState(true);
   const [createFormKey, setCreateFormKey] = useState(0);
   const [modalType, setModalType] = useState<'interne' | 'client' | 'communautaire'>('interne');
   const [fichesClient, setFichesClient] = useState<{ id: string; nom: string }[]>([]);
   const [selectedClientId, setSelectedClientId] = useState('');
 
-  useEffect(() => { loadProjets(); }, [filters]);
-  useEffect(() => { setPage(1); }, [filters]);
+  const [accesModalProjet, setAccesModalProjet] = useState<any | null>(null);
+  const [accesDetail, setAccesDetail] = useState<any | null>(null);
+  const [accesLoading, setAccesLoading] = useState(false);
+  const [newPermUserId, setNewPermUserId] = useState('');
+  const [newPermType, setNewPermType] = useState('lecture');
+  const [noAccesModalOpen, setNoAccesModalOpen] = useState(false);
+  const [histModalProjet, setHistModalProjet] = useState<any | null>(null);
+  const [histoList, setHistoList] = useState<any[]>([]);
+  const [histoLoading, setHistoLoading] = useState(false);
+
+  useEffect(() => {
+    loadProjets();
+    loadUsers();
+  }, []);
+
+  useEffect(() => {
+    loadProjets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.nom, filters.statut, filters.priorite, filters.type]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filters.nom, filters.statut, filters.priorite, filters.type]);
 
   useEffect(() => {
     if (!showCreateModal) return;
@@ -63,7 +133,17 @@ export default function Projets() {
     };
   }, [showCreateModal]);
 
+  const loadUsers = async () => {
+    try {
+      const r = await api.get('/users');
+      setUsers(r.data);
+    } catch {
+      setUsers([]);
+    }
+  };
+
   const loadProjets = async () => {
+    setLoading(true);
     try {
       const params: any = {};
       if (filters.nom) params.nom = filters.nom;
@@ -76,6 +156,95 @@ export default function Projets() {
       console.error('Erreur chargement projets:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const cap = (p: any) => ({
+    canView: p.capabilities?.canView !== false,
+    canModify: !!p.capabilities?.canModify,
+    canDelete: !!p.capabilities?.canDelete,
+    canManagePermissions: !!p.capabilities?.canManagePermissions,
+  });
+
+  const onAccesButtonClick = (p: any) => {
+    if (!cap(p).canManagePermissions) {
+      setNoAccesModalOpen(true);
+      return;
+    }
+    void openAccesModal(p);
+  };
+
+  const openAccesModal = async (projet: any) => {
+    setAccesModalProjet(projet);
+    setAccesDetail(null);
+    setNewPermUserId('');
+    setNewPermType('lecture');
+    setAccesLoading(true);
+    try {
+      const { data } = await api.get(`/projets/${projet.id}/acces`);
+      setAccesDetail(data);
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur chargement accès');
+      setAccesModalProjet(null);
+    } finally {
+      setAccesLoading(false);
+    }
+  };
+
+  const refreshAccesDetail = async (id: string) => {
+    const { data } = await api.get(`/projets/${id}/acces`);
+    setAccesDetail(data);
+  };
+
+  const handleAddPermission = async () => {
+    if (!accesModalProjet || !newPermUserId) return;
+    try {
+      await api.post(`/projets/${accesModalProjet.id}/permissions`, {
+        userId: newPermUserId,
+        permission: newPermType,
+      });
+      setNewPermUserId('');
+      await refreshAccesDetail(accesModalProjet.id);
+      loadProjets();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur');
+    }
+  };
+
+  const handleRemovePermission = async (permissionId: string) => {
+    if (!accesModalProjet || !confirm('Retirer ce droit ?')) return;
+    try {
+      await api.delete(`/projets/${accesModalProjet.id}/permissions/${permissionId}`);
+      await refreshAccesDetail(accesModalProjet.id);
+      loadProjets();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur');
+    }
+  };
+
+  const openHistoriqueModal = async (p: any) => {
+    setHistModalProjet(p);
+    setHistoList([]);
+    setHistoLoading(true);
+    try {
+      const { data } = await api.get(`/projets/${p.id}/history?page=1&limit=200`);
+      setHistoList(data?.data || []);
+    } catch {
+      setHistoList([]);
+      alert('Impossible de charger l’historique.');
+      setHistModalProjet(null);
+    } finally {
+      setHistoLoading(false);
+    }
+  };
+
+  const handleSoftDelete = async (id: string, nom: string) => {
+    if (!window.confirm(`Mettre le projet « ${nom} » en corbeille ?`)) return;
+    try {
+      await api.delete(`/projets/${id}`);
+      await loadProjets();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || 'Erreur');
     }
   };
 
@@ -137,128 +306,345 @@ export default function Projets() {
     }
   };
 
-  const totalPages = Math.max(1, Math.ceil(projets.length / pageSize));
-  const pagedProjets = projets.slice((page - 1) * pageSize, page * pageSize);
-
-  if (loading) return <div className="p-6">Chargement...</div>;
+  const totalPages = Math.max(1, Math.ceil(projets.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const startIdx = (safePage - 1) * PAGE_SIZE;
+  const pageSlice = projets.slice(startIdx, startIdx + PAGE_SIZE);
 
   return (
     <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Projets</h1>
-        <button type="button" onClick={openCreateModal} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-          Nouveau projet
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Projets</h1>
+        <button
+          type="button"
+          onClick={openCreateModal}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
+        >
+          + Nouveau projet
         </button>
       </div>
 
-      {/* Filtres */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nom</label>
-            <input
-              type="text"
-              value={filters.nom}
-              onChange={(e) => setFilters({ ...filters, nom: e.target.value })}
-              placeholder="Nom du projet"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Statut</label>
-            <select value={filters.statut} onChange={(e) => setFilters({ ...filters, statut: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md">
-              <option value="">Tous</option>
-              <option value="en_preparation">En préparation</option>
-              <option value="en_cours">En cours</option>
-              <option value="termine">Terminé</option>
-              <option value="en_pause">En pause</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Priorité</label>
-            <select value={filters.priorite} onChange={(e) => setFilters({ ...filters, priorite: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md">
-              <option value="">Toutes</option>
-              <option value="haute">Haute</option>
-              <option value="moyenne">Moyenne</option>
-              <option value="basse">Basse</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-            <select value={filters.type} onChange={(e) => setFilters({ ...filters, type: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md">
-              <option value="">Tous</option>
-              <option value="interne">Interne</option>
-              <option value="client">Client</option>
-              <option value="communautaire">Communautaire</option>
-            </select>
-          </div>
-        </div>
-        <div className="flex justify-end mt-4">
-          <button onClick={() => setFilters({ nom: '', statut: '', priorite: '', type: '' })} className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">
-            Réinitialiser
-          </button>
-        </div>
-      </div>
-
-      {/* Tableau */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="p-4 border-b">
-          <h2 className="text-lg font-semibold">Liste des projets ({projets.length})</h2>
-        </div>
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom du projet</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date début</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date fin prévue</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priorité</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {pagedProjets.map((p) => (
-              <tr key={p.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  <Link to={`/projets/${p.id}`} className="text-blue-600 hover:text-blue-800 hover:underline font-medium">
-                    {p.nom}
-                  </Link>
-                  {p.nomClient && <div className="text-xs text-gray-500 mt-0.5">Client : {p.nomClient}</div>}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm capitalize">{p.type}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">{p.dateDebut ? new Date(p.dateDebut).toLocaleDateString('fr-FR') : '—'}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">{p.dateFinPrevue ? new Date(p.dateFinPrevue).toLocaleDateString('fr-FR') : '—'}</td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`px-2 py-1 text-xs rounded ${STATUS_COLORS[p.statut] || 'bg-gray-100 text-gray-700'}`}>
-                    {STATUS_LABELS[p.statut] || p.statut}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`px-2 py-1 text-xs rounded capitalize ${PRIORITY_COLORS[p.priorite] || 'bg-gray-100 text-gray-700'}`}>
-                    {p.priorite}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {projets.length === 0 && <div className="text-center py-8 text-gray-500">Aucun projet</div>}
-
-        {/* Pagination */}
-        {projets.length > pageSize && (
-          <div className="mt-4 flex items-center justify-between border-t border-gray-200 p-4">
-            <div className="text-sm text-gray-700">
-              Affichage {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, projets.length)} sur {projets.length}
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          type="button"
+          onClick={() => setShowFiltres(!showFiltres)}
+          className="w-full px-4 py-3 flex justify-between items-center text-left text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-t-lg"
+        >
+          <span>Filtres</span>
+          <span className="text-gray-400">{showFiltres ? '▼' : '▶'}</span>
+        </button>
+        {showFiltres && (
+          <div className="px-4 pb-4 pt-0 border-t border-gray-100">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Nom / code</label>
+                <input
+                  type="text"
+                  value={filters.nom}
+                  onChange={(e) => setFilters({ ...filters, nom: e.target.value })}
+                  placeholder="Rechercher…"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Statut</label>
+                <select
+                  value={filters.statut}
+                  onChange={(e) => setFilters({ ...filters, statut: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Tous</option>
+                  <option value="en_preparation">En préparation</option>
+                  <option value="en_cours">En cours</option>
+                  <option value="termine">Terminé</option>
+                  <option value="en_pause">En pause</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Priorité</label>
+                <select
+                  value={filters.priorite}
+                  onChange={(e) => setFilters({ ...filters, priorite: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Toutes</option>
+                  <option value="haute">Haute</option>
+                  <option value="moyenne">Moyenne</option>
+                  <option value="basse">Basse</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                <select
+                  value={filters.type}
+                  onChange={(e) => setFilters({ ...filters, type: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Tous</option>
+                  <option value="interne">Interne</option>
+                  <option value="client">Client</option>
+                  <option value="communautaire">Communautaire</option>
+                </select>
+              </div>
             </div>
-            <div className="flex gap-2">
-              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className={`px-4 py-2 rounded text-sm font-medium ${page === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>Précédent</button>
-              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className={`px-4 py-2 rounded text-sm font-medium ${page === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>Suivant</button>
+            <div className="flex justify-end mt-3">
+              <button
+                type="button"
+                onClick={() => setFilters({ nom: '', statut: '', priorite: '', type: '' })}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Réinitialiser
+              </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Modal création */}
+      {loading ? (
+        <div className="text-center py-10 text-gray-400">Chargement...</div>
+      ) : (
+        <>
+          <div className="space-y-4">
+            {projets.length === 0 && <div className="text-center py-10 text-gray-400">Aucun projet</div>}
+            {pageSlice.map((p) => {
+              const c = cap(p);
+              const tr = p.tachesResume || { total: 0, parStatut: {}, enRetard: 0, avancementPct: null };
+              return (
+                <div key={p.id} className="bg-white rounded-lg shadow p-5">
+                  <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3 mb-2 flex-wrap">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[p.statut] || 'bg-gray-100 text-gray-700'}`}>
+                          {STATUS_LABELS[p.statut] || p.statut}
+                        </span>
+                        <h2 className="text-lg font-semibold text-gray-900">{p.nom}</h2>
+                        <span className="text-xs text-gray-500 font-mono">{p.codeProjet}</span>
+                        <span className={`px-2 py-0.5 rounded text-xs capitalize ${PRIORITY_COLORS[p.priorite] || 'bg-gray-100 text-gray-700'}`}>
+                          {p.priorite}
+                        </span>
+                      </div>
+                      {p.nomClient && <p className="text-sm text-gray-600 mb-1">Client : {p.nomClient}</p>}
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600">
+                        <div>
+                          <span className="font-medium">Début : </span>
+                          {p.dateDebut ? new Date(p.dateDebut).toLocaleDateString('fr-FR') : '—'}
+                        </div>
+                        <div>
+                          <span className="font-medium">Fin prévue : </span>
+                          {p.dateFinPrevue ? new Date(p.dateFinPrevue).toLocaleDateString('fr-FR') : '—'}
+                        </div>
+                        {p.createdBy && (
+                          <div>
+                            <span className="font-medium">Créé par : </span>
+                            {p.createdBy.prenom} {p.createdBy.nom}
+                          </div>
+                        )}
+                        {tr.avancementPct != null && (
+                          <div>
+                            <span className="font-medium">Avancement tâches : </span>
+                            {tr.avancementPct}%
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2 items-center">
+                        <span className="text-xs font-semibold text-gray-500 uppercase">Tâches</span>
+                        {tr.total === 0 ? (
+                          <span className="text-xs text-gray-400">Aucune tâche</span>
+                        ) : (
+                          <>
+                            <span className="text-xs text-gray-700 font-medium">{tr.total} au total</span>
+                            {Object.entries(tr.parStatut || {}).map(([st, n]) =>
+                              (n as number) > 0 ? (
+                                <span key={st} className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">
+                                  {TACHE_STATUT_LABELS[st] || st} : {n as number}
+                                </span>
+                              ) : null
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      {(p.alertesProjet?.length ?? 0) > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {p.alertesProjet.map((a: string, i: number) => (
+                            <span key={i} className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded text-xs font-medium">
+                              ⚠ {a}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {(p.documentsListe?.length ?? 0) > 0 && (
+                        <div className="mt-3">
+                          <p className="text-xs font-medium text-gray-500 uppercase mb-1">Documents</p>
+                          <div className="flex flex-wrap gap-1">
+                            {p.documentsListe.map((d: any) => (
+                              <a
+                                key={d.id}
+                                href={`${API_BASE_URL}/documents/${d.id}/view?token=${localStorage.getItem('token')}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-2 py-0.5 bg-gray-100 rounded text-xs text-blue-600 hover:underline"
+                              >
+                                📎 {d.nom}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mt-3 flex flex-wrap items-start gap-2 sm:gap-3 text-xs text-gray-700 border border-slate-100 rounded-lg px-3 py-2.5 bg-slate-50/90">
+                        <span className="font-semibold text-gray-600 uppercase shrink-0 pt-0.5">Accès :</span>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0 flex-1">
+                          {isAccesRestreintProjet(p) ? (
+                            <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-red-50 border border-red-100 text-red-900 shrink-0">
+                              <span className="text-sm leading-none" aria-hidden>
+                                🔒
+                              </span>
+                              <span className="text-[10px] font-semibold leading-tight mt-0.5 text-center">Accès restreint</span>
+                            </div>
+                          ) : (
+                            <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-green-50 border border-green-100 text-green-900 shrink-0">
+                              <span className="text-[10px] font-semibold leading-tight text-center">Accès élargi</span>
+                            </div>
+                          )}
+                          {(() => {
+                            const actifAdmins = users.filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'));
+                            const creatorId = p.createdById || p.createdBy?.id;
+                            return (
+                              <>
+                                {actifAdmins.map((a: any) => {
+                                  const isCreator = creatorId === a.id;
+                                  return (
+                                    <div key={`adm-${p.id}-${a.id}`} className="min-w-0">
+                                      <span className="font-medium text-gray-900">
+                                        {a.prenom} {a.nom}
+                                      </span>
+                                      <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                        {isCreator ? `(Administrateur et créateur : ${droitsAdminLigne})` : `(Admin : ${droitsAdminLigne})`}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                                {p.createdBy && creatorId && !actifAdmins.some((a: any) => a.id === creatorId) && (
+                                  <div className="min-w-0">
+                                    <span className="font-medium text-gray-900">
+                                      {p.createdBy.prenom} {p.createdBy.nom}
+                                    </span>
+                                    <span className="text-gray-500 italic block sm:inline sm:ml-1">(Créateur : {droitsAdminLigne})</span>
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                          {(p.accesApercu?.delegations || []).map((d: any) => (
+                            <div key={`${d.user?.id}-${(d.permissionEntryIds || []).join('-')}`} className="min-w-0">
+                              <span className="font-medium text-gray-900">
+                                {d.user.prenom} {d.user.nom}
+                              </span>
+                              <span className="text-gray-500 italic block sm:inline sm:ml-1">({permSummaryLine(d.permissions || [])})</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
+                      {c.canView && (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/projets/${p.id}`)}
+                          className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                        >
+                          👁 Détails
+                        </button>
+                      )}
+                      {c.canModify && (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/projets/${p.id}`, { state: { openEdit: true } })}
+                          className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                        >
+                          ✏️ Modifier
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onAccesButtonClick(p)}
+                        className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
+                      >
+                        🔐 Accès
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openHistoriqueModal(p)}
+                        className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                      >
+                        📜 Historique
+                      </button>
+                      {c.canDelete && (
+                        <button
+                          type="button"
+                          onClick={() => handleSoftDelete(p.id, p.nom)}
+                          className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                        >
+                          🗑 Mettre en corbeille
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {projets.length > PAGE_SIZE && (
+            <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4 flex-wrap gap-3">
+              <div className="text-sm text-gray-700">
+                Affichage {startIdx + 1}-{Math.min(startIdx + PAGE_SIZE, projets.length)} sur {projets.length}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPage((pg) => Math.max(1, pg - 1))}
+                  disabled={safePage === 1}
+                  className={`px-4 py-2 rounded text-sm font-medium ${safePage === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                >
+                  Précédent
+                </button>
+                <div className="flex gap-1 flex-wrap items-center">
+                  {getPaginationPageNumbers(safePage, totalPages).map((pg, idx) =>
+                    typeof pg === 'string' ? (
+                      <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">
+                        {pg}
+                      </span>
+                    ) : (
+                      <button
+                        key={pg}
+                        type="button"
+                        onClick={() => setPage(pg)}
+                        className={`px-3 py-2 rounded text-sm font-medium ${safePage === pg ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                      >
+                        {pg}
+                      </button>
+                    )
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPage((pg) => Math.min(totalPages, pg + 1))}
+                  disabled={safePage === totalPages}
+                  className={`px-4 py-2 rounded text-sm font-medium ${safePage === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                >
+                  Suivant
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
       {showCreateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto relative z-50">
@@ -267,22 +653,14 @@ export default function Projets() {
             </button>
             <div className="p-6">
               <h2 className="text-xl font-bold mb-1">Nouveau projet</h2>
-              <p className="text-xs text-gray-500 mb-4">
-                Code projet facultatif (généré par le serveur si vide). Type « Client » : liste des fiches + bouton nouvelle fiche.
-              </p>
+              <p className="text-xs text-gray-500 mb-4">Code projet facultatif. Type « Client » : liste des fiches + bouton nouvelle fiche.</p>
               {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
               <form key={createFormKey} onSubmit={handleCreateSubmit} autoComplete="off" noValidate className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetNom">
                     Nom du projet <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    id="createProjetNom"
-                    name="createProjetNom"
-                    type="text"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    autoComplete="off"
-                  />
+                  <input id="createProjetNom" name="createProjetNom" type="text" className="w-full px-3 py-2 border border-gray-300 rounded-md" autoComplete="off" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetCode">
@@ -293,7 +671,7 @@ export default function Projets() {
                     name="createProjetCode"
                     type="text"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    placeholder="Laissé vide : code généré automatiquement (ex. PRJ-…)"
+                    placeholder="Laissé vide : code généré automatiquement"
                     autoComplete="off"
                   />
                 </div>
@@ -336,9 +714,6 @@ export default function Projets() {
                         </option>
                       ))}
                     </select>
-                    <p className="text-xs text-gray-500">
-                      Fiches issues de la page Clients / Fournisseurs (type client). La liaison projet ↔ client est créée automatiquement.
-                    </p>
                     {canEditClients ? (
                       <button
                         type="button"
@@ -357,12 +732,7 @@ export default function Projets() {
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetDateDebut">
                       Date de début <span className="text-gray-500 font-normal">(facultatif)</span>
                     </label>
-                    <input
-                      id="createProjetDateDebut"
-                      name="createProjetDateDebut"
-                      type="date"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                    />
+                    <input id="createProjetDateDebut" name="createProjetDateDebut" type="date" className="w-full px-3 py-2 border border-gray-300 rounded-md" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetDateFin">
@@ -420,6 +790,179 @@ export default function Projets() {
             setSelectedClientId(fiche.id);
           }}
         />
+      )}
+
+      {accesModalProjet && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-6">
+          <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
+            <h3 className="text-xl font-semibold mb-2">Accès — {accesModalProjet.nom}</h3>
+            <p className="text-sm text-gray-600 mb-5 leading-relaxed">
+              Les <span className="font-medium">administrateurs</span> ont tous les droits. Le <span className="font-medium">créateur</span> peut gérer les droits délégués sur ce projet.
+            </p>
+            {accesLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : accesDetail ? (
+              <div className="space-y-5 text-sm">
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
+                  <ul className="space-y-1.5 text-gray-700 text-base">
+                    {(accesDetail.admins || []).map((a: any) => (
+                      <li key={a.id}>
+                        <span className="font-medium">
+                          {a.prenom} {a.nom}
+                        </span>
+                        <span className="text-gray-400"> (accès complet)</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Créateur</p>
+                  {accesDetail.creator ? (
+                    <p>
+                      <span className="font-medium">
+                        {accesDetail.creator.prenom} {accesDetail.creator.nom}
+                      </span>
+                      <span className="text-gray-400"> — gestion des accès et droits étendus</span>
+                    </p>
+                  ) : (
+                    <p className="text-amber-800 text-sm">Aucun créateur enregistré (données historiques).</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Droits explicites</p>
+                  {(accesDetail.delegations || []).length === 0 ? (
+                    <p className="text-gray-400 text-xs italic">Aucun droit délégué</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {(accesDetail.delegations || []).map((d: any) => (
+                        <li key={d.id} className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50">
+                          <span className="font-medium">
+                            {d.user.prenom} {d.user.nom}
+                          </span>
+                          <span className="text-gray-500">— {LABEL_PERM_MODAL[d.permission] || d.permission}</span>
+                          {d.grantedBy && (
+                            <span className="text-xs text-gray-400">
+                              par {d.grantedBy.prenom} {d.grantedBy.nom}
+                            </span>
+                          )}
+                          {accesDetail.canManagePermissions && (
+                            <button type="button" onClick={() => handleRemovePermission(d.id)} className="text-xs text-red-600 hover:underline ml-auto">
+                              Retirer
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {accesDetail.canManagePermissions && (
+                  <div className="border-t border-gray-200 pt-4 space-y-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accorder un droit</p>
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3 items-end">
+                      <select
+                        value={newPermUserId}
+                        onChange={(ev) => setNewPermUserId(ev.target.value)}
+                        className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        <option value="">— Utilisateur —</option>
+                        {users
+                          .filter((u: any) => (!u.statut || u.statut === 'actif') && u.role !== 'admin' && u.id !== accesDetail.creator?.id)
+                          .map((u: any) => (
+                            <option key={u.id} value={u.id}>
+                              {u.prenom} {u.nom} ({u.email})
+                            </option>
+                          ))}
+                      </select>
+                      <select
+                        value={newPermType}
+                        onChange={(ev) => setNewPermType(ev.target.value)}
+                        className="w-full lg:w-56 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        <option value="lecture">Consultation</option>
+                        <option value="modification">Modification</option>
+                        <option value="suppression">Suppression (mise en corbeille)</option>
+                        <option value="gestion">Gestion des droits</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleAddPermission}
+                        disabled={!newPermUserId}
+                        className="w-full lg:w-auto px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shrink-0"
+                      >
+                        Ajouter
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
+            <div className="flex justify-end mt-4">
+              <button type="button" onClick={() => setAccesModalProjet(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {histModalProjet && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">Historique — {histModalProjet.nom}</h3>
+            {histoLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : histoList.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">Aucun événement enregistré</p>
+            ) : (
+              <ul className="space-y-3 text-sm max-h-[60vh] overflow-y-auto">
+                {histoList.map((h: any) => (
+                  <li key={h.id} className="border-b border-gray-100 pb-2">
+                    <div className="flex flex-wrap justify-between gap-1 text-xs text-gray-500">
+                      <span>{h.timestamp ? new Date(h.timestamp).toLocaleString('fr-FR') : ''}</span>
+                      <span>
+                        {h.user?.prenom} {h.user?.nom}
+                      </span>
+                    </div>
+                    <p className="font-medium text-gray-800">{ACTION_JOURNAL[h.action] || h.action}</p>
+                    {h.ressourceNom && <p className="text-gray-600 text-xs mt-0.5">{h.ressourceNom}</p>}
+                    {h.details && typeof h.details === 'object' && Object.keys(h.details).length > 0 && (
+                      <pre className="text-xs bg-gray-50 rounded p-2 mt-1 overflow-x-auto max-h-32">{JSON.stringify(h.details, null, 2)}</pre>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex justify-end mt-4">
+              <button type="button" onClick={() => setHistModalProjet(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {noAccesModalOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setNoAccesModalOpen(false)}
+        >
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full" onClick={(ev) => ev.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Accès au bouton « Accès »</h3>
+            <p className="text-sm text-gray-600 leading-relaxed">
+              Vous n&apos;avez pas les droits nécessaires pour gérer les accès de ce projet. Seuls les{' '}
+              <span className="font-medium">administrateurs</span>, le <span className="font-medium">créateur</span> ou les utilisateurs avec la permission{' '}
+              <span className="font-medium">gestion des droits</span> peuvent utiliser ce bouton.
+            </p>
+            <div className="flex justify-end mt-5">
+              <button type="button" onClick={() => setNoAccesModalOpen(false)} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

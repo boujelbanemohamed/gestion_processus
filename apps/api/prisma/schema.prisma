@@ -323,6 +323,7 @@ model Projet {
 
   createdById           String?
   createdBy             User?             @relation("ProjetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedAt             DateTime?
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
 
@@ -338,6 +339,7 @@ model Projet {
 
   @@index([statut])
   @@index([codeProjet])
+  @@index([deletedAt])
   contrats              ContratProjet[]
   taches                Tache[]
 }
