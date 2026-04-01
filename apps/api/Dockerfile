@@ -18,8 +18,16 @@ RUN echo "=== Contenu package.json ===" && \
     echo "=== Structure prisma ===" && \
     ls -la prisma/ 2>/dev/null || echo "Dossier prisma non trouvé"
 
+# Réseau instable (ECONNRESET / timeout) : renforcer les retries et délais npm avant npm ci
+RUN npm config set fetch-retries 10 && \
+    npm config set fetch-retry-factor 2 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 180000 && \
+    npm config set fetch-timeout 600000
+
 # Installer les dépendances (sans pipe vers tee : sinon le code de sortie peut être masqué)
-RUN echo "=== Installation des dépendances ===" && npm ci
+RUN echo "=== Installation des dépendances ===" && \
+    npm ci || (echo "=== npm ci échoué, nouvelle tentative dans 20s ===" && sleep 20 && npm ci) || (echo "=== dernière tentative dans 45s ===" && sleep 45 && npm ci)
 
 # Copier le reste du code
 COPY . .
