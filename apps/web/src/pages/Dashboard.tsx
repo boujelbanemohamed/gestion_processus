@@ -18,6 +18,15 @@ interface KPIs {
   entitesMembres?: Array<{ id: string; nom: string; code?: string; _count: { membres: number } }>;
   documentsPlusVisualises?: Array<{ id: string; nom: string; typeDocument: string; uploadedBy: { nom: string; prenom: string }; nombreVisualisations: number }>;
   documentsPlusTelecharges?: Array<{ id: string; nom: string; typeDocument: string; uploadedBy: { nom: string; prenom: string }; nombreTelechargements: number }>;
+  projetsPlusActifs?: Array<{
+    id: string;
+    nom: string;
+    codeProjet: string;
+    statut: string;
+    scoreActivite: number;
+    consultationsJournal: number;
+    tachesMisesAJour: number;
+  }>;
 }
 
 export default function Dashboard() {
@@ -89,6 +98,45 @@ export default function Dashboard() {
           <div className="text-2xl font-bold text-blue-600">{kpis?.documentsRecents.length || 0}</div>
         </button>
       </div>
+
+      {kpis?.projetsPlusActifs && kpis.projetsPlusActifs.length > 0 && (
+        <div className="bg-white p-4 rounded-lg shadow mb-6">
+          <h2 className="text-lg font-semibold mb-1">5 projets les plus actifs</h2>
+          <p className="text-xs text-gray-500 mb-4">
+            Sur les 30 derniers jours : actions enregistrées sur le projet (journal) et tâches mises à jour. Les places restantes sont complétées par les projets modifiés récemment.
+          </p>
+          <div className="space-y-2">
+            {kpis.projetsPlusActifs.map((projet, index) => (
+              <button
+                key={projet.id}
+                type="button"
+                onClick={() => navigate(`/projets/${projet.id}`)}
+                className="w-full flex items-center justify-between p-3 border border-gray-200 rounded hover:bg-blue-50 text-left transition"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-gray-500 shrink-0">#{index + 1}</span>
+                    <span className="text-sm font-medium text-gray-900 truncate">{projet.nom}</span>
+                    <span className="text-xs text-gray-500 shrink-0">({projet.codeProjet})</span>
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1 capitalize">
+                    {projet.statut.replace(/_/g, ' ')}
+                    {(projet.consultationsJournal > 0 || projet.tachesMisesAJour > 0) && (
+                      <>
+                        {' · '}
+                        journal {projet.consultationsJournal}, tâches {projet.tachesMisesAJour}
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="ml-4 shrink-0 text-sm font-bold text-indigo-600" title="Score d'activité (30 j.)">
+                  {projet.scoreActivite > 0 ? projet.scoreActivite : '—'}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {kpis && Object.keys(kpis.processus.parStatut).length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
