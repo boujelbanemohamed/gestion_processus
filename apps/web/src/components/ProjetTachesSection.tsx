@@ -22,9 +22,11 @@ type Props = {
   projetId: string;
   projet: any;
   usersForTaches: UserOption[];
+  /** Appelé après sauvegarde d’une tâche (création / édition) pour rafraîchir un récap parent. */
+  onTachesRefresh?: () => void;
 };
 
-export default function ProjetTachesSection({ projetId, projet, usersForTaches }: Props) {
+export default function ProjetTachesSection({ projetId, projet, usersForTaches, onTachesRefresh }: Props) {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   const [tachesBrutes, setTachesBrutes] = useState<Tache[]>([]);
@@ -183,7 +185,10 @@ export default function ProjetTachesSection({ projetId, projet, usersForTaches }
             setShowModal(false);
             setEditTache(undefined);
           }}
-          onSave={load}
+          onSave={async () => {
+            await load();
+            onTachesRefresh?.();
+          }}
           projets={projets}
           users={usersForTaches}
           entites={entites}

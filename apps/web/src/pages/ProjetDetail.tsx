@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import ProjetTachesSection from '../components/ProjetTachesSection';
 import { api } from '../services/api';
@@ -88,6 +88,306 @@ function relationUserIds(rel: any[] | undefined): string[] {
   return rel.map((x: any) => x.userId ?? x.user?.id ?? x.id).filter(Boolean);
 }
 
+const PROJ_PERM_LABELS: Record<string, string> = {
+  lecture: 'Consultation',
+  modification: 'Modification',
+  suppression: 'Suppression',
+  gestion: 'Gestion des accès',
+};
+
+type ProjetDelegRow = { key: string; userId?: string; nom: string; label: string };
+
+function projetAccesDelegationsRows(p: any): ProjetDelegRow[] {
+  const d = p?.accesApercu?.delegations;
+  if (d?.length) {
+    return d.map((row: any) => ({
+      key: `${row.user?.id}-${(row.permissions || []).join(',')}`,
+      userId: row.user?.id,
+      nom: row.user ? `${row.user.prenom} ${row.user.nom}` : '—',
+      label: (row.permissions || []).map((x: string) => PROJ_PERM_LABELS[x] || x).join(' + '),
+    }));
+  }
+  return (p?.permissions || []).map((perm: any) => ({
+    key: perm.id,
+    userId: perm.userId ?? perm.user?.id,
+    nom: perm.user ? `${perm.user.prenom} ${perm.user.nom}` : '—',
+    label: PROJ_PERM_LABELS[perm.permission] || perm.permission,
+  }));
+}
+
+type ProjetRecapUserRow = { userId: string; utilisateur: string; roles: string };
+
+const DROITS_ADMIN_FICHE_PROJET =
+  'consultation, modification, suppression et gestion des accès sur la fiche projet';
+
+function buildProjetRecapProjetsRows(
+  p: any,
+  delegRows: ProjetDelegRow[],
+  usersList: any[],
+  droitsAdmin: string
+): ProjetRecapUserRow[] {
+  const byId = new Map<string, { utilisateur: string; roles: Set<string> }>();
+
+  const add = (userId: string | undefined, utilisateur: string, roleLine: string) => {
+    if (!userId) return;
+    if (!byId.has(userId)) {
+      byId.set(userId, { utilisateur: utilisateur || '—', roles: new Set() });
+    }
+    byId.get(userId)!.roles.add(roleLine);
+    if (utilisateur && utilisateur !== '—') {
+      byId.get(userId)!.utilisateur = utilisateur;
+    }
+  };
+
+  (usersList || [])
+    .filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'))
+    .forEach((a: any) => {
+      const creatorId = p?.createdById || p?.createdBy?.id;
+      const isCreator = creatorId === a.id;
+      add(
+        a.id,
+        `${a.prenom} ${a.nom}`,
+        isCreator
+          ? `Administrateur et créateur : ${droitsAdmin}`
+          : `Administrateur applicatif : ${droitsAdmin}`
+      );
+    });
+
+  if (p?.createdBy && (p.createdById || p.createdBy.id)) {
+    const cid = p.createdById || p.createdBy.id;
+    if (!byId.has(cid)) {
+      add(cid, `${p.createdBy.prenom} ${p.createdBy.nom}`, `Créateur du projet : ${droitsAdmin}`);
+    }
+  }
+
+  if (p?.responsable?.id) {
+    add(
+      p.responsable.id,
+      `${p.responsable.prenom} ${p.responsable.nom}`,
+      'Responsable projet (gouvernance fiche et documents)'
+    );
+  }
+  if (p?.gestionnaire?.id) {
+    add(
+      p.gestionnaire.id,
+      `${p.gestionnaire.prenom} ${p.gestionnaire.nom}`,
+      'Gestionnaire projet (gouvernance fiche et documents)'
+    );
+  }
+  (p?.sponsors || []).forEach((s: any) => {
+    const u = s.user || s;
+    if (u?.id) add(u.id, `${u.prenom} ${u.nom}`, 'Sponsor');
+  });
+  (p?.chefsProjet || []).forEach((s: any) => {
+    const u = s.user || s;
+    if (u?.id) add(u.id, `${u.prenom} ${u.nom}`, 'Chef de projet');
+  });
+  (p?.techLeads || []).forEach((s: any) => {
+    const u = s.user || s;
+    if (u?.id) add(u.id, `${u.prenom} ${u.nom}`, 'Tech lead');
+  });
+  (p?.equipe || []).forEach((s: any) => {
+    const u = s.user || s;
+    if (u?.id) add(u.id, `${u.prenom} ${u.nom}`, "Membre d'équipe projet");
+  });
+
+  delegRows.forEach((r) => {
+    if (!r.userId) return;
+    add(r.userId, r.nom, `Droit délégué sur le projet : ${r.label}`);
+  });
+
+  return Array.from(byId.entries())
+    .map(([userId, v]) => ({
+      userId,
+      utilisateur: v.utilisateur,
+      roles: Array.from(v.roles).join(' ; '),
+    }))
+    .sort((a, b) => a.utilisateur.localeCompare(b.utilisateur, 'fr'));
+}
+
+type ProjetDocRecapRow = { id: string; nom: string; role: string };
+
+function buildProjetDocumentAccessRecapRows(doc: any, p: any | null, usersList: any[]): ProjetDocRecapRow[] {
+  const map = new Map<string, { nom: string; role: string }>();
+  const setRow = (userId: string | undefined, nom: string, role: string) => {
+    if (!userId) return;
+    const prev = map.get(userId);
+    if (prev) {
+      map.set(userId, { nom, role: `${prev.role} ; ${role}` });
+    } else {
+      map.set(userId, { nom, role });
+    }
+  };
+
+  const adminDoc = 'Admin : modification statut + accès + lecture';
+  (usersList || []).forEach((u: any) => {
+    if (u.role === 'admin' && (!u.statut || u.statut === 'actif')) {
+      setRow(u.id, `${u.prenom} ${u.nom}`, adminDoc);
+    }
+  });
+  if (doc.uploadedBy?.id) {
+    setRow(
+      doc.uploadedBy.id,
+      `${doc.uploadedBy.prenom} ${doc.uploadedBy.nom}`,
+      'Uploadeur : modification statut + accès + lecture'
+    );
+  }
+  if (p?.createdBy?.id) {
+    setRow(
+      p.createdBy.id,
+      `${p.createdBy.prenom} ${p.createdBy.nom}`,
+      'Créateur projet : modification statut + accès + lecture'
+    );
+  }
+  if (doc.estConfidentiel) {
+    (doc.permissionsUtilisateurs || []).forEach((perm: any) => {
+      if (perm.user?.id) {
+        setRow(
+          perm.user.id,
+          `${perm.user.prenom} ${perm.user.nom}`,
+          'Accès explicite : lecture (document confidentiel)'
+        );
+      }
+    });
+  } else {
+    (p?.chefsProjet || []).forEach((s: any) => {
+      const u = s.user || s;
+      if (u?.id) setRow(u.id, `${u.prenom} ${u.nom}`, 'Chef de projet : modification statut + lecture');
+    });
+    if (p?.responsable?.id) {
+      setRow(
+        p.responsable.id,
+        `${p.responsable.prenom} ${p.responsable.nom}`,
+        'Responsable : lecture'
+      );
+    }
+    if (p?.gestionnaire?.id) {
+      setRow(
+        p.gestionnaire.id,
+        `${p.gestionnaire.prenom} ${p.gestionnaire.nom}`,
+        'Gestionnaire : lecture'
+      );
+    }
+    (p?.sponsors || []).forEach((s: any) => {
+      const u = s.user || s;
+      if (u?.id) setRow(u.id, `${u.prenom} ${u.nom}`, 'Sponsor : lecture');
+    });
+    (p?.techLeads || []).forEach((s: any) => {
+      const u = s.user || s;
+      if (u?.id) setRow(u.id, `${u.prenom} ${u.nom}`, 'Tech Lead : lecture');
+    });
+    (p?.equipe || []).forEach((s: any) => {
+      const u = s.user || s;
+      if (u?.id) setRow(u.id, `${u.prenom} ${u.nom}`, 'Équipe : lecture');
+    });
+  }
+
+  return Array.from(map.entries())
+    .map(([id, v]) => ({ id, nom: v.nom, role: v.role }))
+    .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+}
+
+function buildProjetTachesRecapRows(p: any, usersList: any[], taches: any[]): ProjetRecapUserRow[] {
+  const byId = new Map<string, { utilisateur: string; roles: Set<string> }>();
+  const add = (userId: string | undefined, utilisateur: string, roleLine: string) => {
+    if (!userId) return;
+    if (!byId.has(userId)) {
+      byId.set(userId, { utilisateur: utilisateur || '—', roles: new Set() });
+    }
+    byId.get(userId)!.roles.add(roleLine);
+    if (utilisateur && utilisateur !== '—') {
+      byId.get(userId)!.utilisateur = utilisateur;
+    }
+  };
+
+  (usersList || [])
+    .filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'))
+    .forEach((a: any) => {
+      add(
+        a.id,
+        `${a.prenom} ${a.nom}`,
+        'Voit toutes les tâches du projet ; création et modification des tâches réservées aux rôles autorisés sur l’écran Tâches'
+      );
+    });
+
+  if (p?.createdBy && (p.createdById || p.createdBy.id)) {
+    const u = p.createdBy;
+    add(u.id, `${u.prenom} ${u.nom}`, 'Gouvernance : voit toutes les tâches du projet');
+  }
+  if (p?.responsable?.id) {
+    add(
+      p.responsable.id,
+      `${p.responsable.prenom} ${p.responsable.nom}`,
+      'Gouvernance : voit toutes les tâches du projet'
+    );
+  }
+  if (p?.gestionnaire?.id) {
+    add(
+      p.gestionnaire.id,
+      `${p.gestionnaire.prenom} ${p.gestionnaire.nom}`,
+      'Gouvernance : voit toutes les tâches du projet'
+    );
+  }
+  (p?.sponsors || []).forEach((s: any) => {
+    const u = s.user || s;
+    if (u?.id) add(u.id, `${u.prenom} ${u.nom}`, 'Gouvernance : voit toutes les tâches du projet');
+  });
+  (p?.chefsProjet || []).forEach((s: any) => {
+    const u = s.user || s;
+    if (u?.id) add(u.id, `${u.prenom} ${u.nom}`, 'Gouvernance : voit toutes les tâches du projet');
+  });
+  (p?.techLeads || []).forEach((s: any) => {
+    const u = s.user || s;
+    if (u?.id) add(u.id, `${u.prenom} ${u.nom}`, 'Gouvernance : voit toutes les tâches du projet');
+  });
+  (p?.equipe || []).forEach((s: any) => {
+    const u = s.user || s;
+    if (u?.id) add(u.id, `${u.prenom} ${u.nom}`, 'Gouvernance : voit toutes les tâches du projet');
+  });
+
+  (p?.permissions || []).forEach((perm: any) => {
+    const u = perm.user;
+    if (u?.id) {
+      add(
+        u.id,
+        `${u.prenom} ${u.nom}`,
+        `Droit délégué projet (${PROJ_PERM_LABELS[perm.permission] || perm.permission}) : visibilité des tâches limitée aux tâches dont il est créateur, assigné ou membre d’entité assignée`
+      );
+    }
+  });
+
+  for (const t of taches || []) {
+    const c = t.createur;
+    if (c?.id) {
+      add(c.id, `${c.prenom} ${c.nom}`, 'Créateur d’au moins une tâche sur ce projet');
+    }
+    for (const u of t.assignesUtilisateurs || []) {
+      if (u?.id) add(u.id, `${u.prenom} ${u.nom}`, 'Assigné utilisateur sur une ou plusieurs tâches');
+    }
+    for (const ent of t.assignesEntites || []) {
+      const membres = ent.membres || [];
+      for (const m of membres) {
+        const u = m.user || m;
+        if (u?.id) {
+          add(
+            u.id,
+            `${u.prenom} ${u.nom}`,
+            'Membre d’une entité assignée à une ou plusieurs tâches'
+          );
+        }
+      }
+    }
+  }
+
+  return Array.from(byId.entries())
+    .map(([userId, v]) => ({
+      userId,
+      utilisateur: v.utilisateur,
+      roles: Array.from(v.roles).join(' ; '),
+    }))
+    .sort((a, b) => a.utilisateur.localeCompare(b.utilisateur, 'fr'));
+}
+
 export default function ProjetDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -123,6 +423,7 @@ export default function ProjetDetail() {
   const [newObjOp, setNewObjOp] = useState('');
   // Documents
   const [documents, setDocuments] = useState<any[]>([]);
+  const [tachesProjet, setTachesProjet] = useState<any[]>([]);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showLierModal, setShowLierModal] = useState(false);
   const [allDocuments, setAllDocuments] = useState<any[]>([]);
@@ -148,6 +449,21 @@ export default function ProjetDetail() {
     loadDocuments();
     loadClientsFournisseurs();
   }, [id]);
+
+  const refreshTachesProjet = useCallback(async () => {
+    if (!id) return;
+    try {
+      const r = await api.get('/taches', { params: { projetId: id } });
+      setTachesProjet(r.data || []);
+    } catch (e) {
+      console.error('Erreur chargement tâches projet:', e);
+      setTachesProjet([]);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    void refreshTachesProjet();
+  }, [refreshTachesProjet]);
 
   useEffect(() => {
     const st = location.state as { openEdit?: boolean } | null;
@@ -569,6 +885,14 @@ export default function ProjetDetail() {
       )}
     </div>
   );
+
+  const delegRowsProjet = projet ? projetAccesDelegationsRows(projet) : [];
+  const recapProjetRows = projet
+    ? buildProjetRecapProjetsRows(projet, delegRowsProjet, users, DROITS_ADMIN_FICHE_PROJET)
+    : [];
+  const recapTachesRows = projet
+    ? buildProjetTachesRecapRows(projet, users, tachesProjet)
+    : [];
 
   if (loading) return <div className="p-6">Chargement...</div>;
   if (!projet) return <div className="p-6 text-red-600">Projet introuvable</div>;
@@ -1034,7 +1358,119 @@ export default function ProjetDetail() {
                 prenom: u.prenom,
                 role: u.role,
               }))}
+              onTachesRefresh={refreshTachesProjet}
             />
+            {projet && (
+              <div className="bg-white rounded-lg shadow p-6 mt-6 border border-gray-100">
+                <h2 className="text-lg font-semibold text-gray-900 mb-1">Recap Accès</h2>
+                <p className="text-xs text-gray-500 mb-5">
+                  Synthèse des habilitations sur la fiche projet, les documents et les tâches. Les droits délégués sur le
+                  projet se gèrent depuis la liste des projets (bouton « Accès »).
+                </p>
+
+                <h3 className="text-sm font-semibold text-gray-800 mb-2">Accès au projet</h3>
+                {recapProjetRows.length === 0 ? (
+                  <p className="text-sm text-gray-500 mb-6">Aucune entrée à afficher.</p>
+                ) : (
+                  <div className="overflow-x-auto border border-gray-200 rounded-lg mb-6">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Utilisateur</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Rôles / droits</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {recapProjetRows.map((row) => (
+                          <tr key={row.userId} className="bg-white">
+                            <td className="px-3 py-2 font-medium text-gray-900 align-top">{row.utilisateur}</td>
+                            <td className="px-3 py-2 text-gray-700 align-top">{row.roles}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                <h3 className="text-sm font-semibold text-gray-800 mb-2">Accès aux documents</h3>
+                {documents.length === 0 ? (
+                  <p className="text-sm text-gray-500 mb-6">Aucun document rattaché à ce projet.</p>
+                ) : (
+                  <div className="space-y-4 mb-6">
+                    {documents.map((doc) => {
+                      const docRows = buildProjetDocumentAccessRecapRows(doc, projet, users);
+                      return (
+                        <div key={doc.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50/50">
+                          <div className="flex flex-wrap items-center gap-2 mb-2">
+                            <h4 className="font-medium text-gray-900 text-sm">{doc.nom}</h4>
+                            {doc.estConfidentiel ? (
+                              <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                Confidentiel
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                                Non confidentiel
+                              </span>
+                            )}
+                          </div>
+                          {docRows.length === 0 ? (
+                            <p className="text-xs text-gray-500 italic">Aucune ligne d&apos;accès détaillée.</p>
+                          ) : (
+                            <div className="overflow-x-auto border border-gray-100 rounded-md bg-white">
+                              <table className="min-w-full text-xs">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    <th className="px-3 py-2 text-left font-medium text-gray-600">Utilisateur</th>
+                                    <th className="px-3 py-2 text-left font-medium text-gray-600">Rôle / droits</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                  {docRows.map((dr) => (
+                                    <tr key={dr.id}>
+                                      <td className="px-3 py-2 font-medium text-gray-900 align-top">{dr.nom}</td>
+                                      <td className="px-3 py-2 text-gray-700 align-top">{dr.role}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <h3 className="text-sm font-semibold text-gray-800 mb-2">Accès aux tâches</h3>
+                <p className="text-xs text-gray-600 mb-3">
+                  Les administrateurs et la gouvernance projet voient toutes les tâches. Les autres utilisateurs ne voient
+                  que les tâches dont ils sont créateurs, assignés ou membres d&apos;une entité assignée (hors cas
+                  admin).
+                </p>
+                {recapTachesRows.length === 0 ? (
+                  <p className="text-sm text-gray-500">Aucune entrée à afficher.</p>
+                ) : (
+                  <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Utilisateur</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Rôles / visibilité</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {recapTachesRows.map((row) => (
+                          <tr key={row.userId} className="bg-white">
+                            <td className="px-3 py-2 font-medium text-gray-900 align-top">{row.utilisateur}</td>
+                            <td className="px-3 py-2 text-gray-700 align-top">{row.roles}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
         </div>{/* fin print-zone */}
