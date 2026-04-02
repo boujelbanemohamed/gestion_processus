@@ -362,6 +362,42 @@ export class ProjetService {
     });
   }
 
+  /** Même logique que la visibilité du détail projet (liste / findOne). */
+  async canAccess(
+    projetId: string,
+    userId: string,
+    userRole: string
+  ): Promise<{ canAccess: boolean; reason?: string }> {
+    const projet = await prisma.projet.findFirst({
+      where: { id: projetId, deletedAt: null },
+      select: {
+        id: true,
+        createdById: true,
+        responsableId: true,
+        gestionnaireId: true,
+        sponsors: { select: { userId: true } },
+        chefsProjet: { select: { userId: true } },
+        techLeads: { select: { userId: true } },
+        equipe: { select: { userId: true } },
+      },
+    });
+    if (!projet) {
+      return { canAccess: false, reason: 'Projet non trouvé' };
+    }
+    const permTypes = await myPermTypesForProjet(projetId, userId);
+    const gov = isGovernanceMember(projet as any, userId);
+    const ok = canViewProjet(
+      { id: projet.id, createdById: projet.createdById },
+      { userId, role: userRole },
+      permTypes,
+      gov
+    );
+    if (!ok) {
+      return { canAccess: false, reason: 'Accès refusé à ce projet' };
+    }
+    return { canAccess: true };
+  }
+
   async findOne(id: string, auth: ProjetAuth) {
     const projet = await prisma.projet.findFirst({
       where: { id, deletedAt: null },

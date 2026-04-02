@@ -27,7 +27,61 @@ const PARTIES_PRENANTES_OPTIONS = [
   'Utilisateurs finaux', 'Autorités réglementaires'
 ];
 
-type UserOption = { id: string; nom: string; prenom: string; role?: string; };
+type UserOption = { id: string; nom: string; prenom: string; role?: string; email?: string; statut?: string };
+
+type HabilitatorRow = { id: string; line: string; email?: string };
+
+function collectHabilitatorsForProjetAccess(p: any | null, usersList: any[]): HabilitatorRow[] {
+  const out: HabilitatorRow[] = [];
+  const seen = new Set<string>();
+  const add = (u: any | null | undefined, role: string) => {
+    if (!u?.id || seen.has(u.id)) return;
+    seen.add(u.id);
+    const mail = u.email ? ` — ${u.email}` : '';
+    out.push({
+      id: u.id,
+      line: `${u.prenom} ${u.nom}${mail} (${role})`,
+      email: u.email,
+    });
+  };
+  (usersList || []).forEach((u: any) => {
+    if (u.role === 'admin' && (!u.statut || u.statut === 'actif')) {
+      add(u, 'administrateur');
+    }
+  });
+  if (p?.createdBy) add(p.createdBy, 'créateur du projet');
+  if (p?.responsable) add(p.responsable, 'responsable du projet');
+  if (p?.gestionnaire) add(p.gestionnaire, 'gestionnaire du projet');
+  (p?.sponsors || []).forEach((s: any) => add(s.user || s, 'sponsor'));
+  (p?.chefsProjet || []).forEach((s: any) => add(s.user || s, 'chef de projet'));
+  (p?.techLeads || []).forEach((s: any) => add(s.user || s, 'tech lead'));
+  (p?.equipe || []).forEach((s: any) => add(s.user || s, "membre d'équipe projet"));
+  (p?.permissions || []).forEach((perm: any) => {
+    if (perm.permission === 'gestion' && perm.user) {
+      add(perm.user, 'gestion des accès sur le projet');
+    }
+  });
+  return out;
+}
+
+function collectHabilitatorsForProjetDocumentAccess(
+  p: any | null,
+  usersList: any[],
+  doc: any | null
+): HabilitatorRow[] {
+  const rows = collectHabilitatorsForProjetAccess(p, usersList);
+  const seen = new Set(rows.map((r) => r.id));
+  const u = doc?.uploadedBy;
+  if (u?.id && !seen.has(u.id)) {
+    const mail = u.email ? ` — ${u.email}` : '';
+    rows.push({
+      id: u.id,
+      line: `${u.prenom} ${u.nom}${mail} (auteur du document — peut ajuster la liste d'accès)`,
+      email: u.email,
+    });
+  }
+  return rows;
+}
 
 function relationUserIds(rel: any[] | undefined): string[] {
   if (!rel?.length) return [];
@@ -82,6 +136,11 @@ export default function ProjetDetail() {
   const [uploadPermissionUserIds, setUploadPermissionUserIds] = useState<string[]>([]);
   const [viewingDocument, setViewingDocument] = useState<any>(null);
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
+  const [accessBlockedModal, setAccessBlockedModal] = useState<{
+    context: 'projet' | 'document';
+    documentLabel?: string;
+    documentRef?: any;
+  } | null>(null);
 
   useEffect(() => {
     loadProjet();
@@ -135,7 +194,7 @@ export default function ProjetDetail() {
   const loadUsers = async () => {
     try {
       const response = await api.get('/users');
-      setUsers(response.data.map((u: any) => ({ id: u.id, nom: u.nom, prenom: u.prenom, role: u.role })));
+      setUsers(response.data);
     } catch (err) {
       console.error('Erreur chargement users:', err);
     }
@@ -154,6 +213,60 @@ export default function ProjetDetail() {
       setClientsFournisseurs(r.data);
     } catch (err) { console.error(err); }
   };
+
+  const isProjetGovernanceMember = (uid: string | undefined): boolean => {
+    if (!uid || !projet) return false;
+    if (projet.createdById === uid) return true;
+    if (projet.responsableId === uid || projet.gestionnaireId === uid) return true;
+    const collect = (arr: any[]) =>
+      (arr || []).map((s: any) => s.userId ?? s.user?.id).filter(Boolean);
+    return [
+      ...collect(projet.sponsors),
+      ...collect(projet.chefsProjet),
+      ...collect(projet.techLeads),
+      ...collect(projet.equipe),
+    ].includes(uid);
+  };
+
+  const hasProjetViewForDocuments = (): boolean => {
+    if (!currentUser || !projet) return false;
+    if (projet.capabilities?.canView != null) return !!projet.capabilities.canView;
+    if (currentUser.role === 'admin') return true;
+    if (projet.createdById === currentUser.id) return true;
+    if (projet.createdById == null) return true;
+    if (isProjetGovernanceMember(currentUser.id)) return true;
+    return (projet.permissions || []).some((perm: any) => perm.userId === currentUser.id);
+  };
+
+  const whyCannotAccessDocument = (doc: any): 'ok' | 'projet' | 'document' => {
+    if (!hasProjetViewForDocuments()) return 'projet';
+    if (!doc.estConfidentiel) return 'ok';
+    const uid = currentUser?.id;
+    if (!uid) return 'document';
+    if (doc.uploadedById === uid) return 'ok';
+    if (
+      projet &&
+      (projet.createdById === uid || projet.responsableId === uid || projet.gestionnaireId === uid)
+    ) {
+      return 'ok';
+    }
+    if (isProjetGovernanceMember(uid)) return 'ok';
+    if (
+      doc.permissionsUtilisateurs?.some((p: any) => p.userId === uid || p.user?.id === uid)
+    ) {
+      return 'ok';
+    }
+    return 'document';
+  };
+
+  const openProjetDocumentAccessDenied = (context: 'projet' | 'document', doc?: any) => {
+    setAccessBlockedModal({
+      context,
+      documentLabel: doc?.nom,
+      documentRef: doc,
+    });
+  };
+
   const handleUploadDocument = async () => {
     if (uploadFiles.length === 0) { alert('Veuillez sélectionner un fichier'); return; }
     setUploading(true);
@@ -190,13 +303,24 @@ export default function ProjetDetail() {
     }
   };
   const handleViewDocument = async (doc: any) => {
+    const why = whyCannotAccessDocument(doc);
+    if (why !== 'ok') {
+      openProjetDocumentAccessDenied(why, doc);
+      return;
+    }
     try {
       const response = await api.get(`/documents/${doc.id}/view`, { responseType: 'blob' });
       const url = URL.createObjectURL(response.data);
       setDocumentUrl(url);
       setViewingDocument(doc);
-    } catch (err) {
-      alert('Fichier introuvable sur le serveur. Il a peut-être été supprimé ou uploadé dans un ancien environnement. Veuillez ré-uploader le document.');
+    } catch (err: any) {
+      if (err?.response?.status === 403) {
+        openProjetDocumentAccessDenied('document', doc);
+      } else {
+        alert(
+          'Fichier introuvable sur le serveur. Il a peut-être été supprimé ou uploadé dans un ancien environnement. Veuillez ré-uploader le document.'
+        );
+      }
     }
   };
   const closeViewer = () => {
@@ -214,6 +338,11 @@ export default function ProjetDetail() {
     }
   };
   const handleDownload = async (doc: any) => {
+    const why = whyCannotAccessDocument(doc);
+    if (why !== 'ok') {
+      openProjetDocumentAccessDenied(why, doc);
+      return;
+    }
     try {
       const response = await api.get(`/documents/${doc.id}/download`, { responseType: 'blob' });
       const url = URL.createObjectURL(response.data);
@@ -224,8 +353,12 @@ export default function ProjetDetail() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-    } catch (err) {
-      alert('Erreur lors du téléchargement');
+    } catch (err: any) {
+      if (err?.response?.status === 403) {
+        openProjetDocumentAccessDenied('document', doc);
+      } else {
+        alert('Erreur lors du téléchargement');
+      }
     }
   };
   const loadAllDocuments = async () => {
@@ -290,8 +423,13 @@ export default function ProjetDetail() {
     try {
       await api.put(`/documents/${docId}`, { statut: newStatut });
       await loadDocuments();
-    } catch (err) {
-      alert('Erreur lors du changement de statut');
+    } catch (err: any) {
+      if (err?.response?.status === 403) {
+        const d = documents.find((x: any) => x.id === docId);
+        openProjetDocumentAccessDenied('document', d);
+      } else {
+        alert('Erreur lors du changement de statut');
+      }
     }
   };
   const handleOpenAccesModal = (doc: any) => {
@@ -768,6 +906,26 @@ export default function ProjetDetail() {
             <h2 className="text-lg font-semibold text-gray-900">📎 Documents du projet</h2>
             <div className="flex gap-2"><button onClick={() => setShowUploadModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700">+ Ajouter un document</button><button onClick={handleOpenLierModal} className="px-4 py-2 bg-gray-600 text-white rounded-md text-sm hover:bg-gray-700">🔗 Lier un document existant</button></div>
           </div>
+          <div className="mb-4 rounded-md border border-blue-100 bg-blue-50/80 p-4 text-sm text-gray-700 leading-relaxed">
+            <p className="font-medium text-gray-900 mb-2">Trois niveaux d&apos;accès</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>
+                <strong>Détail du projet</strong> : lecture, modification, suppression ou gestion des accès sur le projet
+                (gouvernance, permissions déléguées). Sans cet accès, la section documents n&apos;est pas utilisable pour
+                vous.
+              </li>
+              <li>
+                <strong>Document du projet</strong> : en ajoutant un fichier, vous pouvez le marquer confidentiel et
+                restreindre la consultation à une liste d&apos;utilisateurs (en plus des rôles projet déjà habilités).
+                Les droits fins lecture / modification / suppression au niveau fichier suivront l&apos;évolution du
+                modèle métier ; aujourd&apos;hui la liste ci-dessous reflète qui peut consulter ou gérer le document.
+              </li>
+              <li>
+                <strong>Document lié</strong> : en liant un document déjà existant, les mêmes règles d&apos;accès que sur
+                l&apos;emplacement d&apos;origine s&apos;appliquent (héritage des habilitations déjà définies).
+              </li>
+            </ul>
+          </div>
           {documents.length === 0 ? (
             <p className="text-sm text-gray-400 italic">Aucun document attaché à ce projet</p>
           ) : (
@@ -901,7 +1059,9 @@ export default function ProjetDetail() {
                 </div>
               )}
               {!acceEstConfidentiel && (
-                <p className="text-sm text-green-600">🌐 Le document sera accessible à tous les utilisateurs</p>
+                <p className="text-sm text-green-600">
+                  🌐 Le document sera consultable par toute personne ayant accès au détail de ce projet.
+                </p>
               )}
             </div>
             <div className="flex justify-end gap-3 mt-6">
@@ -916,6 +1076,10 @@ export default function ProjetDetail() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[80vh] flex flex-col">
             <h3 className="text-lg font-semibold mb-4">🔗 Lier un document existant</h3>
+            <p className="text-xs text-gray-600 mb-3 leading-relaxed">
+              Un document lié conserve ses habilitations d&apos;origine (processus, autre projet ou général). Seuls les
+              utilisateurs qui ont accès au détail de ce projet pourront en outre voir la pièce dans ce contexte.
+            </p>
             <input
               type="text"
               value={searchDoc}
@@ -996,6 +1160,12 @@ export default function ProjetDetail() {
                     {uploadPermissionUserIds.length > 0 && <p className="text-xs text-blue-600 mt-1">{uploadPermissionUserIds.length} utilisateur(s) sélectionné(s)</p>}
                   </div>
                 )}
+                {!uploadEstConfidentiel && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    Sans restriction, le fichier est consultable par toute personne habilitée sur le détail du projet
+                    (gouvernance et permissions projet).
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
@@ -1006,6 +1176,80 @@ export default function ProjetDetail() {
         </div>
       )}
       </div>
+      {accessBlockedModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="projet-access-blocked-title"
+          onClick={() => setAccessBlockedModal(null)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="projet-access-blocked-title" className="text-lg font-semibold text-gray-900 mb-2">
+              Accès refusé
+            </h3>
+            {accessBlockedModal.context === 'projet' ? (
+              <p className="text-sm text-gray-600 leading-relaxed mb-4">
+                Vous n&apos;avez pas accès au détail de ce projet : vous ne pouvez donc pas consulter ni télécharger les
+                documents de la section « Documents du projet ». Veuillez contacter l&apos;une des personnes suivantes
+                pour obtenir une habilitation :
+              </p>
+            ) : (
+              <p className="text-sm text-gray-600 leading-relaxed mb-4">
+                Vous n&apos;avez pas la possibilité d&apos;accéder à ce document
+                {accessBlockedModal.documentLabel ? (
+                  <>
+                    {' '}
+                    « <span className="font-medium">{accessBlockedModal.documentLabel}</span> »
+                  </>
+                ) : null}
+                . Vous devez disposer de l&apos;accès au projet et, pour un document confidentiel, figurer dans la liste
+                des personnes autorisées (ou disposer d&apos;un rôle habilité). Veuillez contacter l&apos;une des
+                personnes suivantes :
+              </p>
+            )}
+            {(() => {
+              const rows =
+                accessBlockedModal.context === 'projet'
+                  ? collectHabilitatorsForProjetAccess(projet, users)
+                  : collectHabilitatorsForProjetDocumentAccess(
+                      projet,
+                      users,
+                      accessBlockedModal.documentRef || null
+                    );
+              if (rows.length === 0) {
+                return (
+                  <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md p-3">
+                    Aucun contact nominatif n&apos;a pu être déterminé automatiquement. Veuillez vous adresser à votre
+                    administrateur applicatif.
+                  </p>
+                );
+              }
+              return (
+                <ul className="text-sm text-gray-800 space-y-2 border border-gray-100 rounded-md p-3 bg-gray-50 max-h-56 overflow-y-auto">
+                  {rows.map((h) => (
+                    <li key={h.id} className="leading-snug">
+                      • {h.line}
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}
+            <div className="flex justify-end mt-5">
+              <button
+                type="button"
+                onClick={() => setAccessBlockedModal(null)}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Modal de visualisation */}
       {viewingDocument && documentUrl && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">

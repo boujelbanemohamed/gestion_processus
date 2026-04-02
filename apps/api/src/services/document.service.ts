@@ -2,11 +2,13 @@ import { prisma } from '../utils/prisma';
 import { DocType, DocStatut, RefType } from '@prisma/client';
 import { canEditLicenceContent, canReadLicence } from './licence.service';
 import { ProcessusService } from './processus.service';
+import { ProjetService } from './projet.service';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 const processusService = new ProcessusService();
+const projetService = new ProjetService();
 
 export class DocumentService {
   async ensureUploadDir() {
@@ -276,7 +278,18 @@ export class DocumentService {
       }
     }
 
-    // Si le document n'est pas confidentiel, l'accès processus (ci-dessus) suffit
+    if (document.referenceType === 'projet' && document.referenceId) {
+      const projAccess = await projetService.canAccess(
+        document.referenceId,
+        userId,
+        role || 'lecteur'
+      );
+      if (!projAccess.canAccess) {
+        return false;
+      }
+    }
+
+    // Si le document n'est pas confidentiel, l'accès ressource parente (ci-dessus) suffit
     if (!document.estConfidentiel) return true;
 
     // L'utilisateur qui a uploadé peut toujours accéder
@@ -370,7 +383,10 @@ export class DocumentService {
 
     if (role === 'admin') return true;
 
-    // Si le document n'est pas confidentiel, tout le monde peut supprimer/ajouter version
+    const canVoir = await this.canUserAccessDocument(documentId, userId, role);
+    if (!canVoir) return false;
+
+    // Si le document n'est pas confidentiel, l'accès lecture (incl. droit sur projet/processus) suffit pour la suite
     if (!document.estConfidentiel) return true;
 
     // L'utilisateur qui a uploadé peut toujours supprimer/ajouter version
