@@ -120,6 +120,7 @@ app.delete("/api/v1/processus/:id", processusController.deleteProcessus);
 
 // Projets
 app.get("/api/v1/projets", projetController.getAllProjets);
+app.get("/api/v1/projets/corbeille", projetController.getProjetsCorbeille);
 app.get("/api/v1/projets/:id/acces", projetController.getProjetAcces);
 app.get("/api/v1/projets/:id/history", projetController.getProjetHistory);
 app.post("/api/v1/projets/:id/permissions", projetController.addProjetPermission);

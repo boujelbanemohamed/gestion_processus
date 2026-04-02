@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, useMemo, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ClientFournisseurQuickCreateModal from '../components/ClientFournisseurQuickCreateModal';
 import { api, API_BASE_URL } from '../services/api';
@@ -70,6 +70,36 @@ function isAccesRestreintProjet(p: any) {
   return !!p.createdById || (p.accesApercu?.delegations?.length ?? 0) > 0;
 }
 
+function getClientLabel(p: any): string {
+  const n = typeof p.nomClient === 'string' ? p.nomClient.trim() : '';
+  if (n) return n;
+  const cfs = p.clientsFournisseurs;
+  if (Array.isArray(cfs) && cfs.length > 0) {
+    const nom = cfs[0]?.clientFournisseur?.nom;
+    if (nom) return nom;
+  }
+  return '— (sans client)';
+}
+
+function isProjetEnRetard(p: any): boolean {
+  const tr = p.tachesResume || {};
+  if ((tr.enRetard ?? 0) > 0) return true;
+  if (p.statut === 'termine') return false;
+  const alertes: string[] = p.alertesProjet || [];
+  if (alertes.some((a) => a.includes('dépassée') || a.toLowerCase().includes('retard'))) return true;
+  if (p.dateFinPrevue && new Date(p.dateFinPrevue).getTime() < Date.now()) return true;
+  return false;
+}
+
+function activityScore(p: any): number {
+  const tr = p.tachesResume || {};
+  const total = Number(tr.total) || 0;
+  const enRetard = Number(tr.enRetard) || 0;
+  const term = Number(tr.terminees) || 0;
+  const enCours = Math.max(0, total - term);
+  return total * 2 + enRetard * 4 + enCours;
+}
+
 const droitsAdminLigne = 'modification + suppression + gestion des accès + lecture';
 
 export default function Projets() {
@@ -84,9 +114,19 @@ export default function Projets() {
   const [showQuickClientModal, setShowQuickClientModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
-  const [filters, setFilters] = useState({ nom: '', statut: '', priorite: '', type: '' });
+  const [filters, setFilters] = useState({
+    nom: '',
+    statut: '',
+    priorite: '',
+    type: '',
+    periodeDebut: '',
+    periodeFin: '',
+  });
   const [page, setPage] = useState(1);
   const [showFiltres, setShowFiltres] = useState(true);
+  const [showCorbeilleModal, setShowCorbeilleModal] = useState(false);
+  const [corbeilleProjets, setCorbeilleProjets] = useState<any[]>([]);
+  const [showDashboardModal, setShowDashboardModal] = useState(false);
   const [createFormKey, setCreateFormKey] = useState(0);
   const [modalType, setModalType] = useState<'interne' | 'client' | 'communautaire'>('interne');
   const [fichesClient, setFichesClient] = useState<{ id: string; nom: string }[]>([]);
@@ -110,11 +150,11 @@ export default function Projets() {
   useEffect(() => {
     loadProjets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.nom, filters.statut, filters.priorite, filters.type]);
+  }, [filters.nom, filters.statut, filters.priorite, filters.type, filters.periodeDebut, filters.periodeFin]);
 
   useEffect(() => {
     setPage(1);
-  }, [filters.nom, filters.statut, filters.priorite, filters.type]);
+  }, [filters.nom, filters.statut, filters.priorite, filters.type, filters.periodeDebut, filters.periodeFin]);
 
   useEffect(() => {
     if (!showCreateModal) return;
@@ -150,6 +190,8 @@ export default function Projets() {
       if (filters.statut) params.statut = filters.statut;
       if (filters.priorite) params.priorite = filters.priorite;
       if (filters.type) params.type = filters.type;
+      if (filters.periodeDebut) params.periodeDebut = filters.periodeDebut;
+      if (filters.periodeFin) params.periodeFin = filters.periodeFin;
       const response = await api.get('/projets', { params });
       setProjets(response.data);
     } catch (err) {
@@ -238,6 +280,28 @@ export default function Projets() {
     }
   };
 
+  const loadCorbeilleProjets = async () => {
+    try {
+      const r = await api.get('/projets/corbeille');
+      setCorbeilleProjets(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setCorbeilleProjets([]);
+    }
+  };
+
+  const handleRestoreProjetFromCorbeille = async (id: string) => {
+    try {
+      await api.post(`/corbeille/projets/${id}/restaurer`);
+      setShowCorbeilleModal(false);
+      await loadProjets();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur lors de la restauration');
+    }
+  };
+
+  const canRestoreProjetCorbeille = (row: any) =>
+    currentUser?.role === 'admin' || row.createdById === currentUser?.id || row.createdBy?.id === currentUser?.id;
+
   const handleSoftDelete = async (id: string, nom: string) => {
     if (!window.confirm(`Mettre le projet « ${nom} » en corbeille ?`)) return;
     try {
@@ -311,17 +375,102 @@ export default function Projets() {
   const startIdx = (safePage - 1) * PAGE_SIZE;
   const pageSlice = projets.slice(startIdx, startIdx + PAGE_SIZE);
 
+  const dashboard = useMemo(() => {
+    const list = projets;
+    const plusActifs = [...list].sort((a, b) => activityScore(b) - activityScore(a)).slice(0, 15);
+
+    const parStatut = new Map<string, number>();
+    for (const p of list) {
+      const k = p.statut || '—';
+      parStatut.set(k, (parStatut.get(k) || 0) + 1);
+    }
+
+    const parEntite = new Map<string, number>();
+    for (const p of list) {
+      const ents = p.entites;
+      if (!ents?.length) {
+        parEntite.set('(Non renseigné)', (parEntite.get('(Non renseigné)') || 0) + 1);
+      } else {
+        for (const pe of ents) {
+          const label = pe.entite?.nom || pe.entite?.code || '—';
+          parEntite.set(label, (parEntite.get(label) || 0) + 1);
+        }
+      }
+    }
+
+    const parCreateur = new Map<string, number>();
+    const parChefs = new Map<string, number>();
+    for (const p of list) {
+      if (p.createdBy) {
+        const nm = `${p.createdBy.prenom || ''} ${p.createdBy.nom || ''}`.trim() || '—';
+        parCreateur.set(nm, (parCreateur.get(nm) || 0) + 1);
+      } else {
+        parCreateur.set('(Non renseigné)', (parCreateur.get('(Non renseigné)') || 0) + 1);
+      }
+      const chefs = p.chefsProjetData || [];
+      if (!chefs.length) {
+        parChefs.set('(Aucun chef de projet)', (parChefs.get('(Aucun chef de projet)') || 0) + 1);
+      } else {
+        for (const u of chefs) {
+          const nm = `${u.prenom || ''} ${u.nom || ''}`.trim() || '—';
+          parChefs.set(nm, (parChefs.get(nm) || 0) + 1);
+        }
+      }
+    }
+
+    const parClient = new Map<string, number>();
+    for (const p of list) {
+      const c = getClientLabel(p);
+      parClient.set(c, (parClient.get(c) || 0) + 1);
+    }
+
+    const enRetard = list.filter(isProjetEnRetard);
+
+    return {
+      plusActifs,
+      parStatut,
+      parEntite,
+      parCreateur,
+      parChefs,
+      parClient,
+      enRetard,
+      total: list.length,
+    };
+  }, [projets]);
+
+  const sortMapEntriesDesc = (m: Map<string, number>) =>
+    [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'fr'));
+
   return (
     <div className="p-6">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Projets</h1>
-        <button
-          type="button"
-          onClick={openCreateModal}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
-        >
-          + Nouveau projet
-        </button>
+        <div className="flex flex-wrap gap-2 justify-end">
+          <button
+            type="button"
+            onClick={async () => {
+              await loadCorbeilleProjets();
+              setShowCorbeilleModal(true);
+            }}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
+          >
+            🗑 Corbeille
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowDashboardModal(true)}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
+          >
+            📊 Dashboard
+          </button>
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
+          >
+            + Nouveau projet
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow mb-6">
@@ -335,6 +484,9 @@ export default function Projets() {
         </button>
         {showFiltres && (
           <div className="px-4 pb-4 pt-0 border-t border-gray-100">
+            <p className="text-xs text-gray-500 pt-3">
+              Période : les projets affichés chevauchent l’intervalle choisi (date de début et/ou fin prévue du projet par rapport aux dates ci-dessous).
+            </p>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Nom / code</label>
@@ -387,10 +539,32 @@ export default function Projets() {
                 </select>
               </div>
             </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Période — date de début (filtre)</label>
+                <input
+                  type="date"
+                  value={filters.periodeDebut}
+                  onChange={(e) => setFilters({ ...filters, periodeDebut: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Période — date de fin (filtre)</label>
+                <input
+                  type="date"
+                  value={filters.periodeFin}
+                  onChange={(e) => setFilters({ ...filters, periodeFin: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+            </div>
             <div className="flex justify-end mt-3">
               <button
                 type="button"
-                onClick={() => setFilters({ nom: '', statut: '', priorite: '', type: '' })}
+                onClick={() =>
+                  setFilters({ nom: '', statut: '', priorite: '', type: '', periodeDebut: '', periodeFin: '' })
+                }
                 className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
                 Réinitialiser
@@ -937,6 +1111,176 @@ export default function Projets() {
               <button type="button" onClick={() => setHistModalProjet(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">
                 Fermer
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCorbeilleModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-5 border-b">
+              <h2 className="text-lg font-semibold">🗑 Projets en corbeille</h2>
+              <button
+                type="button"
+                onClick={() => setShowCorbeilleModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl"
+                aria-label="Fermer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              {corbeilleProjets.length === 0 && <p className="text-sm text-gray-500">Aucun projet en corbeille.</p>}
+              {corbeilleProjets.map((cp: any) => (
+                <div key={cp.id} className="flex flex-wrap justify-between items-center gap-3 p-3 border rounded-lg bg-gray-50">
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900">{cp.nom}</p>
+                    <p className="text-xs text-gray-500">
+                      Supprimé le {cp.deletedAt ? new Date(cp.deletedAt).toLocaleString('fr-FR') : '—'}
+                      {cp.createdBy && ` · Créé par ${cp.createdBy.prenom} ${cp.createdBy.nom}`}
+                    </p>
+                  </div>
+                  {canRestoreProjetCorbeille(cp) ? (
+                    <button
+                      type="button"
+                      onClick={() => handleRestoreProjetFromCorbeille(cp.id)}
+                      className="shrink-0 px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700"
+                    >
+                      Restaurer
+                    </button>
+                  ) : (
+                    <span className="text-xs text-gray-400 shrink-0">Restauration : admin ou créateur</span>
+                  )}
+                </div>
+              ))}
+              <p className="text-xs text-gray-400 pt-2">
+                La suppression définitive reste réservée aux administrateurs (corbeille globale).
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDashboardModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-5 border-b sticky top-0 bg-white z-10">
+              <div>
+                <h2 className="text-lg font-semibold">📊 Dashboard projets</h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  Données basées sur les {dashboard.total} projet(s) actuellement listés (mêmes filtres que la page).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDashboardModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl shrink-0"
+                aria-label="Fermer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-5 space-y-8 text-sm">
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Projets les plus actifs</h3>
+                <p className="text-xs text-gray-400 mb-2">Score = volume de tâches, tâches en cours et en retard (top 15).</p>
+                {dashboard.plusActifs.length === 0 ? (
+                  <p className="text-gray-400 italic">Aucun projet</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {dashboard.plusActifs.map((p: any, i: number) => (
+                      <li key={p.id} className="flex justify-between gap-2 border-b border-gray-100 pb-1">
+                        <span>
+                          <span className="text-gray-400 mr-2">{i + 1}.</span>
+                          <span className="font-medium text-gray-900">{p.nom}</span>
+                          <span className="text-gray-500 text-xs ml-2">
+                            {p.tachesResume?.total ?? 0} tâche(s), {p.tachesResume?.enRetard ?? 0} en retard
+                          </span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Par statut</h3>
+                <ul className="space-y-1">
+                  {sortMapEntriesDesc(dashboard.parStatut).map(([k, n]) => (
+                    <li key={k} className="flex justify-between">
+                      <span>{STATUS_LABELS[k] || k}</span>
+                      <span className="font-medium text-gray-900">{n}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Par entité (département)</h3>
+                <ul className="space-y-1">
+                  {sortMapEntriesDesc(dashboard.parEntite).map(([k, n]) => (
+                    <li key={k} className="flex justify-between gap-2">
+                      <span className="truncate">{k}</span>
+                      <span className="font-medium text-gray-900 shrink-0">{n}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Par utilisateurs</h3>
+                <p className="text-xs text-gray-400 mb-2">Créateurs</p>
+                <ul className="space-y-1 mb-4">
+                  {sortMapEntriesDesc(dashboard.parCreateur).map(([k, n]) => (
+                    <li key={`c-${k}`} className="flex justify-between gap-2">
+                      <span className="truncate">{k}</span>
+                      <span className="font-medium text-gray-900 shrink-0">{n}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-gray-400 mb-2">Chefs de projet</p>
+                <ul className="space-y-1">
+                  {sortMapEntriesDesc(dashboard.parChefs).map(([k, n]) => (
+                    <li key={`ch-${k}`} className="flex justify-between gap-2">
+                      <span className="truncate">{k}</span>
+                      <span className="font-medium text-gray-900 shrink-0">{n}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Par client</h3>
+                <ul className="space-y-1">
+                  {sortMapEntriesDesc(dashboard.parClient).map(([k, n]) => (
+                    <li key={k} className="flex justify-between gap-2">
+                      <span className="truncate">{k}</span>
+                      <span className="font-medium text-gray-900 shrink-0">{n}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Projets en retard</h3>
+                <p className="text-xs text-gray-400 mb-2">Échéance dépassée, alertes ou tâches en retard.</p>
+                {dashboard.enRetard.length === 0 ? (
+                  <p className="text-gray-400 italic">Aucun projet en retard dans cette liste.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {dashboard.enRetard.map((p: any) => (
+                      <li key={p.id} className="border border-amber-100 bg-amber-50/80 rounded-lg px-3 py-2">
+                        <span className="font-medium text-gray-900">{p.nom}</span>
+                        <span className="text-xs text-gray-600 block">
+                          {STATUS_LABELS[p.statut] || p.statut}
+                          {p.dateFinPrevue && ` · Fin prévue ${new Date(p.dateFinPrevue).toLocaleDateString('fr-FR')}`}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
             </div>
           </div>
         </div>

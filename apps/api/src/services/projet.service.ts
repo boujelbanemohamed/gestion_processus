@@ -306,6 +306,10 @@ export class ProjetService {
       sortOrder?: 'asc' | 'desc';
       priorite?: string;
       type?: string;
+      /** ISO date (yyyy-mm-dd) : début de la période filtre (chevauchement avec la fenêtre projet dateDebut–dateFinPrevue). */
+      periodeDebut?: string;
+      /** ISO date (yyyy-mm-dd) : fin de la période filtre. */
+      periodeFin?: string;
     },
     auth: ProjetAuth
   ) {
@@ -322,6 +326,29 @@ export class ProjetService {
         { codeProjet: { contains: filters.search, mode: 'insensitive' } },
         { description: { contains: filters.search, mode: 'insensitive' } },
       ];
+    }
+
+    const periodeDebut = filters?.periodeDebut?.trim();
+    const periodeFin = filters?.periodeFin?.trim();
+    const dateClauses: object[] = [];
+    if (periodeDebut) {
+      const start = new Date(`${periodeDebut}T00:00:00.000Z`);
+      if (!Number.isNaN(start.getTime())) {
+        dateClauses.push({
+          OR: [{ dateFinPrevue: { gte: start } }, { dateFinPrevue: null }],
+        });
+      }
+    }
+    if (periodeFin) {
+      const end = new Date(`${periodeFin}T23:59:59.999Z`);
+      if (!Number.isNaN(end.getTime())) {
+        dateClauses.push({
+          OR: [{ dateDebut: { lte: end } }, { dateDebut: null }],
+        });
+      }
+    }
+    if (dateClauses.length) {
+      where.AND = [...(where.AND ?? []), ...dateClauses];
     }
 
     let orderBy: any = { updatedAt: 'desc' };
@@ -546,6 +573,22 @@ export class ProjetService {
   async listDeletedForCorbeille() {
     return prisma.projet.findMany({
       where: { deletedAt: { not: null } },
+      include: {
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+        responsable: { select: { id: true, nom: true, prenom: true } },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+  }
+
+  /** Corbeille projets : tout pour l’admin, sinon uniquement les projets créés par l’utilisateur (aligné licences). */
+  async listDeletedForCorbeilleScoped(auth: ProjetAuth) {
+    const where: any = { deletedAt: { not: null } };
+    if (!isAdminRole(auth.role)) {
+      where.createdById = auth.userId;
+    }
+    return prisma.projet.findMany({
+      where,
       include: {
         createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
         responsable: { select: { id: true, nom: true, prenom: true } },

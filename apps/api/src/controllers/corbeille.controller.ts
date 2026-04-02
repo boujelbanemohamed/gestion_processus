@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { CorbeilleService } from '../services/corbeille.service';
 import { logAccess } from '../middleware/logger';
+import { prisma } from '../utils/prisma';
 
 const corbeilleService = new CorbeilleService();
 
@@ -272,8 +273,17 @@ export const restaurerProjet = async (req: AuthRequest, res: Response) => {
     if (!req.user?.userId || !req.user?.role) {
       return res.status(401).json({ error: 'Non authentifié' });
     }
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut restaurer des éléments.' });
+    const deleted = await prisma.projet.findFirst({
+      where: { id: req.params.id, deletedAt: { not: null } },
+      select: { createdById: true },
+    });
+    if (!deleted) {
+      return res.status(400).json({ error: 'Élément introuvable ou non en corbeille' });
+    }
+    const isAdmin = req.user.role === 'admin';
+    const isCreator = deleted.createdById === req.user.userId;
+    if (!isAdmin && !isCreator) {
+      return res.status(403).json({ error: 'Accès refusé. Seuls l’administrateur ou le créateur peuvent restaurer ce projet.' });
     }
     const row = await corbeilleService.restaurerProjet(req.params.id);
     await logAccess(req, res, 'modification', 'projet', row.id, row.nom, { action: 'restauration' });
