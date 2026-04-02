@@ -11,19 +11,89 @@ const PROC_PERM_LABELS: Record<string, string> = {
   gestion: 'Gestion des accès',
 };
 
-function processusAccesDelegationsRows(p: any) {
+type DelegationRow = { key: string; userId?: string; nom: string; label: string };
+
+function processusAccesDelegationsRows(p: any): DelegationRow[] {
   const d = p?.accesApercu?.delegations;
   if (d?.length) {
     return d.map((row: any) => ({
       key: `${row.user?.id}-${(row.permissions || []).join(',')}`,
+      userId: row.user?.id,
       nom: row.user ? `${row.user.prenom} ${row.user.nom}` : '—',
       label: (row.permissions || []).map((x: string) => PROC_PERM_LABELS[x] || x).join(' + '),
     }));
   }
   return (p?.permissions || []).map((perm: any) => ({
     key: perm.id,
+    userId: perm.userId ?? perm.user?.id,
     nom: perm.user ? `${perm.user.prenom} ${perm.user.nom}` : '—',
     label: PROC_PERM_LABELS[perm.permission] || perm.permission,
+  }));
+}
+
+type ProcessusRecapUserRow = { userId: string; utilisateur: string; roles: string };
+
+function buildProcessusRecapAccessRows(
+  p: any,
+  delegRows: DelegationRow[],
+  usersList: any[],
+  droitsAdmin: string
+): ProcessusRecapUserRow[] {
+  const byId = new Map<string, { utilisateur: string; roles: Set<string> }>();
+
+  const add = (userId: string | undefined, utilisateur: string, roleLine: string) => {
+    if (!userId) return;
+    if (!byId.has(userId)) {
+      byId.set(userId, { utilisateur: utilisateur || '—', roles: new Set() });
+    }
+    byId.get(userId)!.roles.add(roleLine);
+    if (utilisateur && utilisateur !== '—') {
+      byId.get(userId)!.utilisateur = utilisateur;
+    }
+  };
+
+  (usersList || [])
+    .filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'))
+    .forEach((a: any) => {
+      const creatorId = p?.createdById || p?.createdBy?.id;
+      const isCreator = creatorId === a.id;
+      add(
+        a.id,
+        `${a.prenom} ${a.nom}`,
+        isCreator
+          ? `Administrateur et créateur : ${droitsAdmin}`
+          : `Administrateur : ${droitsAdmin}`
+      );
+    });
+
+  if (p?.createdBy && (p.createdById || p.createdBy.id)) {
+    const cid = p.createdById || p.createdBy.id;
+    if (!byId.has(cid)) {
+      add(
+        cid,
+        `${p.createdBy.prenom} ${p.createdBy.nom}`,
+        `Créateur du processus : ${droitsAdmin}`
+      );
+    }
+  }
+
+  if (p?.proprietaire && p.proprietaireId && p.proprietaireId !== p.createdById) {
+    add(
+      p.proprietaireId,
+      `${p.proprietaire.prenom} ${p.proprietaire.nom}`,
+      'Propriétaire du processus (fiche et documents confidentiels)'
+    );
+  }
+
+  delegRows.forEach((r) => {
+    if (!r.userId) return;
+    add(r.userId, r.nom, `Droit délégué sur le processus : ${r.label}`);
+  });
+
+  return Array.from(byId.entries()).map(([userId, v]) => ({
+    userId,
+    utilisateur: v.utilisateur,
+    roles: Array.from(v.roles).join(' ; '),
   }));
 }
 
@@ -974,6 +1044,9 @@ export default function ProcessusDetail() {
   };
 
   const delegRowsProcessus = processus ? processusAccesDelegationsRows(processus) : [];
+  const recapProcessusRows = processus
+    ? buildProcessusRecapAccessRows(processus, delegRowsProcessus, usersList, droitsAdminProcessus)
+    : [];
 
   if (loading) return <div className="p-6">Chargement...</div>;
   if (error && !processus) {
@@ -1342,7 +1415,7 @@ export default function ProcessusDetail() {
                     </span>
                   </div>
                 )}
-              {delegRowsProcessus.map((r: { key: string; nom: string; label: string }) => (
+              {delegRowsProcessus.map((r) => (
                 <div key={r.key} className="min-w-0">
                   <span className="font-medium text-gray-900">{r.nom}</span>
                   <span className="text-gray-500 italic block sm:inline sm:ml-1">({r.label})</span>
@@ -2234,6 +2307,99 @@ export default function ProcessusDetail() {
                 </div>
               </form>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recap accès — au-dessus de l'historique */}
+      {processus && (
+        <div className="bg-white rounded-lg shadow mb-6 print:hidden">
+          <div className="p-6">
+            <h2 className="text-lg font-semibold mb-1 text-gray-900">Recap Accès</h2>
+            <p className="text-xs text-gray-500 mb-5">
+              Synthèse des habilitations sur ce processus et sur les fichiers rattachés. La gestion des droits délégués
+              se fait depuis la liste des processus (bouton « Accès »).
+            </p>
+
+            <h3 className="text-sm font-semibold text-gray-800 mb-2">Accès au processus</h3>
+            {recapProcessusRows.length === 0 ? (
+              <p className="text-sm text-gray-500 mb-6">
+                Aucune entrée (processus sans restriction explicite côté utilisateurs chargés).
+              </p>
+            ) : (
+              <div className="overflow-x-auto border border-gray-200 rounded-lg mb-6">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Utilisateur</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Rôles / droits</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {recapProcessusRows.map((row) => (
+                      <tr key={row.userId} className="bg-white">
+                        <td className="px-3 py-2 font-medium text-gray-900 align-top">{row.utilisateur}</td>
+                        <td className="px-3 py-2 text-gray-700 align-top">{row.roles}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <h3 className="text-sm font-semibold text-gray-800 mb-2">Accès aux documents</h3>
+            {documents.length === 0 ? (
+              <p className="text-sm text-gray-500">Aucun document rattaché à ce processus.</p>
+            ) : (
+              <div className="space-y-4">
+                {documents.map((doc) => {
+                  const docRows = buildDocumentAccessRows(doc);
+                  return (
+                    <div key={doc.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50/50">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <h4 className="font-medium text-gray-900 text-sm">{doc.nom}</h4>
+                        {doc.estConfidentiel ? (
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                            Confidentiel
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                            Non confidentiel
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-600 mb-3">
+                        {doc.estConfidentiel
+                          ? 'Liste des personnes pouvant consulter ce fichier (et rôles effectifs affichés dans la fiche document).'
+                          : 'Accès en lecture aligné sur les habilitations processus ; la liste ci-dessous reprend notamment administrateurs, auteur et gouvernance sur la fiche.'}
+                      </p>
+                      {docRows.length === 0 ? (
+                        <p className="text-xs text-gray-500 italic">Aucune ligne d&apos;accès détaillée.</p>
+                      ) : (
+                        <div className="overflow-x-auto border border-gray-100 rounded-md bg-white">
+                          <table className="min-w-full text-xs">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-medium text-gray-600">Utilisateur</th>
+                                <th className="px-3 py-2 text-left font-medium text-gray-600">Rôle / droits</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {docRows.map((dr) => (
+                                <tr key={dr.id}>
+                                  <td className="px-3 py-2 font-medium text-gray-900 align-top">{dr.nom}</td>
+                                  <td className="px-3 py-2 text-gray-700 align-top">{dr.role}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
