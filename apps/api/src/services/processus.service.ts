@@ -551,32 +551,73 @@ export class ProcessusService {
     return canSoftDeleteProcessusRow(row, auth, permTypes);
   }
 
-  async create(data: {
-    nom: string;
-    codeProcessus: string;
-    description?: string;
-    categorieIds?: string[];
-    entiteIds?: string[];
-    proprietaireId?: string;
-    createdById: string;
-  }) {
-    const { entiteIds, categorieIds, ...processusData } = data;
+  async create(
+    data: {
+      nom: string;
+      codeProcessus: string;
+      description?: string;
+      categorieIds?: string[];
+      entiteIds?: string[];
+      proprietaireId?: string;
+      createdById: string;
+      initialPermissions?: { userId: string; permission: PermissionType }[];
+    },
+    auth: ProcessusAuth
+  ) {
+    const { entiteIds, categorieIds, initialPermissions, ...processusData } = data;
 
-    return prisma.processus.create({
-      data: {
-        ...processusData,
-        statut: 'brouillon',
-        entites:
-          entiteIds && entiteIds.length > 0
-            ? { create: entiteIds.map((entiteId) => ({ entiteId })) }
-            : undefined,
-        categories:
-          categorieIds && categorieIds.length > 0
-            ? { create: categorieIds.map((categorieId) => ({ categorieId })) }
-            : undefined,
-      },
-      include: processusIncludeList,
+    const processusId = await prisma.$transaction(async (tx) => {
+      const p = await tx.processus.create({
+        data: {
+          ...processusData,
+          statut: 'brouillon',
+          entites:
+            entiteIds && entiteIds.length > 0
+              ? { create: entiteIds.map((entiteId) => ({ entiteId })) }
+              : undefined,
+          categories:
+            categorieIds && categorieIds.length > 0
+              ? { create: categorieIds.map((categorieId) => ({ categorieId })) }
+              : undefined,
+        },
+        select: { id: true },
+      });
+
+      const allowedPerm = new Set<PermissionType>(['lecture', 'modification', 'suppression', 'gestion']);
+      for (const row of initialPermissions ?? []) {
+        if (!row?.userId || !row.permission || !allowedPerm.has(row.permission)) continue;
+        const target = await tx.user.findUnique({
+          where: { id: row.userId },
+          select: { id: true, role: true },
+        });
+        if (!target || target.role === 'admin') continue;
+        if (row.userId === data.createdById || row.userId === data.proprietaireId) continue;
+        try {
+          await tx.permission.create({
+            data: {
+              userId: row.userId,
+              ressourceType: 'processus',
+              ressourceId: p.id,
+              permission: row.permission,
+              grantedById: data.createdById,
+            },
+          });
+        } catch (e: any) {
+          if (e?.code !== 'P2002') throw e;
+        }
+      }
+
+      return p.id;
     });
+
+    const enriched = await this.findOne(processusId, auth);
+    if (!enriched) {
+      return prisma.processus.findUnique({
+        where: { id: processusId },
+        include: processusIncludeList,
+      });
+    }
+    return enriched;
   }
 
   async update(

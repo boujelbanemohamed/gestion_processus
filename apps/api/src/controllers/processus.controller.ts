@@ -103,6 +103,9 @@ export const removeProcessusPermission = async (req: AuthRequest, res: Response)
 
 export const createProcessus = async (req: AuthRequest, res: Response) => {
   try {
+    const auth = authFromReq(req);
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
+
     const createData: any = { ...req.body };
     if (req.body.entiteIds !== undefined) {
       createData.entiteIds = Array.isArray(req.body.entiteIds)
@@ -119,11 +122,22 @@ export const createProcessus = async (req: AuthRequest, res: Response) => {
           : [];
     }
 
-    const processus = await processusService.create({
-      ...createData,
-      createdById: req.user!.userId,
-    });
-    await logAccess(req, res, 'creation', 'processus', processus.id, processus.nom);
+    let initialPermissions: { userId: string; permission: PermissionType }[] = [];
+    if (Array.isArray(req.body.initialPermissions)) {
+      initialPermissions = req.body.initialPermissions
+        .filter((x: any) => x && typeof x.userId === 'string' && typeof x.permission === 'string')
+        .map((x: any) => ({ userId: x.userId, permission: x.permission as PermissionType }));
+    }
+
+    const processus = await processusService.create(
+      {
+        ...createData,
+        createdById: req.user!.userId,
+        initialPermissions,
+      },
+      auth
+    );
+    await logAccess(req, res, 'creation', 'processus', (processus as any).id, (processus as any).nom);
     res.status(201).json(processus);
   } catch (error: any) {
     res.status(400).json({ error: error.message });

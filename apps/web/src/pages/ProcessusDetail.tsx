@@ -4,6 +4,29 @@ import { api } from '../services/api';
 import { useAuth } from '../store/auth';
 import * as XLSX from 'xlsx';
 
+const PROC_PERM_LABELS: Record<string, string> = {
+  lecture: 'Consultation',
+  modification: 'Modification',
+  suppression: 'Suppression',
+  gestion: 'Gestion des accès',
+};
+
+function processusAccesDelegationsRows(p: any) {
+  const d = p?.accesApercu?.delegations;
+  if (d?.length) {
+    return d.map((row: any) => ({
+      key: `${row.user?.id}-${(row.permissions || []).join(',')}`,
+      nom: row.user ? `${row.user.prenom} ${row.user.nom}` : '—',
+      label: (row.permissions || []).map((x: string) => PROC_PERM_LABELS[x] || x).join(' + '),
+    }));
+  }
+  return (p?.permissions || []).map((perm: any) => ({
+    key: perm.id,
+    nom: perm.user ? `${perm.user.prenom} ${perm.user.nom}` : '—',
+    label: PROC_PERM_LABELS[perm.permission] || perm.permission,
+  }));
+}
+
 export default function ProcessusDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -815,6 +838,58 @@ export default function ProcessusDetail() {
     { value: 'obsolete', label: 'Obsolète', color: 'bg-red-100 text-red-800' },
   ];
 
+  const droitsAdminProcessus = 'consultation, modification, mise en corbeille, gestion des accès';
+
+  const buildDocumentAccessRows = (doc: any) => {
+    const map = new Map<string, { nom: string; role: string }>();
+    const setRow = (userId: string | undefined, nom: string, role: string) => {
+      if (!userId) return;
+      map.set(userId, { nom, role });
+    };
+    (usersList || []).forEach((u: any) => {
+      if (u.role === 'admin' && (!u.statut || u.statut === 'actif')) {
+        setRow(
+          u.id,
+          `${u.prenom} ${u.nom}`,
+          `Administrateur : ${droitsAdminProcessus}`
+        );
+      }
+    });
+    if (doc.uploadedBy?.id) {
+      setRow(
+        doc.uploadedBy.id,
+        `${doc.uploadedBy.prenom} ${doc.uploadedBy.nom}`,
+        'Auteur du document : dépôt, métadonnées et consultation'
+      );
+    }
+    if (processus?.proprietaire?.id) {
+      setRow(
+        processus.proprietaire.id,
+        `${processus.proprietaire.prenom} ${processus.proprietaire.nom}`,
+        'Propriétaire du processus : accès au document confidentiel'
+      );
+    }
+    if (processus?.createdBy?.id) {
+      setRow(
+        processus.createdBy.id,
+        `${processus.createdBy.prenom} ${processus.createdBy.nom}`,
+        'Créateur du processus : accès au document confidentiel'
+      );
+    }
+    (doc.permissionsUtilisateurs || []).forEach((p: any) => {
+      if (p.user?.id) {
+        setRow(
+          p.user.id,
+          `${p.user.prenom} ${p.user.nom}`,
+          'Accès explicite : consultation du document (confidentiel)'
+        );
+      }
+    });
+    return Array.from(map.entries()).map(([id, v]) => ({ id, nom: v.nom, role: v.role }));
+  };
+
+  const delegRowsProcessus = processus ? processusAccesDelegationsRows(processus) : [];
+
   if (loading) return <div className="p-6">Chargement...</div>;
   if (error && !processus) {
     return (
@@ -1113,6 +1188,88 @@ export default function ProcessusDetail() {
           </div>
         )}
 
+        <div className="mt-6 border-t border-gray-200 pt-6">
+          <h3 className="text-sm font-semibold text-gray-800 mb-3">Accès au processus</h3>
+          <div className="flex flex-wrap items-start gap-2 sm:gap-3 text-xs text-gray-700 border border-slate-100 rounded-lg px-3 py-2.5 bg-slate-50/90">
+            <span className="font-semibold text-gray-600 uppercase shrink-0 pt-0.5">Qui a accès :</span>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0 flex-1">
+              {(() => {
+                const restreint = delegRowsProcessus.length > 0 || !!processus.createdById;
+                return restreint ? (
+                  <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-red-50 border border-red-100 text-red-900 shrink-0">
+                    <span className="text-sm leading-none" aria-hidden>
+                      🔒
+                    </span>
+                    <span className="text-[10px] font-semibold leading-tight mt-0.5 text-center">
+                      Accès restreint ou délégué
+                    </span>
+                  </div>
+                ) : (
+                  <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-green-50 border border-green-100 text-green-900 shrink-0">
+                    <span className="text-[10px] font-semibold leading-tight text-center">Accès élargi</span>
+                  </div>
+                );
+              })()}
+              {usersList
+                .filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'))
+                .map((a: any) => {
+                  const creatorId = processus.createdById || processus.createdBy?.id;
+                  const isCreator = creatorId === a.id;
+                  return (
+                    <div key={`proc-adm-${a.id}`} className="min-w-0">
+                      <span className="font-medium text-gray-900">
+                        {a.prenom} {a.nom}
+                      </span>
+                      <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                        {isCreator
+                          ? `(Administrateur et créateur : ${droitsAdminProcessus})`
+                          : `(Admin : ${droitsAdminProcessus})`}
+                      </span>
+                    </div>
+                  );
+                })}
+              {processus.createdBy &&
+                (processus.createdById || processus.createdBy.id) &&
+                !usersList.some(
+                  (a: any) =>
+                    a.id === (processus.createdById || processus.createdBy.id) &&
+                    a.role === 'admin' &&
+                    (!a.statut || a.statut === 'actif')
+                ) && (
+                  <div className="min-w-0">
+                    <span className="font-medium text-gray-900">
+                      {processus.createdBy.prenom} {processus.createdBy.nom}
+                    </span>
+                    <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                      (Créateur : {droitsAdminProcessus})
+                    </span>
+                  </div>
+                )}
+              {processus.proprietaire &&
+                processus.proprietaireId &&
+                processus.proprietaireId !== processus.createdById && (
+                  <div className="min-w-0">
+                    <span className="font-medium text-gray-900">
+                      {processus.proprietaire.prenom} {processus.proprietaire.nom}
+                    </span>
+                    <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                      (Propriétaire du processus)
+                    </span>
+                  </div>
+                )}
+              {delegRowsProcessus.map((r: { key: string; nom: string; label: string }) => (
+                <div key={r.key} className="min-w-0">
+                  <span className="font-medium text-gray-900">{r.nom}</span>
+                  <span className="text-gray-500 italic block sm:inline sm:ml-1">({r.label})</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Pour ajouter ou retirer des droits délégués, utilisez le bouton « Accès » sur la liste des processus.
+          </p>
+        </div>
+
         {/* Zone Description */}
         <div className="mt-6">
           <label className="text-sm font-medium text-gray-500 block mb-2">Description</label>
@@ -1281,53 +1438,68 @@ export default function ProcessusDetail() {
                             ))}
                           </select>
                         </div>
-                        {doc.estConfidentiel && (
-                          <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs">
-                            Confidentiel
+                        {doc.estConfidentiel ? (
+                          <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-medium">
+                            🔒 Confidentiel
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
+                            🌐 Non confidentiel
                           </span>
                         )}
                       </div>
-                      {doc.estConfidentiel && (
-                        <div className="mt-3 text-xs text-gray-700 space-y-1 bg-red-50 border border-red-100 rounded p-2">
-                          {
-                            (() => {
-                              const selected = (doc.permissionsUtilisateurs || []).map((p: any) => p.user || p.userId).filter(Boolean);
-                              const selectedUsers = (doc.permissionsUtilisateurs || [])
-                                .map((p: any) => p.user)
-                                .filter((u: any) => !!u);
-                              const viewers: string[] = [];
-                              // Utilisateurs sélectionnés
-                              selectedUsers.forEach((u: any) => viewers.push(`${u.prenom} ${u.nom}`));
-                              // Propriétaire du processus
-                              if (processus?.proprietaire) viewers.push(`${processus.proprietaire.prenom} ${processus.proprietaire.nom}`);
-                              // Créateur du processus
-                              if (processus?.createdBy) viewers.push(`${processus.createdBy.prenom} ${processus.createdBy.nom}`);
-                              // Uploadeur du document
-                              if (doc.uploadedBy) viewers.push(`${doc.uploadedBy.prenom} ${doc.uploadedBy.nom}`);
-                              const editors: string[] = [];
-                              // Seuls les utilisateurs sélectionnés + uploadeur peuvent modifier
-                              selectedUsers.forEach((u: any) => editors.push(`${u.prenom} ${u.nom}`));
-                              if (doc.uploadedBy) editors.push(`${doc.uploadedBy.prenom} ${doc.uploadedBy.nom}`);
-                              // Dédupliquer
-                              const uniq = (arr: string[]) => Array.from(new Set(arr.filter(Boolean)));
-                              const viewersUniq = uniq(viewers);
-                              const editorsUniq = uniq(editors);
-                              return (
-                                <div className="space-y-1">
-                                  <div>
-                                    <span className="font-medium">Peuvent consulter:</span>{' '}
-                                    {viewersUniq.length > 0 ? viewersUniq.join(', ') : 'N/A'}
-                                  </div>
-                                  <div>
-                                    <span className="font-medium">Peuvent modifier:</span>{' '}
-                                    {editorsUniq.length > 0 ? editorsUniq.join(', ') : 'N/A'}
-                                  </div>
+                      <div className="mt-3 border border-slate-100 rounded-lg px-3 py-2.5 bg-slate-50/90">
+                        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
+                          Accès au document
+                        </p>
+                        <div className="flex flex-wrap items-start gap-3">
+                          {doc.estConfidentiel ? (
+                            <>
+                              <div className="flex flex-col items-center shrink-0">
+                                <div className="w-12 h-12 bg-red-100 border border-red-200 rounded-lg flex items-center justify-center text-lg">
+                                  🔒
                                 </div>
-                              );
-                            })()
-                          }
+                                <span className="text-[10px] font-semibold text-red-700 mt-1 text-center">
+                                  Restreint
+                                </span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs text-gray-600 mb-2 leading-relaxed">
+                                  Document confidentiel : personnes habilitées à consulter ce fichier et rôle indiqué
+                                  (aligné sur la fiche projet / les tâches).
+                                </p>
+                                <div className="space-y-1.5 text-xs">
+                                  {buildDocumentAccessRows(doc).map((row) => (
+                                    <div
+                                      key={row.id}
+                                      className="flex flex-wrap items-baseline gap-x-1 border-b border-gray-200/80 pb-1.5 last:border-0"
+                                    >
+                                      <span className="font-medium text-gray-900">{row.nom}</span>
+                                      <span className="text-gray-500 italic">({row.role})</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex flex-col items-center shrink-0">
+                                <div className="w-12 h-12 bg-green-100 border border-green-200 rounded-lg flex items-center justify-center text-lg">
+                                  🌐
+                                </div>
+                                <span className="text-[10px] font-semibold text-green-800 mt-1 text-center">
+                                  Libre
+                                </span>
+                              </div>
+                              <p className="text-xs text-gray-600 flex-1 leading-relaxed">
+                                Ce document n&apos;est pas confidentiel : l&apos;accès en lecture suit les règles du
+                                processus (statut, droits délégués sur le processus, rôle applicatif). Les
+                                administrateurs conservent un accès technique étendu.
+                              </p>
+                            </>
+                          )}
                         </div>
-                      )}
+                      </div>
                       <div className="mt-4 border-t border-gray-200 pt-3">
                         <p className="text-sm font-medium text-gray-700 mb-3">Historique des versions:</p>
                         <div className="space-y-2">

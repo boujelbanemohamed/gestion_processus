@@ -107,7 +107,28 @@ export default function Processus() {
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
 
+  const [createPermDraftUserId, setCreatePermDraftUserId] = useState('');
+  const [createPermDraftType, setCreatePermDraftType] = useState('lecture');
+  const [createInitialPermissions, setCreateInitialPermissions] = useState<{ userId: string; permission: string }[]>(
+    []
+  );
+
   const firstProcessusLoad = useRef(true);
+
+  const resetCreateModal = () => {
+    setFormData({
+      nom: '',
+      codeProcessus: '',
+      description: '',
+      entiteIds: [],
+      categorieIds: [],
+      proprietaireId: '',
+    });
+    setCreateInitialPermissions([]);
+    setCreatePermDraftUserId('');
+    setCreatePermDraftType('lecture');
+    setError('');
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -363,16 +384,10 @@ export default function Processus() {
         entiteIds: formData.entiteIds || [],
         categorieIds: formData.categorieIds || [],
         proprietaireId: formData.proprietaireId || undefined,
+        initialPermissions: createInitialPermissions,
       });
       setShowModal(false);
-      setFormData({
-        nom: '',
-        codeProcessus: '',
-        description: '',
-        entiteIds: [],
-        categorieIds: [],
-        proprietaireId: '',
-      });
+      resetCreateModal();
       await loadProcessus();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Erreur lors de la création');
@@ -409,7 +424,10 @@ export default function Processus() {
         {!isLecteur && (
           <button
             type="button"
-            onClick={() => setShowModal(true)}
+            onClick={() => {
+              resetCreateModal();
+              setShowModal(true);
+            }}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
           >
             + Nouveau processus
@@ -852,15 +870,7 @@ export default function Processus() {
                   type="button"
                   onClick={() => {
                     setShowModal(false);
-                    setError('');
-                    setFormData({
-                      nom: '',
-                      codeProcessus: '',
-                      description: '',
-                      entiteIds: [],
-                      categorieIds: [],
-                      proprietaireId: '',
-                    });
+                    resetCreateModal();
                   }}
                   className="text-gray-500 hover:text-gray-700"
                 >
@@ -940,12 +950,128 @@ export default function Processus() {
                     ))}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Propriétaire (optionnel)</label>
+                  <select
+                    value={formData.proprietaireId}
+                    onChange={(e) => setFormData({ ...formData, proprietaireId: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  >
+                    <option value="">— Non défini —</option>
+                    {users
+                      .filter((u: any) => u.role === 'admin' || u.role === 'contributeur')
+                      .map((u: any) => (
+                        <option key={u.id} value={u.id}>
+                          {u.prenom} {u.nom} ({u.email})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <div className="border border-slate-200 rounded-lg p-4 bg-slate-50/80">
+                  <p className="text-sm font-medium text-gray-800 mb-1">Accès initial au processus</p>
+                  <p className="text-xs text-gray-600 mb-3 leading-relaxed">
+                    Les administrateurs ont toujours tous les droits. Vous (créateur) et le propriétaire désigné
+                    avez les droits étendus sans être listés ici. Ajoutez d&apos;autres utilisateurs et le niveau de
+                    droit accordé dès la création.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
+                    <select
+                      value={createPermDraftUserId}
+                      onChange={(e) => setCreatePermDraftUserId(e.target.value)}
+                      className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+                    >
+                      <option value="">— Utilisateur —</option>
+                      {users
+                        .filter(
+                          (u: any) =>
+                            (!u.statut || u.statut === 'actif') &&
+                            u.role !== 'admin' &&
+                            u.id !== currentUser?.id &&
+                            u.id !== formData.proprietaireId
+                        )
+                        .map((u: any) => (
+                          <option key={u.id} value={u.id}>
+                            {u.prenom} {u.nom} ({u.email})
+                          </option>
+                        ))}
+                    </select>
+                    <select
+                      value={createPermDraftType}
+                      onChange={(e) => setCreatePermDraftType(e.target.value)}
+                      className="w-full sm:w-52 px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+                    >
+                      {PERM_OPTIONS.map((n) => (
+                        <option key={n.value} value={n.value}>
+                          {n.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!createPermDraftUserId) return;
+                        if (
+                          createInitialPermissions.some(
+                            (x) =>
+                              x.userId === createPermDraftUserId && x.permission === createPermDraftType
+                          )
+                        ) {
+                          return;
+                        }
+                        setCreateInitialPermissions((prev) => [
+                          ...prev,
+                          { userId: createPermDraftUserId, permission: createPermDraftType },
+                        ]);
+                        setCreatePermDraftUserId('');
+                        setCreatePermDraftType('lecture');
+                      }}
+                      disabled={!createPermDraftUserId}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shrink-0"
+                    >
+                      Ajouter
+                    </button>
+                  </div>
+                  {createInitialPermissions.length > 0 && (
+                    <ul className="mt-3 space-y-2">
+                      {createInitialPermissions.map((row) => {
+                        const u = users.find((x: any) => x.id === row.userId);
+                        return (
+                          <li
+                            key={`${row.userId}-${row.permission}`}
+                            className="flex flex-wrap items-center justify-between gap-2 text-sm border border-gray-200 rounded-md px-3 py-2 bg-white"
+                          >
+                            <span>
+                              <span className="font-medium">
+                                {u ? `${u.prenom} ${u.nom}` : row.userId}
+                              </span>
+                              <span className="text-gray-500">
+                                {' '}
+                                — {PERMISSION_LABELS[row.permission] || row.permission}
+                              </span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCreateInitialPermissions((prev) =>
+                                  prev.filter((x) => !(x.userId === row.userId && x.permission === row.permission))
+                                )
+                              }
+                              className="text-xs text-red-600 hover:underline"
+                            >
+                              Retirer
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
                 <div className="flex justify-end space-x-3 pt-4">
                   <button
                     type="button"
                     onClick={() => {
                       setShowModal(false);
-                      setError('');
+                      resetCreateModal();
                     }}
                     className="px-4 py-2 border border-gray-300 rounded-md"
                   >
