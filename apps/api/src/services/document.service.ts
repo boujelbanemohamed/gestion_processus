@@ -1,10 +1,12 @@
 import { prisma } from '../utils/prisma';
 import { DocType, DocStatut, RefType } from '@prisma/client';
 import { canEditLicenceContent, canReadLicence } from './licence.service';
+import { ProcessusService } from './processus.service';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
+const processusService = new ProcessusService();
 
 export class DocumentService {
   async ensureUploadDir() {
@@ -262,7 +264,19 @@ export class DocumentService {
 
     if (role === 'admin') return true;
 
-    // Si le document n'est pas confidentiel, tout le monde peut y accéder
+    // Document rattaché à un processus : il faut d'abord pouvoir accéder au détail du processus
+    if (document.referenceType === 'processus' && document.referenceId) {
+      const procAccess = await processusService.canAccess(
+        document.referenceId,
+        userId,
+        role || 'lecteur'
+      );
+      if (!procAccess.canAccess) {
+        return false;
+      }
+    }
+
+    // Si le document n'est pas confidentiel, l'accès processus (ci-dessus) suffit
     if (!document.estConfidentiel) return true;
 
     // L'utilisateur qui a uploadé peut toujours accéder

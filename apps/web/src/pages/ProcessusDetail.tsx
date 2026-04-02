@@ -27,6 +27,55 @@ function processusAccesDelegationsRows(p: any) {
   }));
 }
 
+type HabilitatorRow = { id: string; line: string; email?: string };
+
+function collectHabilitatorsForProcessusAccess(p: any | null, usersList: any[]): HabilitatorRow[] {
+  const out: HabilitatorRow[] = [];
+  const seen = new Set<string>();
+  const add = (u: any | null | undefined, role: string) => {
+    if (!u?.id || seen.has(u.id)) return;
+    seen.add(u.id);
+    const mail = u.email ? ` — ${u.email}` : '';
+    out.push({
+      id: u.id,
+      line: `${u.prenom} ${u.nom}${mail} (${role})`,
+      email: u.email,
+    });
+  };
+  (usersList || []).forEach((u: any) => {
+    if (u.role === 'admin' && (!u.statut || u.statut === 'actif')) {
+      add(u, 'administrateur');
+    }
+  });
+  if (p?.proprietaire) add(p.proprietaire, 'propriétaire du processus');
+  if (p?.createdBy) add(p.createdBy, 'créateur du processus');
+  (p?.permissions || []).forEach((perm: any) => {
+    if (perm.permission === 'gestion' && perm.user) {
+      add(perm.user, 'gestion des accès sur le processus');
+    }
+  });
+  return out;
+}
+
+function collectHabilitatorsForDocumentAccess(
+  p: any | null,
+  usersList: any[],
+  doc: any | null
+): HabilitatorRow[] {
+  const rows = collectHabilitatorsForProcessusAccess(p, usersList);
+  const seen = new Set(rows.map((r) => r.id));
+  const u = doc?.uploadedBy;
+  if (u?.id && !seen.has(u.id)) {
+    const mail = u.email ? ` — ${u.email}` : '';
+    rows.push({
+      id: u.id,
+      line: `${u.prenom} ${u.nom}${mail} (auteur du document — peut étendre la liste d’accès)`,
+      email: u.email,
+    });
+  }
+  return rows;
+}
+
 export default function ProcessusDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -106,6 +155,11 @@ export default function ProcessusDetail() {
   const [tagsInput, setTagsInput] = useState('');
   const [estFavori, setEstFavori] = useState(false);
   const [loadingFavori, setLoadingFavori] = useState(false);
+  const [accessBlockedModal, setAccessBlockedModal] = useState<{
+    context: 'process' | 'document';
+    documentLabel?: string;
+    documentRef?: any;
+  } | null>(null);
 
   useEffect(() => {
     if (id) {
@@ -431,17 +485,58 @@ export default function ProcessusDetail() {
       loadHistory(1);
     } catch (err: any) {
       if (err.response?.status === 403) {
-        alert('Vous n\'avez pas accès à ce document confidentiel');
+        const d = documents.find((x: any) => x.id === documentId);
+        setAccessBlockedModal({
+          context: 'document',
+          documentLabel: d?.nom,
+          documentRef: d,
+        });
       } else {
         alert(err.response?.data?.error || 'Erreur lors de l\'ajout de version');
       }
     }
   };
 
+  const hasProcessViewForDocuments = (): boolean => {
+    if (!currentUser || !processus) return false;
+    if (processus.capabilities?.canView != null) return !!processus.capabilities.canView;
+    if (currentUser.role === 'admin') return true;
+    if (processus.proprietaireId === currentUser.id || processus.createdById === currentUser.id) return true;
+    if (processus.createdById == null) return true;
+    return (processus.permissions || []).some((perm: any) => perm.userId === currentUser.id);
+  };
+
+  const whyCannotAccessDocument = (doc: any): 'ok' | 'process' | 'document' => {
+    if (!hasProcessViewForDocuments()) return 'process';
+    if (!doc.estConfidentiel) return 'ok';
+    const uid = currentUser?.id;
+    if (!uid) return 'document';
+    if (doc.uploadedById === uid) return 'ok';
+    if (processus && (processus.proprietaireId === uid || processus.createdById === uid)) return 'ok';
+    if (
+      doc.permissionsUtilisateurs?.some(
+        (perm: any) => perm.userId === uid || perm.user?.id === uid
+      )
+    ) {
+      return 'ok';
+    }
+    return 'document';
+  };
+
+  const canAccessDocument = (doc: any): boolean => whyCannotAccessDocument(doc) === 'ok';
+
+  const openDocumentAccessDenied = (context: 'process' | 'document', doc?: any) => {
+    setAccessBlockedModal({
+      context,
+      documentLabel: doc?.nom,
+      documentRef: doc,
+    });
+  };
+
   const handleViewDocument = async (doc: any) => {
-    // Vérifier les permissions avant de faire la requête
-    if (!canAccessDocument(doc)) {
-      alert('Vous n\'avez pas accès à ce document confidentiel');
+    const why = whyCannotAccessDocument(doc);
+    if (why !== 'ok') {
+      openDocumentAccessDenied(why, doc);
       return;
     }
 
@@ -483,7 +578,7 @@ export default function ProcessusDetail() {
     } catch (error: any) {
       console.error('Erreur lors du chargement du document:', error);
       if (error.response?.status === 403) {
-        alert('Vous n\'avez pas accès à ce document confidentiel');
+        openDocumentAccessDenied('document', doc);
       } else if (error.response?.status === 404) {
         alert('Document non trouvé. Veuillez vérifier que l\'API est à jour.');
         console.error('Endpoint non trouvé:', error.config?.url);
@@ -495,9 +590,9 @@ export default function ProcessusDetail() {
   };
 
   const handleDownload = async (document: any) => {
-    // Vérifier les permissions avant de faire la requête
-    if (!canAccessDocument(document)) {
-      alert('Vous n\'avez pas accès à ce document confidentiel');
+    const why = whyCannotAccessDocument(document);
+    if (why !== 'ok') {
+      openDocumentAccessDenied(why, document);
       return;
     }
 
@@ -524,9 +619,9 @@ export default function ProcessusDetail() {
     } catch (error: any) {
       console.error('Erreur lors du téléchargement:', error);
       if (error.response?.status === 403) {
-        alert('Vous n\'avez pas accès à ce document confidentiel');
+        openDocumentAccessDenied('document', document);
       } else {
-      alert('Erreur lors du téléchargement');
+        alert('Erreur lors du téléchargement');
       }
     }
   };
@@ -563,6 +658,16 @@ export default function ProcessusDetail() {
   };
 
   const handleDownloadVersion = async (documentId: string, versionId: string, version: string, originalName: string) => {
+    const doc = documents.find((d: any) => d.id === documentId);
+    if (!doc) {
+      alert('Document introuvable');
+      return;
+    }
+    const why = whyCannotAccessDocument(doc);
+    if (why !== 'ok') {
+      openDocumentAccessDenied(why, doc);
+      return;
+    }
     try {
       const response = await api.get(`/documents/${documentId}/versions/${versionId}/download`, {
         responseType: 'blob',
@@ -581,9 +686,9 @@ export default function ProcessusDetail() {
     } catch (error: any) {
       console.error('Erreur lors du téléchargement de la version:', error);
       if (error.response?.status === 403) {
-        alert('Vous n\'avez pas accès à ce document confidentiel');
+        openDocumentAccessDenied('document', doc);
       } else {
-      alert('Erreur lors du téléchargement de la version');
+        alert('Erreur lors du téléchargement de la version');
       }
     }
   };
@@ -596,7 +701,8 @@ export default function ProcessusDetail() {
       loadHistory(1);
     } catch (err: any) {
       if (err.response?.status === 403) {
-        alert('Vous n\'avez pas accès à ce document confidentiel');
+        const d = documents.find((x: any) => x.id === documentId);
+        openDocumentAccessDenied('document', d);
       } else {
         alert(err.response?.data?.error || 'Erreur lors de la mise à jour du statut');
       }
@@ -605,32 +711,10 @@ export default function ProcessusDetail() {
     }
   };
 
-  const canAccessDocument = (doc: any): boolean => {
-    // Si le document n'est pas confidentiel, tout le monde peut y accéder
-    if (!doc.estConfidentiel) return true;
-
-    // Récupérer l'utilisateur actuel
-    const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-    
-    // L'utilisateur qui a uploadé peut toujours accéder
-    if (doc.uploadedById === currentUser.id) return true;
-
-    // Vérifier si l'utilisateur est propriétaire ou créateur du processus
-    if (processus && (processus.proprietaireId === currentUser.id || processus.createdById === currentUser.id)) {
-      return true;
-    }
-
-    // Vérifier si l'utilisateur est dans la liste des permissions
-    if (doc.permissionsUtilisateurs && doc.permissionsUtilisateurs.length > 0) {
-      return doc.permissionsUtilisateurs.some((perm: any) => perm.userId === currentUser.id || perm.user?.id === currentUser.id);
-    }
-
-    return false;
-  };
-
   const canModifyDocument = (doc: any): boolean => {
     if (!currentUser || !processus) return false;
-    
+    if (!hasProcessViewForDocuments()) return false;
+
     // Les lecteurs ne peuvent jamais modifier
     if (isLecteur) return false;
     
@@ -658,7 +742,8 @@ export default function ProcessusDetail() {
 
   const canDeleteOrAddVersion = (doc: any): boolean => {
     if (!currentUser || !processus) return false;
-    
+    if (!hasProcessViewForDocuments()) return false;
+
     // Les lecteurs ne peuvent jamais supprimer/ajouter version
     if (isLecteur) return false;
     
@@ -1389,6 +1474,21 @@ export default function ProcessusDetail() {
                 + Ajouter un document
               </button>
             )}
+          </div>
+
+          <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 leading-relaxed">
+            <p className="font-semibold text-slate-800 mb-1">Deux niveaux d&apos;accès</p>
+            <ul className="list-disc list-inside space-y-0.5">
+              <li>
+                <span className="font-medium">Processus</span> : droit d&apos;accéder au détail du processus
+                (lecture, modification, suppression, gestion des accès selon les droits délégués).
+              </li>
+              <li>
+                <span className="font-medium">Documents</span> : seuls les utilisateurs habilités sur le processus
+                peuvent ouvrir ou télécharger un fichier ; les documents confidentiels imposent en plus une liste
+                d&apos;accès au niveau du document.
+              </li>
+            </ul>
           </div>
 
           {documents.length === 0 ? (
@@ -2319,6 +2419,83 @@ export default function ProcessusDetail() {
           )}
         </div>
       </div>
+
+      {accessBlockedModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="access-blocked-title"
+          onClick={() => setAccessBlockedModal(null)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="access-blocked-title" className="text-lg font-semibold text-gray-900 mb-2">
+              Accès au document refusé
+            </h3>
+            {accessBlockedModal.context === 'process' ? (
+              <p className="text-sm text-gray-600 leading-relaxed mb-4">
+                Vous n&apos;avez pas accès au détail de ce processus : vous ne pouvez donc pas consulter ou
+                télécharger les documents associés. Veuillez contacter l&apos;une des personnes suivantes pour
+                obtenir une habilitation sur le processus :
+              </p>
+            ) : (
+              <p className="text-sm text-gray-600 leading-relaxed mb-4">
+                Vous n&apos;avez pas la possibilité d&apos;accéder à ce document
+                {accessBlockedModal.documentLabel ? (
+                  <>
+                    {' '}
+                    « <span className="font-medium">{accessBlockedModal.documentLabel}</span> »
+                  </>
+                ) : (
+                  ''
+                )}
+                . Vous avez accès au processus, mais pas à ce fichier confidentiel ou son accès a été refusé par
+                le serveur. Veuillez contacter l&apos;une des personnes suivantes pour qu&apos;elle puisse vous
+                habiliter :
+              </p>
+            )}
+            {(() => {
+              const rows =
+                accessBlockedModal.context === 'process'
+                  ? collectHabilitatorsForProcessusAccess(processus, usersList)
+                  : collectHabilitatorsForDocumentAccess(
+                      processus,
+                      usersList,
+                      accessBlockedModal.documentRef || null
+                    );
+              if (rows.length === 0) {
+                return (
+                  <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md p-3">
+                    Aucun contact nominatif n&apos;a pu être déterminé automatiquement. Veuillez vous adresser à
+                    votre administrateur applicatif.
+                  </p>
+                );
+              }
+              return (
+                <ul className="text-sm text-gray-800 space-y-2 border border-gray-100 rounded-md p-3 bg-gray-50 max-h-56 overflow-y-auto">
+                  {rows.map((h) => (
+                    <li key={h.id} className="leading-snug">
+                      • {h.line}
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}
+            <div className="flex justify-end mt-5">
+              <button
+                type="button"
+                onClick={() => setAccessBlockedModal(null)}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de visualisation */}
       {viewingDocument && (documentUrl || getFileType(viewingDocument.fichierType) === 'excel') && (
