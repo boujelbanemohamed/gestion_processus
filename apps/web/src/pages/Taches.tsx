@@ -2546,6 +2546,7 @@ export default function Taches() {
     dateFinFrom: '',
     dateFinTo: '',
   });
+  const [showFiltres, setShowFiltres] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
@@ -2877,131 +2878,211 @@ export default function Taches() {
         </div>
       </div>
 
-      {/* Filtres */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          type="button"
+          onClick={() => setShowFiltres(!showFiltres)}
+          className="w-full px-4 py-3 flex justify-between items-center text-left text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-t-lg"
+        >
+          <span>
+            Filtres
+            {(filters.nom.trim() ||
+              filters.nomUserStory.trim() ||
+              filters.nomEpic.trim() ||
+              filters.statut ||
+              filters.projetId ||
+              filters.assigneIds.length > 0 ||
+              filters.entiteIds.length > 0 ||
+              filters.dateDebutFrom ||
+              filters.dateDebutTo ||
+              filters.dateFinFrom ||
+              filters.dateFinTo)
+              ? ' ●'
+              : ''}
+          </span>
+          <span className="text-gray-400">{showFiltres ? '▼' : '▶'}</span>
+        </button>
+        {showFiltres && (
+          <div className="px-4 pb-4 pt-0 border-t border-gray-100">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Projet</label>
+                <select
+                  value={filters.projetId}
+                  onChange={(e) => setFilters({ ...filters, projetId: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Tous les projets</option>
+                  {projets.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nom}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          {/* Projet */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Projet</label>
-            <select value={filters.projetId} onChange={e => setFilters({ ...filters, projetId: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
-              <option value="">Tous les projets</option>
-              {projets.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
-            </select>
-          </div>
-
-          {/* Assigné à (multi) */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Assigné à {filters.assigneIds.length > 0 && <span className="text-blue-600">({filters.assigneIds.length})</span>}
-            </label>
-            <div className="border border-gray-300 rounded-md max-h-28 overflow-y-auto p-1">
-              {users.map(u => (
-                <label key={u.id} className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 cursor-pointer rounded text-sm">
-                  <input type="checkbox"
-                    checked={filters.assigneIds.includes(u.id)}
-                    onChange={e => setFilters({ ...filters, assigneIds: e.target.checked ? [...filters.assigneIds, u.id] : filters.assigneIds.filter(id => id !== u.id) })}
-                    className="rounded" />
-                  {u.prenom} {u.nom}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Assigné à{' '}
+                  {filters.assigneIds.length > 0 && (
+                    <span className="text-blue-600">({filters.assigneIds.length})</span>
+                  )}
                 </label>
-              ))}
-            </div>
-          </div>
+                <div className="border border-gray-300 rounded-md max-h-28 overflow-y-auto p-1">
+                  {users.map((u) => (
+                    <label
+                      key={u.id}
+                      className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 cursor-pointer rounded text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={filters.assigneIds.includes(u.id)}
+                        onChange={(e) =>
+                          setFilters({
+                            ...filters,
+                            assigneIds: e.target.checked
+                              ? [...filters.assigneIds, u.id]
+                              : filters.assigneIds.filter((id) => id !== u.id),
+                          })
+                        }
+                        className="rounded"
+                      />
+                      {u.prenom} {u.nom}
+                    </label>
+                  ))}
+                </div>
+              </div>
 
-          {/* Entités assignées (multi) */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Entités assignées {filters.entiteIds.length > 0 && <span className="text-blue-600">({filters.entiteIds.length})</span>}
-            </label>
-            <div className="border border-gray-300 rounded-md max-h-28 overflow-y-auto p-1">
-              {entites.map(e => (
-                <label key={e.id} className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 cursor-pointer rounded text-sm">
-                  <input type="checkbox"
-                    checked={filters.entiteIds.includes(e.id)}
-                    onChange={ev => setFilters({ ...filters, entiteIds: ev.target.checked ? [...filters.entiteIds, e.id] : filters.entiteIds.filter(id => id !== e.id) })}
-                    className="rounded" />
-                  {e.nom}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  Entités assignées{' '}
+                  {filters.entiteIds.length > 0 && (
+                    <span className="text-blue-600">({filters.entiteIds.length})</span>
+                  )}
                 </label>
-              ))}
+                <div className="border border-gray-300 rounded-md max-h-28 overflow-y-auto p-1">
+                  {entites.map((e) => (
+                    <label
+                      key={e.id}
+                      className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 cursor-pointer rounded text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={filters.entiteIds.includes(e.id)}
+                        onChange={(ev) =>
+                          setFilters({
+                            ...filters,
+                            entiteIds: ev.target.checked
+                              ? [...filters.entiteIds, e.id]
+                              : filters.entiteIds.filter((id) => id !== e.id),
+                          })
+                        }
+                        className="rounded"
+                      />
+                      {e.nom}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Nom de la tâche</label>
+                <input
+                  type="text"
+                  value={filters.nom}
+                  onChange={(e) => setFilters({ ...filters, nom: e.target.value })}
+                  placeholder="Rechercher…"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Nom de la User story</label>
+                <input
+                  type="text"
+                  value={filters.nomUserStory}
+                  onChange={(e) => setFilters({ ...filters, nomUserStory: e.target.value })}
+                  placeholder="Rechercher dans la description…"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Nom de l&apos;Epic</label>
+                <input
+                  type="text"
+                  value={filters.nomEpic}
+                  onChange={(e) => setFilters({ ...filters, nomEpic: e.target.value })}
+                  placeholder="Rechercher…"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Date de début</label>
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={filters.dateDebutFrom}
+                    onChange={(e) => setFilters({ ...filters, dateDebutFrom: e.target.value })}
+                    className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm"
+                    title="Du"
+                  />
+                  <input
+                    type="date"
+                    value={filters.dateDebutTo}
+                    onChange={(e) => setFilters({ ...filters, dateDebutTo: e.target.value })}
+                    className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm"
+                    title="Au"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Date de fin approximative</label>
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={filters.dateFinFrom}
+                    onChange={(e) => setFilters({ ...filters, dateFinFrom: e.target.value })}
+                    className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm"
+                    title="Du"
+                  />
+                  <input
+                    type="date"
+                    value={filters.dateFinTo}
+                    onChange={(e) => setFilters({ ...filters, dateFinTo: e.target.value })}
+                    className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm"
+                    title="Au"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end mt-3">
+              <button
+                type="button"
+                onClick={() =>
+                  setFilters({
+                    nom: '',
+                    nomUserStory: '',
+                    nomEpic: '',
+                    statut: '',
+                    projetId: '',
+                    assigneIds: [],
+                    entiteIds: [],
+                    dateDebutFrom: '',
+                    dateDebutTo: '',
+                    dateFinFrom: '',
+                    dateFinTo: '',
+                  })
+                }
+                className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Réinitialiser
+              </button>
             </div>
           </div>
-
-          {/* Nom tâche */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nom de la tâche</label>
-            <input type="text" value={filters.nom} onChange={e => setFilters({ ...filters, nom: e.target.value })}
-              placeholder="Rechercher..." className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nom de la User story</label>
-            <input
-              type="text"
-              value={filters.nomUserStory}
-              onChange={(e) => setFilters({ ...filters, nomUserStory: e.target.value })}
-              placeholder="Rechercher dans la description…"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nom de l&apos;Epic</label>
-            <input
-              type="text"
-              value={filters.nomEpic}
-              onChange={(e) => setFilters({ ...filters, nomEpic: e.target.value })}
-              placeholder="Rechercher…"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-            />
-          </div>
-
-          {/* Plage date début */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Date de début</label>
-            <div className="flex gap-2">
-              <input type="date" value={filters.dateDebutFrom} onChange={e => setFilters({ ...filters, dateDebutFrom: e.target.value })}
-                className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" title="Du" />
-              <input type="date" value={filters.dateDebutTo} onChange={e => setFilters({ ...filters, dateDebutTo: e.target.value })}
-                className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" title="Au" />
-            </div>
-          </div>
-
-          {/* Plage date fin */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Date de fin approximative</label>
-            <div className="flex gap-2">
-              <input type="date" value={filters.dateFinFrom} onChange={e => setFilters({ ...filters, dateFinFrom: e.target.value })}
-                className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" title="Du" />
-              <input type="date" value={filters.dateFinTo} onChange={e => setFilters({ ...filters, dateFinTo: e.target.value })}
-                className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" title="Au" />
-            </div>
-          </div>
-
-        </div>
-        <div className="flex justify-end mt-3">
-          <button
-            type="button"
-            onClick={() =>
-              setFilters({
-                nom: '',
-                nomUserStory: '',
-                nomEpic: '',
-                statut: '',
-                projetId: '',
-                assigneIds: [],
-                entiteIds: [],
-                dateDebutFrom: '',
-                dateDebutTo: '',
-                dateFinFrom: '',
-                dateFinTo: '',
-              })
-            }
-            className="text-sm text-gray-500 hover:text-gray-700 border border-gray-300 rounded px-3 py-1.5"
-          >
-            Réinitialiser
-          </button>
-        </div>
+        )}
       </div>
 
       {/* Filtrer par vue (sections affichées) */}

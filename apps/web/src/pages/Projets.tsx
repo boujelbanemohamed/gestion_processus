@@ -123,7 +123,7 @@ export default function Projets() {
     periodeFin: '',
   });
   const [page, setPage] = useState(1);
-  const [showFiltres, setShowFiltres] = useState(true);
+  const [showFiltres, setShowFiltres] = useState(false);
   const [showCorbeilleModal, setShowCorbeilleModal] = useState(false);
   const [corbeilleProjets, setCorbeilleProjets] = useState<any[]>([]);
   const [showDashboardModal, setShowDashboardModal] = useState(false);

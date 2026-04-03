@@ -94,7 +94,7 @@ export default function Processus() {
   const [page, setPage] = useState(1);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
-  const [showFiltres, setShowFiltres] = useState(true);
+  const [showFiltres, setShowFiltres] = useState(false);
   const [showCorbeilleModal, setShowCorbeilleModal] = useState(false);
   const [corbeilleProcessus, setCorbeilleProcessus] = useState<any[]>([]);
 

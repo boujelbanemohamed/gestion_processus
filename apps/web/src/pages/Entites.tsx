@@ -66,7 +66,7 @@ export default function Entites() {
     parentId: '',
     responsableId: '',
   });
-  const [showFiltres, setShowFiltres] = useState(true);
+  const [showFiltres, setShowFiltres] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;

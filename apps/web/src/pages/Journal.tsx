@@ -15,6 +15,7 @@ export default function Journal() {
   });
   const [page, setPage] = useState(1);
   const pageSize = 10;
+  const [showFiltres, setShowFiltres] = useState(false);
 
   useEffect(() => {
     loadLogs();
@@ -118,106 +119,128 @@ export default function Journal() {
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-6">Journal d'accès</h1>
 
-      {/* Filtres */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Recherche</label>
-            <input
-              type="text"
-              value={filters.search}
-              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-              placeholder="Nom ressource, détails"
-              className="w-full border rounded px-3 py-2 text-sm"
-            />
-          </div>
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          type="button"
+          onClick={() => setShowFiltres(!showFiltres)}
+          className="w-full px-4 py-3 flex justify-between items-center text-left text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-t-lg"
+        >
+          <span>
+            Filtres
+            {(filters.search ||
+              filters.action ||
+              filters.ressourceType ||
+              filters.userId ||
+              filters.dateFrom ||
+              filters.dateTo)
+              ? ' ●'
+              : ''}
+          </span>
+          <span className="text-gray-400">{showFiltres ? '▼' : '▶'}</span>
+        </button>
+        {showFiltres && (
+          <div className="px-4 pb-4 pt-0 border-t border-gray-100">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 pt-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Recherche</label>
+                <input
+                  type="text"
+                  value={filters.search}
+                  onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                  placeholder="Nom ressource, détails"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                />
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Action</label>
-            <select
-              value={filters.action}
-              onChange={(e) => setFilters({ ...filters, action: e.target.value })}
-              className="w-full border rounded px-3 py-2 text-sm"
-            >
-              <option value="">Toutes</option>
-              <option value="lecture">Lecture</option>
-              <option value="creation">Création</option>
-              <option value="modification">Modification</option>
-              <option value="suppression">Suppression</option>
-              <option value="connexion">Connexion</option>
-            </select>
-          </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Action</label>
+                <select
+                  value={filters.action}
+                  onChange={(e) => setFilters({ ...filters, action: e.target.value })}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                >
+                  <option value="">Toutes</option>
+                  <option value="lecture">Lecture</option>
+                  <option value="creation">Création</option>
+                  <option value="modification">Modification</option>
+                  <option value="suppression">Suppression</option>
+                  <option value="connexion">Connexion</option>
+                </select>
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Ressource</label>
-            <select
-              value={filters.ressourceType}
-              onChange={(e) => setFilters({ ...filters, ressourceType: e.target.value })}
-              className="w-full border rounded px-3 py-2 text-sm"
-            >
-              <option value="">Toutes</option>
-              <option value="processus">Processus</option>
-              <option value="document">Document</option>
-              <option value="projet">Projet</option>
-              <option value="utilisateur">Utilisateur</option>
-              <option value="entite">Entité</option>
-            </select>
-          </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Ressource</label>
+                <select
+                  value={filters.ressourceType}
+                  onChange={(e) => setFilters({ ...filters, ressourceType: e.target.value })}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                >
+                  <option value="">Toutes</option>
+                  <option value="processus">Processus</option>
+                  <option value="document">Document</option>
+                  <option value="projet">Projet</option>
+                  <option value="utilisateur">Utilisateur</option>
+                  <option value="entite">Entité</option>
+                </select>
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Utilisateur</label>
-            <select
-              value={filters.userId}
-              onChange={(e) => setFilters({ ...filters, userId: e.target.value })}
-              className="w-full border rounded px-3 py-2 text-sm"
-            >
-              <option value="">Tous</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.nom} {u.prenom}
-                </option>
-              ))}
-            </select>
-          </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Utilisateur</label>
+                <select
+                  value={filters.userId}
+                  onChange={(e) => setFilters({ ...filters, userId: e.target.value })}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                >
+                  <option value="">Tous</option>
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.nom} {u.prenom}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Du</label>
-            <input
-              type="date"
-              value={filters.dateFrom}
-              onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
-              className="w-full border rounded px-3 py-2 text-sm"
-            />
-          </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Du</label>
+                <input
+                  type="date"
+                  value={filters.dateFrom}
+                  onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                />
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Au</label>
-            <input
-              type="date"
-              value={filters.dateTo}
-              onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
-              className="w-full border rounded px-3 py-2 text-sm"
-            />
-          </div>
-        </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Au</label>
+                <input
+                  type="date"
+                  value={filters.dateTo}
+                  onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
 
-        <div className="flex justify-end mt-4">
-          <button
-            onClick={() => {
-              setFilters({
-                search: '',
-                action: '',
-                ressourceType: '',
-                userId: '',
-                dateFrom: '',
-                dateTo: '',
-              });
-            }}
-            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
-          >
-            Réinitialiser
-          </button>
-        </div>
+            <div className="flex justify-end mt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setFilters({
+                    search: '',
+                    action: '',
+                    ressourceType: '',
+                    userId: '',
+                    dateFrom: '',
+                    dateTo: '',
+                  });
+                }}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Réinitialiser
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tableau */}

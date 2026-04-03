@@ -67,7 +67,7 @@ export default function ClientsFournisseurs() {
   const [items, setItems] = useState<any[]>([]);
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [search, setSearch] = useState('');
-  const [showFiltres, setShowFiltres] = useState(true);
+  const [showFiltres, setShowFiltres] = useState(false);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const pageSize = 10;

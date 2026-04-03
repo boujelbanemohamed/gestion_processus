@@ -49,6 +49,7 @@ export default function Documents() {
     statut: '',
     processusId: '',
   });
+  const [showFiltres, setShowFiltres] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -614,77 +615,91 @@ export default function Documents() {
         )}
       </div>
 
-      {/* Filtres */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Recherche</label>
-            <input
-              type="text"
-              value={filters.search}
-              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-              placeholder="Nom, description"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            />
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          type="button"
+          onClick={() => setShowFiltres(!showFiltres)}
+          className="w-full px-4 py-3 flex justify-between items-center text-left text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-t-lg"
+        >
+          <span>
+            Filtres
+            {(filters.search || filters.typeDocument || filters.statut || filters.processusId) ? ' ●' : ''}
+          </span>
+          <span className="text-gray-400">{showFiltres ? '▼' : '▶'}</span>
+        </button>
+        {showFiltres && (
+          <div className="px-4 pb-4 pt-0 border-t border-gray-100">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Recherche</label>
+                <input
+                  type="text"
+                  value={filters.search}
+                  onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                  placeholder="Nom, description"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                <select
+                  value={filters.typeDocument}
+                  onChange={(e) => setFilters({ ...filters, typeDocument: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Tous</option>
+                  <option value="general">Général</option>
+                  <option value="processus">Processus</option>
+                  <option value="projet">Projet</option>
+                  <option value="contrat">Contrat</option>
+                  <option value="licence">Licence</option>
+                  <option value="tache">Tâche</option>
+                  <option value="client_fournisseur">Client / Fournisseur</option>
+                  <option value="template">Template</option>
+                  <option value="autre">Autre</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Statut</label>
+                <select
+                  value={filters.statut}
+                  onChange={(e) => setFilters({ ...filters, statut: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Tous</option>
+                  <option value="brouillon">Brouillon</option>
+                  <option value="en_revision">En révision</option>
+                  <option value="valide">Validé</option>
+                  <option value="archive">Archivé</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Processus</label>
+                <select
+                  value={filters.processusId}
+                  onChange={(e) => setFilters({ ...filters, processusId: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Tous</option>
+                  {processusList.map((processus) => (
+                    <option key={processus.id} value={processus.id}>
+                      {processus.nom} ({processus.codeProcessus})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end mt-3">
+              <button
+                type="button"
+                onClick={() => setFilters({ search: '', typeDocument: '', statut: '', processusId: '' })}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Réinitialiser
+              </button>
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-            <select
-              value={filters.typeDocument}
-              onChange={(e) => setFilters({ ...filters, typeDocument: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="">Tous</option>
-              <option value="general">Général</option>
-              <option value="processus">Processus</option>
-              <option value="projet">Projet</option>
-              <option value="contrat">Contrat</option>
-              <option value="licence">Licence</option>
-              <option value="tache">Tâche</option>
-              <option value="client_fournisseur">Client / Fournisseur</option>
-              <option value="template">Template</option>
-              <option value="autre">Autre</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Statut</label>
-            <select
-              value={filters.statut}
-              onChange={(e) => setFilters({ ...filters, statut: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="">Tous</option>
-              <option value="brouillon">Brouillon</option>
-              <option value="en_revision">En révision</option>
-              <option value="valide">Validé</option>
-              <option value="archive">Archivé</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Processus</label>
-            <select
-              value={filters.processusId}
-              onChange={(e) => setFilters({ ...filters, processusId: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="">Tous</option>
-              {processusList.map((processus) => (
-                <option key={processus.id} value={processus.id}>
-                  {processus.nom} ({processus.codeProcessus})
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="flex justify-end mt-4">
-          <button
-            type="button"
-            onClick={() => setFilters({ search: '', typeDocument: '', statut: '', processusId: '' })}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-          >
-            Réinitialiser
-          </button>
-        </div>
+        )}
       </div>
       <div className="bg-white rounded-lg shadow overflow-x-auto">
         <div className="flex justify-between items-center p-4 border-b">

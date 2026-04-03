@@ -80,7 +80,7 @@ export default function Licences() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filtreStatut, setFiltreStatut] = useState('');
-  const [showFiltres, setShowFiltres] = useState(true);
+  const [showFiltres, setShowFiltres] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const [showForm, setShowForm] = useState(false);

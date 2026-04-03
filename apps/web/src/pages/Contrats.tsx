@@ -88,7 +88,7 @@ export default function Contrats() {
   const [filtreDateEnregFin, setFiltreDateEnregFin] = useState('');
   const [filtreDateExpDebut, setFiltreDateExpDebut] = useState('');
   const [filtreDateExpFin, setFiltreDateExpFin] = useState('');
-  const [showFiltres, setShowFiltres] = useState(true);
+  const [showFiltres, setShowFiltres] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const [projets, setProjets] = useState<any[]>([]);
   const [clientsFournisseurs, setClientsFournisseurs] = useState<any[]>([]);

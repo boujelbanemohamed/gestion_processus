@@ -16,6 +16,7 @@ export default function Users() {
     statut: '',
     entiteId: '',
   });
+  const [showFiltres, setShowFiltres] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -198,80 +199,95 @@ export default function Users() {
         </button>
       </div>
 
-      {/* Filtres */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nom</label>
-            <input
-              type="text"
-              value={filters.nom}
-              onChange={(e) => setFilters({ ...filters, nom: e.target.value })}
-              placeholder="Nom ou prénom"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            />
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          type="button"
+          onClick={() => setShowFiltres(!showFiltres)}
+          className="w-full px-4 py-3 flex justify-between items-center text-left text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-t-lg"
+        >
+          <span>
+            Filtres
+            {(filters.nom || filters.email || filters.role || filters.statut || filters.entiteId) ? ' ●' : ''}
+          </span>
+          <span className="text-gray-400">{showFiltres ? '▼' : '▶'}</span>
+        </button>
+        {showFiltres && (
+          <div className="px-4 pb-4 pt-0 border-t border-gray-100">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 pt-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Nom</label>
+                <input
+                  type="text"
+                  value={filters.nom}
+                  onChange={(e) => setFilters({ ...filters, nom: e.target.value })}
+                  placeholder="Nom ou prénom"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+                <input
+                  type="text"
+                  value={filters.email}
+                  onChange={(e) => setFilters({ ...filters, email: e.target.value })}
+                  placeholder="Adresse email"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Rôle</label>
+                <select
+                  value={filters.role}
+                  onChange={(e) => setFilters({ ...filters, role: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Tous</option>
+                  <option value="admin">Administrateur</option>
+                  <option value="contributeur">Contributeur</option>
+                  <option value="lecteur">Lecteur</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Statut</label>
+                <select
+                  value={filters.statut}
+                  onChange={(e) => setFilters({ ...filters, statut: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Tous</option>
+                  <option value="actif">Actif</option>
+                  <option value="inactif">Inactif</option>
+                  <option value="suspendu">Suspendu</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Entité</label>
+                <select
+                  value={filters.entiteId}
+                  onChange={(e) => setFilters({ ...filters, entiteId: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Toutes</option>
+                  {entitesList.map((entite) => (
+                    <option key={entite.id} value={entite.id}>
+                      {entite.nom}
+                      {entite.code ? ` (${entite.code})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end mt-3">
+              <button
+                type="button"
+                onClick={() => setFilters({ nom: '', email: '', role: '', statut: '', entiteId: '' })}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Réinitialiser
+              </button>
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input
-              type="text"
-              value={filters.email}
-              onChange={(e) => setFilters({ ...filters, email: e.target.value })}
-              placeholder="Adresse email"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Rôle</label>
-            <select
-              value={filters.role}
-              onChange={(e) => setFilters({ ...filters, role: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="">Tous</option>
-              <option value="admin">Administrateur</option>
-              <option value="contributeur">Contributeur</option>
-              <option value="lecteur">Lecteur</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Statut</label>
-            <select
-              value={filters.statut}
-              onChange={(e) => setFilters({ ...filters, statut: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="">Tous</option>
-              <option value="actif">Actif</option>
-              <option value="inactif">Inactif</option>
-              <option value="suspendu">Suspendu</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Entité</label>
-            <select
-              value={filters.entiteId}
-              onChange={(e) => setFilters({ ...filters, entiteId: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="">Toutes</option>
-              {entitesList.map((entite) => (
-                <option key={entite.id} value={entite.id}>
-                  {entite.nom}{entite.code ? ` (${entite.code})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="flex justify-end mt-4">
-          <button
-            type="button"
-            onClick={() => setFilters({ nom: '', email: '', role: '', statut: '', entiteId: '' })}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-          >
-            Réinitialiser
-          </button>
-        </div>
+        )}
       </div>
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="flex justify-between items-center p-4 border-b">
