@@ -1604,6 +1604,9 @@ function epicToKanbanAndGantt(
 }
 
 function UserStoriesAgileDashboard({ userStories, taches }: { userStories: UserStoryRow[]; taches: Tache[] }) {
+  const usIds = new Set(userStories.map((us) => us.id));
+  const tachesScoped = taches.filter((t) => t.userStory?.id && usIds.has(t.userStory.id));
+
   const now = new Date();
   let termineAgg = 0;
   let bloqueAgg = 0;
@@ -1625,6 +1628,12 @@ function UserStoriesAgileDashboard({ userStories, taches }: { userStories: UserS
   }
   return (
     <div className="mb-4">
+      <TachesAvancementBlock taches={tachesScoped} />
+      {tachesScoped.length === 0 && userStories.length > 0 && (
+        <p className="text-xs text-gray-500 mb-3 -mt-2">
+          Aucune tâche liée aux user stories affichées : barre d&apos;avancement masquée.
+        </p>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-white rounded-lg shadow p-3 text-center border border-gray-100">
           <div className="text-2xl font-bold text-gray-800">{userStories.length}</div>
@@ -1662,6 +1671,14 @@ function EpicsAgileDashboard({
   taches: Tache[];
   userStories: UserStoryRow[];
 }) {
+  const epicIds = new Set(epics.map((e) => e.id));
+  const usIdsInEpics = new Set(
+    userStories.filter((us) => us.epicId && epicIds.has(us.epicId)).map((us) => us.id)
+  );
+  const tachesScoped = taches.filter(
+    (t) => t.userStory?.id && usIdsInEpics.has(t.userStory.id)
+  );
+
   const now = new Date();
   let termineAgg = 0;
   let bloqueAgg = 0;
@@ -1683,6 +1700,12 @@ function EpicsAgileDashboard({
   }
   return (
     <div className="mb-4">
+      <TachesAvancementBlock taches={tachesScoped} />
+      {tachesScoped.length === 0 && epics.length > 0 && (
+        <p className="text-xs text-gray-500 mb-3 -mt-2">
+          Aucune tâche dans le périmètre des epics affichés : barre d&apos;avancement masquée.
+        </p>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-white rounded-lg shadow p-3 text-center border border-gray-100">
           <div className="text-2xl font-bold text-gray-800">{epics.length}</div>
