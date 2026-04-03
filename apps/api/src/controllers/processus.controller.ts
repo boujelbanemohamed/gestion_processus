@@ -12,6 +12,17 @@ function authFromReq(req: AuthRequest): { userId: string; role: string } | null 
   return { userId: req.user.userId, role: req.user.role };
 }
 
+export const getProcessusCorbeille = async (req: AuthRequest, res: Response) => {
+  try {
+    const auth = authFromReq(req);
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
+    const rows = await processusService.listDeletedForCorbeilleScoped(auth);
+    res.json(rows);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 export const getAllProcessus = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);

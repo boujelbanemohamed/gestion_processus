@@ -59,16 +59,27 @@ export const getCorbeille = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Restaurer un processus
+// Restaurer un processus (admin, créateur ou propriétaire — aligné projets)
 export const restaurerProcessus = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId || !req.user?.role) {
       return res.status(401).json({ error: 'Non authentifié' });
     }
 
-    // Seul le super admin peut restaurer
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut restaurer des éléments.' });
+    const deleted = await prisma.processus.findFirst({
+      where: { id: req.params.id, deletedAt: { not: null } },
+      select: { createdById: true, proprietaireId: true },
+    });
+    if (!deleted) {
+      return res.status(400).json({ error: 'Élément introuvable ou non en corbeille' });
+    }
+    const isAdmin = req.user.role === 'admin';
+    const isCreator = deleted.createdById === req.user.userId;
+    const isProprietaire = deleted.proprietaireId === req.user.userId;
+    if (!isAdmin && !isCreator && !isProprietaire) {
+      return res.status(403).json({
+        error: "Accès refusé. Seuls l'administrateur, le créateur ou le propriétaire peuvent restaurer ce processus.",
+      });
     }
 
     const processus = await corbeilleService.restaurerProcessus(req.params.id);

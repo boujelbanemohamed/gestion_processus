@@ -756,4 +756,20 @@ export class ProcessusService {
       data: { deletedAt: new Date() },
     });
   }
+
+  /** Corbeille : tout pour l’admin, sinon processus dont l’utilisateur est créateur ou propriétaire. */
+  async listDeletedForCorbeilleScoped(auth: ProcessusAuth) {
+    const where: any = { deletedAt: { not: null } };
+    if (!isAdminRole(auth.role)) {
+      where.OR = [{ createdById: auth.userId }, { proprietaireId: auth.userId }];
+    }
+    return prisma.processus.findMany({
+      where,
+      include: {
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+        proprietaire: { select: { id: true, nom: true, prenom: true } },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+  }
 }

@@ -106,6 +106,7 @@ app.delete("/api/v1/entites/:id", entiteController.deleteEntite);
 
 // Processus (routes spécifiques avant :id)
 app.get("/api/v1/processus", processusController.getAllProcessus);
+app.get("/api/v1/processus/corbeille", processusController.getProcessusCorbeille);
 app.get("/api/v1/processus/:id/acces", processusController.getProcessusAcces);
 app.post("/api/v1/processus/:id/permissions", processusController.addProcessusPermission);
 app.delete(
