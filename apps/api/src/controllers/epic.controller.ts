@@ -149,6 +149,16 @@ export const uploadDocumentEpic = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const delierDocumentEpic = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    await epicService.delierDocumentEpic(req.params.id, req.params.documentId);
+    res.status(204).end();
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+};
+
 export const getUserStories = async (req: AuthRequest, res: Response) => {
   try {
     const { epicId, projetId, orphelines } = req.query;

@@ -226,6 +226,12 @@ export class EpicService {
     });
   }
 
+  async delierDocumentEpic(epicId: string, documentId: string) {
+    const ep = await prisma.epic.findFirst({ where: { id: epicId, deletedAt: null } });
+    if (!ep) throw new Error('Epic introuvable');
+    await prisma.epicDocument.deleteMany({ where: { epicId, documentId } });
+  }
+
   async uploadDocumentEpic(
     epicId: string,
     userId: string,

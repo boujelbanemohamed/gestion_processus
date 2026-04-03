@@ -279,6 +279,7 @@ app.get("/api/v1/epics", epicController.getEpics);
 app.get("/api/v1/epics/corbeille", epicController.getEpicsCorbeille);
 app.post("/api/v1/epics", epicController.createEpic);
 app.post("/api/v1/epics/:id/documents/lier", epicController.lierDocumentEpic);
+app.delete("/api/v1/epics/:id/documents/:documentId", epicController.delierDocumentEpic);
 app.post("/api/v1/epics/:id/documents", epicController.epicUploadMiddleware, epicController.uploadDocumentEpic);
 app.get("/api/v1/epics/:id/commentaires", epicController.getEpicCommentaires);
 app.post(

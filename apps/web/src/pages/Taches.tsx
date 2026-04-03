@@ -1471,6 +1471,325 @@ function DocumentsTache({ tacheId, documents, canEdit }: {
   );
 }
 
+// ── Section Documents d'un Epic (même logique que les tâches) ─────────────────
+function DocumentsEpic({
+  epicId,
+  documents,
+  canEdit,
+  onDocumentsChange,
+}: {
+  epicId: string;
+  documents: DocTache[];
+  canEdit: boolean;
+  onDocumentsChange?: () => void;
+}) {
+  const [docs, setDocs] = useState<DocTache[]>(documents);
+  const [showUpload, setShowUpload] = useState(false);
+  const [showLier, setShowLier] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadNom, setUploadNom] = useState('');
+  const [uploadDesc, setUploadDesc] = useState('');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [searchDoc, setSearchDoc] = useState('');
+  const [docsLiables, setDocsLiables] = useState<DocTache[]>([]);
+  const [selectedDocId, setSelectedDocId] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setDocs(documents);
+  }, [documents]);
+
+  const loadDocsLiables = async () => {
+    try {
+      const res = await api.get(`/taches/documents-liables?search=${encodeURIComponent(searchDoc)}`);
+      setDocsLiables(res.data);
+    } catch {
+      /* silencieux */
+    }
+  };
+
+  useEffect(() => {
+    if (showLier) void loadDocsLiables();
+  }, [showLier, searchDoc]);
+
+  const handleUpload = async () => {
+    if (!uploadFile) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('fichier', uploadFile);
+      formData.append('nom', uploadNom || uploadFile.name);
+      formData.append('description', uploadDesc);
+      const res = await api.post(`/epics/${epicId}/documents`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setDocs((prev) => [...prev, res.data]);
+      setShowUpload(false);
+      setUploadFile(null);
+      setUploadNom('');
+      setUploadDesc('');
+      onDocumentsChange?.();
+    } catch (e: any) {
+      alert(e.response?.data?.error || 'Erreur upload');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleLier = async () => {
+    if (!selectedDocId) return;
+    try {
+      await api.post(`/epics/${epicId}/documents/lier`, { documentId: selectedDocId });
+      const doc = docsLiables.find((d) => d.id === selectedDocId);
+      if (doc) setDocs((prev) => [...prev, doc]);
+      setShowLier(false);
+      setSelectedDocId('');
+      onDocumentsChange?.();
+    } catch (e: any) {
+      alert(e.response?.data?.error || 'Erreur liaison');
+    }
+  };
+
+  const handleDelier = async (documentId: string) => {
+    if (!confirm('Délier ce document ?')) return;
+    try {
+      await api.delete(`/epics/${epicId}/documents/${documentId}`);
+      setDocs((prev) => prev.filter((d) => d.id !== documentId));
+      onDocumentsChange?.();
+    } catch (e: any) {
+      alert(e.response?.data?.error || 'Erreur');
+    }
+  };
+
+  const getFileIcon = (type: string) => {
+    if (type?.includes('pdf')) return '📄';
+    if (type?.includes('image')) return '🖼️';
+    if (type?.includes('word') || type?.includes('doc')) return '📝';
+    if (type?.includes('excel') || type?.includes('sheet')) return '📊';
+    return '📎';
+  };
+
+  const getAccesDoc = (doc: DocTache) => {
+    if (!doc.estConfidentiel) return null;
+    const membres: string[] = [];
+    if (doc.uploadedBy) membres.push(`${doc.uploadedBy.prenom} ${doc.uploadedBy.nom} (Uploadeur)`);
+    (doc.permissionsUtilisateurs || []).forEach((p) => membres.push(`${p.user.prenom} ${p.user.nom}`));
+    return membres;
+  };
+
+  return (
+    <div className="border-t border-gray-100 pt-3">
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-xs font-semibold text-gray-500 uppercase">📎 Documents ({docs.length})</h4>
+        {canEdit && (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowUpload(!showUpload);
+                setShowLier(false);
+              }}
+              className="text-xs px-2 py-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 border border-blue-200"
+            >
+              ⬆ Uploader
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowLier(!showLier);
+                setShowUpload(false);
+              }}
+              className="text-xs px-2 py-1 bg-purple-50 text-purple-600 rounded hover:bg-purple-100 border border-purple-200"
+            >
+              🔗 Lier
+            </button>
+          </div>
+        )}
+      </div>
+
+      {showUpload && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3 space-y-2">
+          <input
+            type="text"
+            value={uploadNom}
+            onChange={(e) => setUploadNom(e.target.value)}
+            placeholder="Nom du document"
+            className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+          />
+          <input
+            type="text"
+            value={uploadDesc}
+            onChange={(e) => setUploadDesc(e.target.value)}
+            placeholder="Description (optionnel)"
+            className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+          />
+          <div className="flex items-center gap-2 flex-wrap">
+            <input ref={fileRef} type="file" className="hidden" onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="text-xs px-3 py-1.5 border border-gray-300 rounded bg-white hover:bg-gray-50"
+            >
+              {uploadFile ? uploadFile.name : '📎 Choisir un fichier'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleUpload()}
+              disabled={!uploadFile || uploading}
+              className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            >
+              {uploading ? 'Upload...' : 'Uploader'}
+            </button>
+            <button type="button" onClick={() => setShowUpload(false)} className="text-xs text-gray-500">
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showLier && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-3 space-y-2">
+          <input
+            type="text"
+            value={searchDoc}
+            onChange={(e) => setSearchDoc(e.target.value)}
+            placeholder="Rechercher (projet, processus, contrat)..."
+            className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm"
+          />
+          <div className="max-h-40 overflow-y-auto space-y-1">
+            {docsLiables.map((d) => (
+              <div
+                key={d.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedDocId(d.id)}
+                onKeyDown={(ev) => {
+                  if (ev.key === 'Enter' || ev.key === ' ') setSelectedDocId(d.id);
+                }}
+                className={`flex items-center justify-between p-2 rounded cursor-pointer border ${
+                  selectedDocId === d.id ? 'bg-purple-100 border-purple-400' : 'bg-white border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span>{getFileIcon(d.fichierType)}</span>
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">{d.nom}</p>
+                    <p className="text-xs text-gray-500 capitalize">
+                      {d.typeDocument} {d.estConfidentiel && '🔒'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {docsLiables.length === 0 && <p className="text-sm text-gray-400 text-center py-2">Aucun document</p>}
+          </div>
+          {selectedDocId &&
+            (() => {
+              const doc = docsLiables.find((d) => d.id === selectedDocId);
+              const acces = doc ? getAccesDoc(doc) : null;
+              if (!acces) return null;
+              return (
+                <div className="bg-red-50 border border-red-200 rounded p-2">
+                  <p className="text-xs font-medium text-red-700 mb-1">🔒 Accès restreint :</p>
+                  {acces.map((m, i) => (
+                    <p key={i} className="text-xs text-red-600">
+                      • {m}
+                    </p>
+                  ))}
+                </div>
+              );
+            })()}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => void handleLier()}
+              disabled={!selectedDocId}
+              className="text-xs px-3 py-1.5 bg-purple-600 text-white rounded disabled:opacity-50"
+            >
+              Lier
+            </button>
+            <button type="button" onClick={() => setShowLier(false)} className="text-xs text-gray-500">
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {docs.length === 0 && <p className="text-sm text-gray-400">Aucun document lié</p>}
+        {docs.map((doc) => {
+          const accesPersonnes = getAccesDocument(doc);
+          return (
+            <div key={doc.id} className="bg-white border border-gray-200 rounded-lg p-3">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div className="flex items-start gap-2 flex-1 min-w-0">
+                  <span className="text-lg">{getFileIcon(doc.fichierType)}</span>
+                  <div className="min-w-0">
+                    <a
+                      href={`${API_BASE_URL}/documents/${doc.id}/view?token=${localStorage.getItem('token')}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm font-medium text-blue-600 hover:underline truncate block"
+                    >
+                      {doc.nom}
+                    </a>
+                    <div className="flex gap-2 flex-wrap mt-0.5">
+                      <span className="text-xs text-gray-500 capitalize">{doc.typeDocument}</span>
+                      <span className="text-xs bg-green-100 text-green-700 px-1.5 rounded">{doc.statut}</span>
+                    </div>
+                  </div>
+                </div>
+                {canEdit && (
+                  <button type="button" onClick={() => void handleDelier(doc.id)} className="text-xs text-red-500 hover:text-red-700 shrink-0">
+                    Délier
+                  </button>
+                )}
+              </div>
+
+              <div className="border-t border-gray-100 pt-2 mt-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Accès :</p>
+                <div className="flex items-start gap-3 flex-wrap">
+                  {doc.estConfidentiel ? (
+                    <div className="flex flex-col items-center">
+                      <div className="w-14 h-14 bg-red-100 border border-red-300 rounded-lg flex flex-col items-center justify-center">
+                        <span className="text-xl">🔒</span>
+                      </div>
+                      <span className="text-xs text-red-600 font-medium mt-1">Accès restreint</span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center">
+                      <div className="w-14 h-14 bg-green-100 border border-green-300 rounded-lg flex flex-col items-center justify-center">
+                        <span className="text-xl">🌐</span>
+                      </div>
+                      <span className="text-xs text-green-600 font-medium mt-1">Accès libre</span>
+                    </div>
+                  )}
+                  {accesPersonnes.map((p, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                        {p.nom
+                          .split(' ')
+                          .map((n: string) => n[0])
+                          .join('')
+                          .slice(0, 2)
+                          .toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-gray-800">{p.nom}</p>
+                        <p className="text-xs text-gray-500 italic">({p.droit})</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Carte Tâche ─────────────────────────────────────────────────────────────
 export function TacheCard({
   tache,
@@ -3273,6 +3592,12 @@ export default function Taches() {
                             </ul>
                           </div>
                         )}
+                        <DocumentsEpic
+                          epicId={ep.id}
+                          documents={(ep.documents || []).map((ed) => ed.document)}
+                          canEdit={!!canEditUsEpic}
+                          onDocumentsChange={loadAll}
+                        />
                         <div>
                           <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Accès</h4>
                           <AccesPersonnesBlock personnes={getAccesPersonnesEpic(ep, taches, users)} />
