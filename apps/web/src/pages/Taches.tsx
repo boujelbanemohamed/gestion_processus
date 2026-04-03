@@ -1989,6 +1989,17 @@ function truncateUi(s: string, n: number) {
   return t.length <= n ? t : `${t.slice(0, n)}…`;
 }
 
+/** Min début / max fin parmi les tâches (affichage liste comme les cartes tâche). */
+function dateRangeFromTasks(tl: Tache[]): { dateDebut?: string; dateFinApprox?: string } {
+  const debuts = tl.map((t) => t.dateDebut).filter(Boolean) as string[];
+  const fins = tl.map((t) => t.dateFinApprox).filter(Boolean) as string[];
+  let dateDebut: string | undefined;
+  let dateFinApprox: string | undefined;
+  if (debuts.length) dateDebut = debuts.reduce((a, b) => (new Date(a) < new Date(b) ? a : b));
+  if (fins.length) dateFinApprox = fins.reduce((a, b) => (new Date(a) > new Date(b) ? a : b));
+  return { dateDebut, dateFinApprox };
+}
+
 function TacheLienUserStoryBlock({ tache, onUpdated }: { tache: Tache; onUpdated: () => void }) {
   const [userStoryId, setUserStoryId] = useState(tache.userStory?.id || '');
   const [options, setOptions] = useState<{ id: string; description: string }[]>([]);
@@ -2338,6 +2349,116 @@ function tasksForEpic(ep: EpicRow, allUserStories: UserStoryRow[], taches: Tache
   return taches.filter((t) => t.userStory?.id && usIds.has(t.userStory.id));
 }
 
+/** % tâches au statut « termine » (même règle que TachesAvancementBlock). */
+function computeTaskProgressPct(tl: Tache[]): { pct: number | null; done: number; total: number } {
+  if (tl.length === 0) return { pct: null, done: 0, total: 0 };
+  const done = tl.filter((t) => t.statut === 'termine').length;
+  return { pct: Math.round((done / tl.length) * 100), done, total: tl.length };
+}
+
+/** % de user stories dont le statut agrégé (via tâches) est « termine » ; dénominateur = US ayant au moins une tâche. */
+function computeUserStoriesProgressPct(
+  stories: UserStoryRow[],
+  taches: Tache[],
+  now: Date
+): { pct: number | null; done: number; total: number; sansTache: number } {
+  const withTasks = stories.filter((us) => taches.some((t) => t.userStory?.id === us.id));
+  const sansTache = stories.length - withTasks.length;
+  if (withTasks.length === 0) return { pct: null, done: 0, total: 0, sansTache };
+  let done = 0;
+  for (const us of withTasks) {
+    const tl = taches.filter((t) => t.userStory?.id === us.id);
+    const s = deriveAggregatedStatutFromTasks(
+      tl.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
+      now
+    );
+    if (s === 'termine') done++;
+  }
+  return { pct: Math.round((done / withTasks.length) * 100), done, total: withTasks.length, sansTache };
+}
+
+function blendProgressPct(a: number | null, b: number | null): number | null {
+  if (a === null && b === null) return null;
+  if (a === null) return b;
+  if (b === null) return a;
+  return Math.round((a + b) / 2);
+}
+
+function AgileAvancementDetailCard({
+  title,
+  subtitle,
+  pctGlobal,
+  taskPart,
+  usPart,
+}: {
+  title: string;
+  subtitle?: string;
+  pctGlobal: number | null;
+  taskPart: { pct: number | null; done: number; total: number };
+  usPart: { pct: number | null; done: number; total: number };
+}) {
+  const emptyScope = taskPart.total === 0 && usPart.total === 0;
+  return (
+    <div className="rounded-lg border border-teal-100 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+        <div>
+          <h4 className="font-semibold text-gray-800 text-sm">{title}</h4>
+          {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+        </div>
+        <span className="text-xl font-bold text-teal-700 tabular-nums shrink-0">
+          {pctGlobal !== null ? `${pctGlobal}%` : emptyScope ? '—' : '—'}
+        </span>
+      </div>
+      {pctGlobal !== null && (
+        <div className="h-2.5 bg-gray-200/90 rounded-full overflow-hidden mb-3">
+          <div
+            className="h-full bg-gradient-to-r from-teal-500 to-emerald-500 rounded-full transition-all duration-500"
+            style={{ width: `${pctGlobal}%` }}
+            role="progressbar"
+            aria-valuenow={pctGlobal}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          />
+        </div>
+      )}
+      {emptyScope ? (
+        <p className="text-xs text-gray-500">Aucune tâche ni user story avec tâches dans ce périmètre.</p>
+      ) : (
+        <ul className="space-y-1.5 text-xs text-gray-600">
+          <li>
+            <span className="font-medium text-gray-700">Tâches :</span>{' '}
+            {taskPart.pct !== null ? (
+              <>
+                <span className="tabular-nums font-semibold text-gray-800">{taskPart.pct}%</span> —{' '}
+                <span className="tabular-nums">{taskPart.done}</span> terminée{taskPart.done !== 1 ? 's' : ''} sur{' '}
+                <span className="tabular-nums">{taskPart.total}</span>
+              </>
+            ) : (
+              <span className="text-gray-400">aucune tâche</span>
+            )}
+          </li>
+          <li>
+            <span className="font-medium text-gray-700">User stories :</span>{' '}
+            {usPart.pct !== null ? (
+              <>
+                <span className="tabular-nums font-semibold text-gray-800">{usPart.pct}%</span> —{' '}
+                <span className="tabular-nums">{usPart.done}</span> terminée{usPart.done !== 1 ? 's' : ''} sur{' '}
+                <span className="tabular-nums">{usPart.total}</span> (ayant au moins une tâche)
+              </>
+            ) : (
+              <span className="text-gray-400">aucune US avec tâche</span>
+            )}
+          </li>
+          <li className="text-gray-400 pt-1 border-t border-gray-100">
+            Synthèse globale = moyenne des deux pourcentages lorsqu&apos;ils sont tous deux disponibles ; sinon le seul
+            indicateur disponible.
+          </li>
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function epicToKanbanAndGantt(
   ep: EpicRow,
   taches: Tache[],
@@ -2398,14 +2519,72 @@ function UserStoriesAgileDashboard({ userStories, taches }: { userStories: UserS
     else if (s === 'bloque') bloqueAgg++;
     else if (s === 'en_cours') encoursAgg++;
   }
+
+  const tpVue = computeTaskProgressPct(tachesScoped);
+  const upVue = computeUserStoriesProgressPct(userStories, taches, now);
+  const pctVueGlobale = blendProgressPct(tpVue.pct, upVue.pct);
+
+  type ProjetGrp = { nom: string; epicMap: Map<string, { nom: string; stories: UserStoryRow[] }> };
+  const projetMap = new Map<string, ProjetGrp>();
+  const ensureProjet = (id: string, nom: string): ProjetGrp => {
+    if (!projetMap.has(id)) projetMap.set(id, { nom, epicMap: new Map() });
+    return projetMap.get(id)!;
+  };
+  const ensureEpic = (p: ProjetGrp, eid: string, enom: string) => {
+    if (!p.epicMap.has(eid)) p.epicMap.set(eid, { nom: enom, stories: [] });
+    return p.epicMap.get(eid)!;
+  };
+  for (const us of userStories) {
+    if (!us.epicId && !us.epic) {
+      const pr = ensureProjet('__sans_epic__', 'Sans Epic');
+      ensureEpic(pr, '__orpheline__', 'User stories sans epic').stories.push(us);
+      continue;
+    }
+    const epicRef = us.epic;
+    const projetId = epicRef?.projet?.id ?? epicRef?.projetId ?? '__sans_projet__';
+    const projetNom = epicRef?.projet?.nom ?? 'Sans projet';
+    const pr = ensureProjet(projetId, projetNom);
+    const eid = us.epicId ?? epicRef?.id ?? '__epic__';
+    const enom = epicRef?.nom ?? 'Epic';
+    ensureEpic(pr, eid, enom).stories.push(us);
+  }
+  const projetsSorted = [...projetMap.entries()].sort((a, b) =>
+    a[1].nom.localeCompare(b[1].nom, 'fr', { sensitivity: 'base' })
+  );
+
   return (
-    <div className="mb-4">
+    <div className="mb-4 space-y-4">
       <TachesAvancementBlock taches={tachesScoped} />
       {tachesScoped.length === 0 && userStories.length > 0 && (
-        <p className="text-xs text-gray-500 mb-3 -mt-2">
-          Aucune tâche liée aux user stories affichées : barre d&apos;avancement masquée.
+        <p className="text-xs text-gray-500 -mt-2">
+          Aucune tâche liée aux user stories affichées : barre « tâches seules » masquée ; la synthèse ci-dessous utilise
+          tout de même les user stories (partie US si aucune tâche).
         </p>
       )}
+      {pctVueGlobale !== null && (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50/80 p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-semibold text-gray-800">Avancement global (user stories affichées)</span>
+            <span className="text-2xl font-bold text-indigo-800 tabular-nums">{pctVueGlobale}%</span>
+          </div>
+          <div className="h-2 bg-white/80 rounded-full overflow-hidden mt-2 mb-2">
+            <div
+              className="h-full bg-indigo-500 rounded-full"
+              style={{ width: `${pctVueGlobale}%` }}
+              role="progressbar"
+              aria-valuenow={pctVueGlobale}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            />
+          </div>
+          <p className="text-xs text-gray-600">
+            Moyenne entre le % de <strong>tâches</strong> terminées ({tpVue.pct ?? '—'} %, {tpVue.done}/{tpVue.total}) et le %
+            de <strong>user stories</strong> considérées comme terminées via leurs tâches ({upVue.pct ?? '—'} %,{' '}
+            {upVue.done}/{upVue.total} US avec tâches).
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-white rounded-lg shadow p-3 text-center border border-gray-100">
           <div className="text-2xl font-bold text-gray-800">{userStories.length}</div>
@@ -2425,11 +2604,65 @@ function UserStoriesAgileDashboard({ userStories, taches }: { userStories: UserS
         </div>
       </div>
       {sansTache > 0 && (
-        <p className="text-xs text-gray-500 mt-2">
-          {sansTache} user story(s) sans tâche liée (statut « Créée » sur Kanban / Gantt).
+        <p className="text-xs text-gray-500">
+          {sansTache} user story(s) sans tâche liée (non comptées dans le % US ; statut « Créée » sur Kanban / Gantt).
         </p>
       )}
-      <p className="text-xs text-gray-400 mt-1">Indicateurs basés sur les tâches rattachées à chaque user story.</p>
+
+      <div>
+        <h3 className="text-sm font-semibold text-gray-800 mb-2">Par projet et par Epic</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          Pour chaque projet : synthèse globale puis détail par epic (même formule : moyenne % tâches et % user stories
+          terminées).
+        </p>
+        <div className="space-y-6">
+          {projetsSorted.map(([pid, pr]) => {
+            const allStories = [...pr.epicMap.values()].flatMap((e) => e.stories);
+            const taskById = new Map<string, Tache>();
+            for (const t of taches) {
+              const usId = t.userStory?.id;
+              if (usId && allStories.some((s) => s.id === usId)) taskById.set(t.id, t);
+            }
+            const taskList = [...taskById.values()];
+            const tp = computeTaskProgressPct(taskList);
+            const up = computeUserStoriesProgressPct(allStories, taches, now);
+            const globalP = blendProgressPct(tp.pct, up.pct);
+            const epicsSorted = [...pr.epicMap.entries()].sort((a, b) =>
+              a[1].nom.localeCompare(b[1].nom, 'fr', { sensitivity: 'base' })
+            );
+            return (
+              <div key={pid} className="space-y-3">
+                <AgileAvancementDetailCard
+                  title={`Projet : ${pr.nom}`}
+                  subtitle={`${allStories.length} user story(s) · ${epicsSorted.length} epic(s) ou groupe(s)`}
+                  pctGlobal={globalP}
+                  taskPart={tp}
+                  usPart={up}
+                />
+                <div className="grid gap-3 md:grid-cols-2 pl-2 md:pl-3 border-l-2 border-violet-200">
+                  {epicsSorted.map(([eid, ep]) => {
+                    const tl = taches.filter((t) => ep.stories.some((s) => s.id === t.userStory?.id));
+                    const tDedup = [...new Map(tl.map((t) => [t.id, t])).values()];
+                    const tpp = computeTaskProgressPct(tDedup);
+                    const upp = computeUserStoriesProgressPct(ep.stories, taches, now);
+                    const gp = blendProgressPct(tpp.pct, upp.pct);
+                    return (
+                      <AgileAvancementDetailCard
+                        key={eid}
+                        title={`Epic : ${ep.nom}`}
+                        subtitle={`${ep.stories.length} user story(s)`}
+                        pctGlobal={gp}
+                        taskPart={tpp}
+                        usPart={upp}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -2470,14 +2703,56 @@ function EpicsAgileDashboard({
     else if (s === 'bloque') bloqueAgg++;
     else if (s === 'en_cours') encoursAgg++;
   }
+
+  const allScopedStories = userStories.filter((us) => us.epicId && epicIds.has(us.epicId));
+  const tpVue = computeTaskProgressPct(tachesScoped);
+  const upVue = computeUserStoriesProgressPct(allScopedStories, taches, now);
+  const pctVueGlobale = blendProgressPct(tpVue.pct, upVue.pct);
+
+  const projetMap = new Map<string, { nom: string; epics: EpicRow[] }>();
+  for (const ep of epics) {
+    const pid = ep.projet?.id ?? ep.projetId ?? '__sans_projet__';
+    const nom = ep.projet?.nom ?? 'Sans projet';
+    if (!projetMap.has(pid)) projetMap.set(pid, { nom, epics: [] });
+    projetMap.get(pid)!.epics.push(ep);
+  }
+  const projetsSorted = [...projetMap.entries()].sort((a, b) =>
+    a[1].nom.localeCompare(b[1].nom, 'fr', { sensitivity: 'base' })
+  );
+
   return (
-    <div className="mb-4">
+    <div className="mb-4 space-y-4">
       <TachesAvancementBlock taches={tachesScoped} />
       {tachesScoped.length === 0 && epics.length > 0 && (
-        <p className="text-xs text-gray-500 mb-3 -mt-2">
-          Aucune tâche dans le périmètre des epics affichés : barre d&apos;avancement masquée.
+        <p className="text-xs text-gray-500 -mt-2">
+          Aucune tâche dans le périmètre des epics affichés : barre « tâches seules » masquée ; la synthèse utilise les
+          user stories si possible.
         </p>
       )}
+      {pctVueGlobale !== null && (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50/80 p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-semibold text-gray-800">Avancement global (epics affichés)</span>
+            <span className="text-2xl font-bold text-indigo-800 tabular-nums">{pctVueGlobale}%</span>
+          </div>
+          <div className="h-2 bg-white/80 rounded-full overflow-hidden mt-2 mb-2">
+            <div
+              className="h-full bg-indigo-500 rounded-full"
+              style={{ width: `${pctVueGlobale}%` }}
+              role="progressbar"
+              aria-valuenow={pctVueGlobale}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            />
+          </div>
+          <p className="text-xs text-gray-600">
+            Moyenne entre le % de <strong>tâches</strong> terminées sur toutes les US des epics visibles ({tpVue.pct ?? '—'}{' '}
+            %, {tpVue.done}/{tpVue.total}) et le % de <strong>user stories</strong> terminées (agrégat tâches) dans ce
+            périmètre ({upVue.pct ?? '—'} %, {upVue.done}/{upVue.total} US avec tâches).
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-white rounded-lg shadow p-3 text-center border border-gray-100">
           <div className="text-2xl font-bold text-gray-800">{epics.length}</div>
@@ -2497,11 +2772,48 @@ function EpicsAgileDashboard({
         </div>
       </div>
       {sansTache > 0 && (
-        <p className="text-xs text-gray-500 mt-2">
-          {sansTache} epic(s) sans tâche via les user stories (statut « Créée » sur Kanban / Gantt).
+        <p className="text-xs text-gray-500">
+          {sansTache} epic(s) sans tâche via les user stories (non comptés dans le % US au niveau epic ; statut « Créée »
+          sur Kanban / Gantt).
         </p>
       )}
-      <p className="text-xs text-gray-400 mt-1">Indicateurs basés sur toutes les tâches des user stories de l&apos;epic.</p>
+
+      <div>
+        <h3 className="text-sm font-semibold text-gray-800 mb-2">Avancement par projet</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          Chaque carte regroupe les epics visibles du même projet : toutes les tâches des user stories rattachées et le %
+          de user stories considérées comme terminées (via leurs tâches). La ligne « globale » est la moyenne des deux
+          pourcentages.
+        </p>
+        <div className="grid gap-3 md:grid-cols-2">
+          {projetsSorted.map(([pid, { nom, epics: eps }]) => {
+            const seenT = new Set<string>();
+            const taskList: Tache[] = [];
+            for (const ep of eps) {
+              for (const t of tasksForEpic(ep, userStories, taches)) {
+                if (!seenT.has(t.id)) {
+                  seenT.add(t.id);
+                  taskList.push(t);
+                }
+              }
+            }
+            const usList = userStories.filter((us) => us.epicId && eps.some((e) => e.id === us.epicId));
+            const tp = computeTaskProgressPct(taskList);
+            const up = computeUserStoriesProgressPct(usList, taches, now);
+            const globalP = blendProgressPct(tp.pct, up.pct);
+            return (
+              <AgileAvancementDetailCard
+                key={pid}
+                title={`Projet : ${nom}`}
+                subtitle={`${eps.length} epic(s) · ${usList.length} user story(s)`}
+                pctGlobal={globalP}
+                taskPart={tp}
+                usPart={up}
+              />
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -3376,47 +3688,85 @@ export default function Taches() {
         ) : (
           <>
             <p className="text-sm text-gray-500 mb-2">{visibleUserStories.length} user story(s)</p>
-            <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
+            <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
               {visibleUserStories.length === 0 && (
-                <div className="bg-white rounded-lg shadow p-6 text-center text-gray-400">Aucune user story à afficher</div>
+                <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">Aucune user story à afficher</div>
               )}
               {visibleUserStories.map((us) => {
                 const usExpanded = expandedUsListId === us.id;
                 const tasksUs = getTachesLieesUserStory(us.id, taches);
                 const assignesUs = getAssignesDepuisTaches(tasksUs);
                 const entitesUsTaches = getEntitesDepuisTaches(tasksUs);
+                const nowUs = new Date();
+                const statutAggUs = deriveAggregatedStatutFromTasks(
+                  tasksUs.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
+                  nowUs
+                );
+                const { dateDebut: usDebut, dateFinApprox: usFin } = dateRangeFromTasks(tasksUs);
+                const isUsLate = usIdsEnRetard.has(us.id);
+                const createurTache = tasksUs.find((t) => t.createur)?.createur;
                 return (
                   <div
                     key={us.id}
-                    className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden"
+                    className={`bg-white border rounded-lg shadow-sm overflow-hidden ${isUsLate ? 'border-red-300' : 'border-gray-200'}`}
                   >
-                    <div className="p-3 flex flex-wrap justify-between gap-2 items-start">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-gray-900">{truncateUi(us.description, 200)}</p>
-                        <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-x-2 gap-y-0">
-                          {us.epic ? (
-                            <>
-                              <span>Epic : {us.epic.nom}</span>
-                              {us.epic.projet && <span>· {us.epic.projet.nom}</span>}
-                            </>
-                          ) : (
-                            <span className="italic">Sans epic</span>
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <span className="font-semibold text-gray-800 line-clamp-2">{truncateUi(us.description, 200)}</span>
+                            <span title="Statut dérivé des tâches liées">
+                              <StatutBadge statut={statutAggUs} />
+                            </span>
+                            {isUsLate && (
+                              <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">⚠ En retard</span>
+                            )}
+                            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
+                              {tasksUs.length} tâche{tasksUs.length !== 1 ? 's' : ''}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+                            {us.epic?.projet && <span>📁 {us.epic.projet.nom}</span>}
+                            {!us.epic && <span className="italic text-gray-400">Sans epic</span>}
+                            {usDebut && <span>🗓 {new Date(usDebut).toLocaleDateString('fr-FR')}</span>}
+                            {usFin && <span>⏰ {new Date(usFin).toLocaleDateString('fr-FR')}</span>}
+                            {createurTache && (
+                              <span>
+                                👤 {createurTache.prenom} {createurTache.nom}
+                              </span>
+                            )}
+                          </div>
+                          {assignesUs.length > 0 && (
+                            <div className="flex gap-1 mt-2 flex-wrap">
+                              {assignesUs.map((a) => (
+                                <span key={a.id} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs">
+                                  {a.label}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {entitesUsTaches.length > 0 && (
+                            <div className="flex gap-1 mt-1 flex-wrap">
+                              {entitesUsTaches.map((e) => (
+                                <span key={e.id} className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs">
+                                  🏢 {e.nom}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {us.epic && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              <button
+                                type="button"
+                                onClick={() => setDetailEpicId(us.epic!.id)}
+                                className="text-xs px-2 py-1 bg-indigo-50 text-indigo-800 rounded border border-indigo-200 hover:bg-indigo-100 text-left"
+                              >
+                                📗 Epic : {us.epic.nom}
+                              </button>
+                            </div>
                           )}
                         </div>
-                        {assignesUs.length > 0 && (
-                          <p className="text-xs text-gray-600 mt-1">
-                            <span className="font-medium text-gray-500">Assignés (tâches) :</span>{' '}
-                            {assignesUs.map((a) => a.label).join(', ')}
-                          </p>
-                        )}
-                        {entitesUsTaches.length > 0 && (
-                          <p className="text-xs text-gray-600 mt-1">
-                            <span className="font-medium text-gray-500">Entités (tâches) :</span>{' '}
-                            {entitesUsTaches.map((e) => e.nom).join(', ')}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex gap-2 shrink-0 items-start flex-wrap justify-end">
+                        <div className="flex gap-2 shrink-0 items-start flex-wrap justify-end">
                         {canEditUsEpic ? (
                           <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
                             ✏️ Modification
@@ -3453,6 +3803,7 @@ export default function Taches() {
                         </button>
                       </div>
                     </div>
+                  </div>
                     {usExpanded && (
                       <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-3 text-sm">
                         {canEditUsEpic && (
@@ -3591,38 +3942,98 @@ export default function Taches() {
         ) : (
           <>
             <p className="text-sm text-gray-500 mb-2">{visibleEpics.length} epic(s)</p>
-            <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
+            <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
               {visibleEpics.length === 0 && (
-                <div className="bg-white rounded-lg shadow p-6 text-center text-gray-400">Aucun epic à afficher</div>
+                <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">Aucun epic à afficher</div>
               )}
               {visibleEpics.map((ep) => {
                 const epExpanded = expandedEpicListId === ep.id;
                 const tasksEp = getTachesLieesEpic(ep, taches);
                 const assignesEp = getAssignesDepuisTaches(tasksEp);
+                const nowEp = new Date();
+                const statutAggEp = deriveAggregatedStatutFromTasks(
+                  tasksEp.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
+                  nowEp
+                );
+                const { dateDebut: epDebut, dateFinApprox: epFin } = dateRangeFromTasks(tasksEp);
+                const isEpLate = epicIdsEnRetard.has(ep.id);
+                const entitesEpicDirect = (ep.assignesEntites || []).map((ae) => ({
+                  id: ae.entite.id,
+                  nom: ae.entite.nom,
+                }));
+                const entitesEpTaches = getEntitesDepuisTaches(tasksEp);
+                const seenEnt = new Set<string>();
+                const entitesEpMerged: { id: string; nom: string }[] = [];
+                for (const e of [...entitesEpicDirect, ...entitesEpTaches]) {
+                  if (seenEnt.has(e.id)) continue;
+                  seenEnt.add(e.id);
+                  entitesEpMerged.push(e);
+                }
                 return (
                   <div
                     key={ep.id}
-                    className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden"
+                    className={`bg-white border rounded-lg shadow-sm overflow-hidden ${isEpLate ? 'border-red-300' : 'border-gray-200'}`}
                   >
-                    <div className="p-3 flex flex-wrap justify-between gap-2 items-start">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-gray-900">{ep.nom}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {ep.projet?.nom ?? 'Projet —'} · {(ep.userStories?.length ?? 0)} user story(s)
-                          {(ep.assignesEntites?.length ?? 0) > 0 && (
-                            <span className="ml-1">
-                              · Entités : {(ep.assignesEntites || []).map((ae) => ae.entite.nom).join(', ')}
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <span className="font-semibold text-gray-800 line-clamp-2">{ep.nom}</span>
+                            <span title="Statut dérivé des tâches des user stories de l&apos;epic">
+                              <StatutBadge statut={statutAggEp} />
                             </span>
+                            {isEpLate && (
+                              <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">⚠ En retard</span>
+                            )}
+                            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
+                              {(ep.userStories?.length ?? 0)} US · {tasksEp.length} tâche{tasksEp.length !== 1 ? 's' : ''}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+                            {ep.projet && <span>📁 {ep.projet.nom}</span>}
+                            {epDebut && <span>🗓 {new Date(epDebut).toLocaleDateString('fr-FR')}</span>}
+                            {epFin && <span>⏰ {new Date(epFin).toLocaleDateString('fr-FR')}</span>}
+                            {ep.createdBy && (
+                              <span>
+                                👤 {ep.createdBy.prenom} {ep.createdBy.nom}
+                              </span>
+                            )}
+                          </div>
+                          {assignesEp.length > 0 && (
+                            <div className="flex gap-1 mt-2 flex-wrap">
+                              {assignesEp.map((a) => (
+                                <span key={a.id} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs">
+                                  {a.label}
+                                </span>
+                              ))}
+                            </div>
                           )}
-                        </p>
-                        {assignesEp.length > 0 && (
-                          <p className="text-xs text-gray-600 mt-1">
-                            <span className="font-medium text-gray-500">Assignés (tâches liées) :</span>{' '}
-                            {assignesEp.map((a) => a.label).join(', ')}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex gap-2 shrink-0 items-start flex-wrap justify-end">
+                          {entitesEpMerged.length > 0 && (
+                            <div className="flex gap-1 mt-1 flex-wrap">
+                              {entitesEpMerged.map((e) => (
+                                <span key={e.id} className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs">
+                                  🏢 {e.nom}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {(ep.userStories?.length ?? 0) > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {(ep.userStories || []).map((u) => (
+                                <button
+                                  key={u.id}
+                                  type="button"
+                                  onClick={() => setDetailUserStoryId(u.id)}
+                                  className="text-xs px-2 py-1 bg-violet-50 text-violet-800 rounded border border-violet-200 hover:bg-violet-100 text-left max-w-full line-clamp-2"
+                                  title={u.description}
+                                >
+                                  📘 {truncateUi(u.description, 80)}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2 shrink-0 items-start flex-wrap justify-end">
                         {canEditUsEpic ? (
                           <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
                             ✏️ Modification
@@ -3658,6 +4069,7 @@ export default function Taches() {
                           {epExpanded ? '▲ Réduire' : '▼ Détails'}
                         </button>
                       </div>
+                    </div>
                     </div>
                     {epExpanded && (
                       <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-3 text-sm">
