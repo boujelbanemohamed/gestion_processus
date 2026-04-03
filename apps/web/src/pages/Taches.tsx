@@ -1516,6 +1516,8 @@ export default function Taches() {
   const [detailEpicId, setDetailEpicId] = useState<string | null>(null);
   const [detailUserStoryId, setDetailUserStoryId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'gantt' | 'kanban'>('list');
+  const defaultSectionViews = { taches: true, userStories: true, epics: true };
+  const [sectionViews, setSectionViews] = useState(defaultSectionViews);
   const [filters, setFilters] = useState({
     nom: '',
     nomUserStory: '',
@@ -1698,6 +1700,13 @@ export default function Taches() {
   const totalPages = Math.max(1, Math.ceil(visibleTaches.length / pageSize));
   const pagedTaches = visibleTaches.slice((page - 1) * pageSize, page * pageSize);
 
+  const sectionViewSelectedCount =
+    (sectionViews.taches ? 1 : 0) + (sectionViews.userStories ? 1 : 0) + (sectionViews.epics ? 1 : 0);
+  // Au moins une vue cochée : n’afficher que les sections cochées. Aucune : rien (message dans le bloc filtre).
+  const showTachesSection = sectionViewSelectedCount > 0 && sectionViews.taches;
+  const showUserStoriesSection = sectionViewSelectedCount > 0 && sectionViews.userStories;
+  const showEpicsSection = sectionViewSelectedCount > 0 && sectionViews.epics;
+
   if (loading) return <div className="p-6 text-gray-500">Chargement…</div>;
 
   return (
@@ -1868,7 +1877,60 @@ export default function Taches() {
         </div>
       </div>
 
+      {/* Filtrer par vue (sections affichées) */}
+      <div className="bg-white rounded-lg shadow border border-gray-200 p-4 mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <p className="text-sm font-semibold text-gray-800">Filtrer par vue</p>
+          <button
+            type="button"
+            onClick={() => setSectionViews({ ...defaultSectionViews })}
+            className="text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md px-3 py-1.5 hover:bg-gray-50"
+          >
+            Réinitialiser
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mb-3">
+          Cochez une ou plusieurs vues : seules les sections correspondantes s&apos;affichent. Décochez pour masquer. Réinitialiser
+          recoche les trois vues.
+        </p>
+        <div className="flex flex-wrap gap-6">
+          <label className="flex items-center gap-2 text-sm text-gray-800 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="rounded border-gray-300"
+              checked={sectionViews.taches}
+              onChange={(e) => setSectionViews((v) => ({ ...v, taches: e.target.checked }))}
+            />
+            Vue Tâches
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-800 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="rounded border-gray-300"
+              checked={sectionViews.userStories}
+              onChange={(e) => setSectionViews((v) => ({ ...v, userStories: e.target.checked }))}
+            />
+            Vue User stories
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-800 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="rounded border-gray-300"
+              checked={sectionViews.epics}
+              onChange={(e) => setSectionViews((v) => ({ ...v, epics: e.target.checked }))}
+            />
+            Vue Epics
+          </label>
+        </div>
+        {sectionViewSelectedCount === 0 && (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mt-3">
+            Aucune vue sélectionnée : cochez au moins une vue pour afficher du contenu, ou utilisez Réinitialiser.
+          </p>
+        )}
+      </div>
+
       {/* Section Tâches */}
+      {showTachesSection && (
       <section className="mb-10" aria-labelledby="sec-taches">
         <h2 id="sec-taches" className="text-xl font-semibold text-gray-900 border-b border-gray-200 pb-2 mb-4">
           Tâches
@@ -2003,8 +2065,10 @@ export default function Taches() {
           </>
         )}
       </section>
+      )}
 
       {/* Section User stories */}
+      {showUserStoriesSection && (
       <section className="mb-10" aria-labelledby="sec-user-stories">
         <h2 id="sec-user-stories" className="text-xl font-semibold text-gray-900 border-b border-gray-200 pb-2 mb-4">
           User stories
@@ -2065,8 +2129,10 @@ export default function Taches() {
           ))}
         </div>
       </section>
+      )}
 
       {/* Section Epics */}
+      {showEpicsSection && (
       <section aria-labelledby="sec-epics">
         <h2 id="sec-epics" className="text-xl font-semibold text-gray-900 border-b border-gray-200 pb-2 mb-4">
           Epics
@@ -2125,6 +2191,7 @@ export default function Taches() {
           ))}
         </div>
       </section>
+      )}
 
       {/* Modal */}
       {showModal && (
