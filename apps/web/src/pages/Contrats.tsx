@@ -88,7 +88,7 @@ export default function Contrats() {
   const [filtreDateEnregFin, setFiltreDateEnregFin] = useState('');
   const [filtreDateExpDebut, setFiltreDateExpDebut] = useState('');
   const [filtreDateExpFin, setFiltreDateExpFin] = useState('');
-  const [showFiltres, setShowFiltres] = useState(false);
+  const [showFiltres, setShowFiltres] = useState(true);
   const [users, setUsers] = useState<any[]>([]);
   const [projets, setProjets] = useState<any[]>([]);
   const [clientsFournisseurs, setClientsFournisseurs] = useState<any[]>([]);
@@ -339,19 +339,27 @@ export default function Contrats() {
   const droitsAdminLigne = 'modification statut + accès + lecture';
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6">
-      <div className="flex justify-between items-center mb-6">
+    <div className="p-6">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">📄 Contrats</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Contrats</h1>
           <p className="text-sm text-gray-500 mt-1">
             {filtered.length} contrat(s) sur {contrats.length} accessible(s)
           </p>
         </div>
-        <button onClick={openNew} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">+ Nouveau contrat</button>
+        <div className="flex flex-wrap gap-2 justify-end">
+          <button
+            type="button"
+            onClick={openNew}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
+          >
+            + Nouveau contrat
+          </button>
+        </div>
       </div>
 
       {alertes.length > 0 && (
-        <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+        <div className="mb-6 p-3 bg-orange-50 border border-orange-200 rounded-lg">
           <p className="text-sm font-medium text-orange-700 mb-1">⚠️ Contrats expirant bientôt :</p>
           <div className="flex flex-wrap gap-2">
             {alertes.map((c) => (
@@ -363,28 +371,42 @@ export default function Contrats() {
         </div>
       )}
 
-      <div className="mb-5">
-        <div className="flex gap-3 mb-2">
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="🔍 Rechercher..." className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm" />
-          <button type="button" onClick={() => setShowFiltres(!showFiltres)} className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${showFiltres ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
-            🔧 Filtres {(filtreStatut || filtreProjetIds.length > 0 || filtreParties.length > 0 || filtreDateSignatureDebut || filtreDateSignatureFin || filtreDateEnregDebut || filtreDateEnregFin || filtreDateExpDebut || filtreDateExpFin) ? '●' : ''}
-          </button>
-          <button type="button" onClick={() => { setFiltreStatut(''); setFiltreProjetIds([]); setFiltreParties([]); setFiltreDateSignatureDebut(''); setFiltreDateSignatureFin(''); setFiltreDateEnregDebut(''); setFiltreDateEnregFin(''); setFiltreDateExpDebut(''); setFiltreDateExpFin(''); }} className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg bg-white">
-            ✕ Réinitialiser
-          </button>
-        </div>
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          type="button"
+          onClick={() => setShowFiltres(!showFiltres)}
+          className="w-full px-4 py-3 flex justify-between items-center text-left text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-t-lg"
+        >
+          <span>
+            Filtres
+            {(filtreStatut || filtreProjetIds.length > 0 || filtreParties.length > 0 || filtreDateSignatureDebut || filtreDateSignatureFin || filtreDateEnregDebut || filtreDateEnregFin || filtreDateExpDebut || filtreDateExpFin || search)
+              ? ' ●'
+              : ''}
+          </span>
+          <span className="text-gray-400">{showFiltres ? '▼' : '▶'}</span>
+        </button>
         {showFiltres && (
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="px-4 pb-4 pt-0 border-t border-gray-100">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
+              <div className="md:col-span-2 lg:col-span-3">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Nom / recherche</label>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Rechercher…"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Statut</label>
-              <select value={filtreStatut} onChange={(e) => setFiltreStatut(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white">
+              <select value={filtreStatut} onChange={(e) => setFiltreStatut(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
                 <option value="">Tous les statuts</option>
                 {STATUTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Projets liés</label>
-              <div className="border border-gray-300 rounded-md bg-white max-h-28 overflow-y-auto p-2 space-y-1">
+              <div className="border border-gray-300 rounded-md max-h-28 overflow-y-auto p-2 space-y-1 bg-white">
                 {projets.length === 0 && <span className="text-xs text-gray-400">Aucun projet</span>}
                 {projets.map((p: any) => (
                   <label key={p.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded">
@@ -396,7 +418,7 @@ export default function Contrats() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Parties prenantes</label>
-              <div className="border border-gray-300 rounded-md bg-white max-h-28 overflow-y-auto p-2 space-y-1">
+              <div className="border border-gray-300 rounded-md max-h-28 overflow-y-auto p-2 space-y-1 bg-white">
                 {clientsFournisseurs.length === 0 && <span className="text-xs text-gray-400">Aucune partie</span>}
                 {clientsFournisseurs.map((cf: any) => (
                   <label key={cf.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded">
@@ -409,23 +431,44 @@ export default function Contrats() {
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Date de signature</label>
               <div className="flex gap-2">
-                <input type="date" value={filtreDateSignatureDebut} onChange={(e) => setFiltreDateSignatureDebut(e.target.value)} className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-xs bg-white" />
-                <input type="date" value={filtreDateSignatureFin} onChange={(e) => setFiltreDateSignatureFin(e.target.value)} className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-xs bg-white" />
+                <input type="date" value={filtreDateSignatureDebut} onChange={(e) => setFiltreDateSignatureDebut(e.target.value)} className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-xs" />
+                <input type="date" value={filtreDateSignatureFin} onChange={(e) => setFiltreDateSignatureFin(e.target.value)} className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-xs" />
               </div>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Date d&apos;enregistrement</label>
               <div className="flex gap-2">
-                <input type="date" value={filtreDateEnregDebut} onChange={(e) => setFiltreDateEnregDebut(e.target.value)} className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-xs bg-white" />
-                <input type="date" value={filtreDateEnregFin} onChange={(e) => setFiltreDateEnregFin(e.target.value)} className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-xs bg-white" />
+                <input type="date" value={filtreDateEnregDebut} onChange={(e) => setFiltreDateEnregDebut(e.target.value)} className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-xs" />
+                <input type="date" value={filtreDateEnregFin} onChange={(e) => setFiltreDateEnregFin(e.target.value)} className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-xs" />
               </div>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Date d&apos;expiration</label>
               <div className="flex gap-2">
-                <input type="date" value={filtreDateExpDebut} onChange={(e) => setFiltreDateExpDebut(e.target.value)} className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-xs bg-white" />
-                <input type="date" value={filtreDateExpFin} onChange={(e) => setFiltreDateExpFin(e.target.value)} className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-xs bg-white" />
+                <input type="date" value={filtreDateExpDebut} onChange={(e) => setFiltreDateExpDebut(e.target.value)} className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-xs" />
+                <input type="date" value={filtreDateExpFin} onChange={(e) => setFiltreDateExpFin(e.target.value)} className="flex-1 px-2 py-1.5 border border-gray-300 rounded-md text-xs" />
               </div>
+            </div>
+            </div>
+            <div className="flex justify-end mt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  setFiltreStatut('');
+                  setFiltreProjetIds([]);
+                  setFiltreParties([]);
+                  setFiltreDateSignatureDebut('');
+                  setFiltreDateSignatureFin('');
+                  setFiltreDateEnregDebut('');
+                  setFiltreDateEnregFin('');
+                  setFiltreDateExpDebut('');
+                  setFiltreDateExpFin('');
+                }}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Réinitialiser
+              </button>
             </div>
           </div>
         )}

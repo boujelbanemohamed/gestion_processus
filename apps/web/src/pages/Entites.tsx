@@ -66,6 +66,7 @@ export default function Entites() {
     parentId: '',
     responsableId: '',
   });
+  const [showFiltres, setShowFiltres] = useState(true);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -351,131 +352,148 @@ export default function Entites() {
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-6">
+      <div className="p-6">
         <div className="text-center py-10 text-gray-400">Chargement...</div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6">
-      <div className="flex justify-between items-center mb-6">
+    <div className="p-6">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">🏛 Entités</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Entités</h1>
           <p className="text-sm text-gray-500 mt-1">{entites.length} entité(s)</p>
         </div>
         {!isLecteur && (
-          <button
-            type="button"
-            onClick={() => {
-              setIsEditing(false);
-              setEditingId(null);
-              setFormData({
-                nom: '',
-                code: '',
-                type: 'service',
-                parentId: '',
-                responsableId: '',
-                description: '',
-              });
-              setShowModal(true);
-            }}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
-          >
-            + Nouvelle entité
-          </button>
+          <div className="flex flex-wrap gap-2 justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setIsEditing(false);
+                setEditingId(null);
+                setFormData({
+                  nom: '',
+                  code: '',
+                  type: 'service',
+                  parentId: '',
+                  responsableId: '',
+                  description: '',
+                });
+                setShowModal(true);
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
+            >
+              + Nouvelle entité
+            </button>
+          </div>
         )}
       </div>
 
-      <div className="bg-white rounded-lg shadow p-4 mb-6 border border-gray-100">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Recherche</label>
-            <input
-              type="text"
-              value={filters.search}
-              onChange={(ev) => setFilters({ ...filters, search: ev.target.value })}
-              placeholder="Nom, code, description"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-            <select
-              value={filters.type}
-              onChange={(ev) => setFilters({ ...filters, type: ev.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-            >
-              <option value="">Tous</option>
-              {entiteTypes.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Entité parente</label>
-            <select
-              value={filters.parentId}
-              onChange={(ev) => setFilters({ ...filters, parentId: ev.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-            >
-              <option value="">Toutes</option>
-              {entites.map((entite) => (
-                <option key={entite.id} value={entite.id}>
-                  {entite.nom}
-                  {entite.code ? ` (${entite.code})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Responsable</label>
-            <select
-              value={filters.responsableId}
-              onChange={(ev) => setFilters({ ...filters, responsableId: ev.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-            >
-              <option value="">Tous</option>
-              {users
-                .filter((u) => u.role === 'admin' || u.role === 'contributeur')
-                .map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.prenom} {u.nom}
-                  </option>
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          type="button"
+          onClick={() => setShowFiltres(!showFiltres)}
+          className="w-full px-4 py-3 flex justify-between items-center text-left text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-t-lg"
+        >
+          <span>
+            Filtres
+            {(filters.search || filters.type || filters.parentId || filters.responsableId) ? ' ●' : ''}
+          </span>
+          <span className="text-gray-400">{showFiltres ? '▼' : '▶'}</span>
+        </button>
+        {showFiltres && (
+          <div className="px-4 pb-4 pt-0 border-t border-gray-100">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Recherche</label>
+                <input
+                  type="text"
+                  value={filters.search}
+                  onChange={(ev) => setFilters({ ...filters, search: ev.target.value })}
+                  placeholder="Nom, code, description"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                <select
+                  value={filters.type}
+                  onChange={(ev) => setFilters({ ...filters, type: ev.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Tous</option>
+                  {entiteTypes.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Entité parente</label>
+                <select
+                  value={filters.parentId}
+                  onChange={(ev) => setFilters({ ...filters, parentId: ev.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Toutes</option>
+                  {entites.map((entite) => (
+                    <option key={entite.id} value={entite.id}>
+                      {entite.nom}
+                      {entite.code ? ` (${entite.code})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Responsable</label>
+                <select
+                  value={filters.responsableId}
+                  onChange={(ev) => setFilters({ ...filters, responsableId: ev.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Tous</option>
+                  {users
+                    .filter((u) => u.role === 'admin' || u.role === 'contributeur')
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.prenom} {u.nom}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-between items-center gap-2 mt-4 pt-2 border-t border-gray-100">
+              <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+                <span className="font-medium">Tri rapide :</span>
+                {['code', 'nom', 'type', 'responsable', 'parent'].map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => handleSort(k)}
+                    className={`hover:text-blue-600 ${sortConfig?.key === k ? 'text-blue-600 font-semibold' : ''}`}
+                  >
+                    {k}
+                    {sortConfig?.key === k ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : ''}
+                  </button>
                 ))}
-            </select>
-          </div>
-        </div>
-        <div className="flex flex-wrap justify-between items-center gap-2 mt-4">
-          <div className="flex gap-2 text-xs text-gray-500">
-            <span className="font-medium">Tri rapide :</span>
-            {['code', 'nom', 'type', 'responsable', 'parent'].map((k) => (
+                {sortConfig && (
+                  <button type="button" onClick={resetSort} className="text-gray-600 hover:underline ml-2">
+                    Réinitialiser tri
+                  </button>
+                )}
+              </div>
               <button
-                key={k}
                 type="button"
-                onClick={() => handleSort(k)}
-                className={`hover:text-blue-600 ${sortConfig?.key === k ? 'text-blue-600 font-semibold' : ''}`}
+                onClick={() => setFilters({ search: '', type: '', parentId: '', responsableId: '' })}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
-                {k}
-                {sortConfig?.key === k ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : ''}
-              </button>
-            ))}
-            {sortConfig && (
-              <button type="button" onClick={resetSort} className="text-gray-600 hover:underline ml-2">
                 Réinitialiser
               </button>
-            )}
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setFilters({ search: '', type: '', parentId: '', responsableId: '' })}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-          >
-            Réinitialiser filtres
-          </button>
-        </div>
+        )}
       </div>
 
       {showModal && (
@@ -604,17 +622,19 @@ export default function Entites() {
       )}
 
       <div className="space-y-4">
-        {entites.length === 0 && <div className="text-center py-10 text-gray-400 bg-white rounded-lg border">Aucune entité</div>}
+        {entites.length === 0 && (
+          <div className="text-center py-10 text-gray-400 bg-white rounded-lg shadow">Aucune entité</div>
+        )}
         {pagedEntites.map((e) => {
           const c = cap(e);
           const typeLabel = entiteTypes.find((t) => t.value === e.type)?.label || e.type;
           return (
-            <div key={e.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+            <div key={e.id} className="bg-white rounded-lg shadow p-5">
               <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2 mb-2">
                     <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded text-xs font-medium">{e.code}</span>
-                    <h3 className="text-lg font-semibold text-gray-900">{e.nom}</h3>
+                    <h2 className="text-lg font-semibold text-gray-900">{e.nom}</h2>
                     <span className="px-2 py-0.5 bg-blue-50 text-blue-800 rounded text-xs">{typeLabel}</span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600">

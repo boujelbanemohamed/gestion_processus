@@ -103,59 +103,71 @@ export default function OCR() {
 
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
+    <div className="p-6">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">🔍 OCR — Reconnaissance de texte</h1>
+          <h1 className="text-2xl font-bold text-gray-900">OCR — Reconnaissance de texte</h1>
           <p className="text-sm text-gray-500 mt-1">Extrayez et recherchez le contenu textuel de vos documents</p>
         </div>
-        <button onClick={scanAll} disabled={scanningAll || nonTraites === 0}
-          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50 flex items-center gap-2">
-          {scanningAll ? '⏳ Traitement en cours...' : `⚡ Tout scanner (${nonTraites} en attente)`}
-        </button>
+        <div className="flex flex-wrap gap-2 justify-end">
+          <button
+            type="button"
+            onClick={scanAll}
+            disabled={scanningAll || nonTraites === 0}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm disabled:opacity-50 flex items-center gap-2"
+          >
+            {scanningAll ? '⏳ Traitement en cours...' : `⚡ Tout scanner (${nonTraites} en attente)`}
+          </button>
+        </div>
       </div>
 
-      {/* Barre de progression */}
       {progress.actif && (
-        <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
-          <div className="flex justify-between text-sm text-indigo-700 mb-1">
+        <div className="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex justify-between text-sm text-blue-800 mb-1">
             <span>⏳ Traitement en cours...</span>
-            <span>{progress.done} / {progress.total}</span>
+            <span>
+              {progress.done} / {progress.total}
+            </span>
           </div>
-          <div className="w-full bg-indigo-200 rounded-full h-2">
-            <div className="bg-indigo-600 h-2 rounded-full transition-all" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+          <div className="w-full bg-blue-200 rounded-full h-2">
+            <div className="bg-blue-600 h-2 rounded-full transition-all" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
           </div>
         </div>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white rounded-lg shadow p-4 text-center">
           <div className="text-2xl font-bold text-gray-800">{documents.length}</div>
           <div className="text-xs text-gray-500 mt-1">Total documents</div>
         </div>
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+        <div className="bg-white rounded-lg shadow p-4 text-center border-t-4 border-green-500">
           <div className="text-2xl font-bold text-green-700">{traites}</div>
-          <div className="text-xs text-green-600 mt-1">✅ Traités</div>
+          <div className="text-xs text-green-600 mt-1">Traités</div>
         </div>
-        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 text-center">
+        <div className="bg-white rounded-lg shadow p-4 text-center border-t-4 border-orange-400">
           <div className="text-2xl font-bold text-orange-700">{nonTraites}</div>
-          <div className="text-xs text-orange-600 mt-1">⏳ En attente</div>
+          <div className="text-xs text-orange-600 mt-1">En attente</div>
         </div>
-      </div>
-      <div className="grid grid-cols-1 gap-4 mb-6">
-        <div className="bg-gray-100 border border-gray-300 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-gray-500">{nonSupportes}</div>
-          <div className="text-xs text-gray-500 mt-1">⛔ Non supportés</div>
+        <div className="bg-white rounded-lg shadow p-4 text-center border-t-4 border-gray-300">
+          <div className="text-2xl font-bold text-gray-600">{nonSupportes}</div>
+          <div className="text-xs text-gray-500 mt-1">Non supportés</div>
         </div>
       </div>
 
-      {/* Onglets */}
-      <div className="flex border-b border-gray-200 mb-5">
-        {[{ key: 'scanner', label: '📋 Scanner' }, { key: 'resultats', label: `🔎 Résultats (${searchResults.length})` }, { key: 'recherche', label: '🔍 Recherche plein texte' }].map(tab => (
-          <button key={tab.key} onClick={() => setActiveTab(tab.key as any)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab.key ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+      <div className="flex border-b border-gray-200 mb-6">
+        {[
+          { key: 'scanner', label: '📋 Scanner' },
+          { key: 'resultats', label: `🔎 Résultats (${searchResults.length})` },
+          { key: 'recherche', label: '🔍 Recherche plein texte' },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key as 'scanner' | 'resultats' | 'recherche')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === tab.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
             {tab.label}
           </button>
         ))}
@@ -164,18 +176,31 @@ export default function OCR() {
       {/* Onglet Scanner */}
       {activeTab === 'scanner' && (
         <div>
-          <div className="flex gap-3 mb-4">
-            {[{ v: 'all', l: 'Tous' }, { v: 'traite', l: '✅ Traités' }, { v: 'non_traite', l: '⏳ En attente' }, { v: 'non_supporte', l: '⛔ Non supportés' }].map(f => (
-              <button key={f.v} onClick={() => setFilter(f.v as any)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium ${filter === f.v ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+          <div className="flex flex-wrap gap-2 mb-4">
+            {[
+              { v: 'all', l: 'Tous' },
+              { v: 'traite', l: '✅ Traités' },
+              { v: 'non_traite', l: '⏳ En attente' },
+              { v: 'non_supporte', l: '⛔ Non supportés' },
+            ].map((f) => (
+              <button
+                key={f.v}
+                type="button"
+                onClick={() => setFilter(f.v as 'all' | 'traite' | 'non_traite' | 'non_supporte')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                  filter === f.v ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
                 {f.l}
               </button>
             ))}
           </div>
-          {loading ? <div className="text-center py-10 text-gray-400">Chargement...</div> : (
-            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+          {loading ? (
+            <div className="text-center py-10 text-gray-400">Chargement...</div>
+          ) : (
+            <div className="bg-white rounded-lg shadow overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Document</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
@@ -247,10 +272,15 @@ export default function OCR() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <button onClick={() => scanDocument(doc.id)} 
+                        <button
+                          type="button"
+                          onClick={() => scanDocument(doc.id)}
                           disabled={scanning === doc.id || !isSupported(doc)}
                           title={!isSupported(doc) ? 'Type de fichier non supporté par l&apos;OCR' : ''}
-                          className={`px-3 py-1 rounded text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed ${!isSupported(doc) ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'}`}>
+                          className={`px-3 py-1 rounded text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed ${
+                            !isSupported(doc) ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                          }`}
+                        >
                           {scanning === doc.id ? '⏳ Scan...' : !isSupported(doc) ? '⛔ Non supporté' : doc.ocrTraite ? '🔄 Re-scanner' : '🔍 Scanner'}
                         </button>
                       </td>
@@ -267,15 +297,22 @@ export default function OCR() {
       {/* Onglet Recherche */}
       {activeTab === 'recherche' && (
         <div>
-          <div className="bg-white border border-gray-200 rounded-lg p-6 mb-4">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">🔍 Recherche dans le contenu des documents</h2>
-            <div className="flex gap-3">
-              <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && search()}
+          <div className="bg-white rounded-lg shadow p-5 mb-6">
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">Recherche dans le contenu des documents</h2>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && search()}
                 placeholder="Entrez un mot-clé (ex: contrat, facture, 2024...)"
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
-              <button onClick={search} disabled={searching || searchQuery.trim().length < 2}
-                className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50">
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <button
+                type="button"
+                onClick={search}
+                disabled={searching || searchQuery.trim().length < 2}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm disabled:opacity-50 shrink-0"
+              >
                 {searching ? '⏳ Recherche...' : '🔍 Rechercher'}
               </button>
             </div>
@@ -293,26 +330,28 @@ export default function OCR() {
               <p>Aucun résultat. Effectuez une recherche dans l'onglet "Recherche plein texte".</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {searchResults.map(doc => (
-                <div key={doc.id} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm transition-shadow">
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="flex items-center gap-2">
+            <div className="space-y-4">
+              {searchResults.map((doc) => (
+                <div key={doc.id} className="bg-white rounded-lg shadow p-5">
+                  <div className="flex justify-between items-start mb-2 gap-2">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
                       <span>{getFileIcon(doc.fichierType)}</span>
                       <a
-                        href={`${API_BASE_URL}/documents/${doc.id}/view?token=${localStorage.getItem("token")}`}
+                        href={`${API_BASE_URL}/documents/${doc.id}/view?token=${localStorage.getItem('token')}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="font-semibold text-blue-600 hover:underline"
+                        className="font-semibold text-blue-600 hover:underline truncate"
                         title="Cliquer pour prévisualiser"
                         onClick={async (e) => {
                           e.preventDefault();
                           try {
-                            const res = await fetch(`${API_BASE_URL}/documents/${doc.id}/view?token=${localStorage.getItem("token")}`, { method: 'HEAD' });
+                            const res = await fetch(`${API_BASE_URL}/documents/${doc.id}/view?token=${localStorage.getItem('token')}`, {
+                              method: 'HEAD',
+                            });
                             if (res.status === 403) {
                               alert("Accès refusé : vous n'avez pas les droits pour consulter ce document.");
                             } else {
-                              window.open(`${API_BASE_URL}/documents/${doc.id}/view?token=${localStorage.getItem("token")}`, '_blank');
+                              window.open(`${API_BASE_URL}/documents/${doc.id}/view?token=${localStorage.getItem('token')}`, '_blank');
                             }
                           } catch {
                             alert("Erreur lors de la vérification des droits d'accès.");
@@ -323,7 +362,7 @@ export default function OCR() {
                       </a>
                       <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{doc.typeDocument}</span>
                     </div>
-                    <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-medium">
+                    <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-medium shrink-0">
                       {doc.occurrences} occurrence(s)
                     </span>
                   </div>

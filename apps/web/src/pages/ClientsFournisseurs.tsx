@@ -67,6 +67,7 @@ export default function ClientsFournisseurs() {
   const [items, setItems] = useState<any[]>([]);
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [search, setSearch] = useState('');
+  const [showFiltres, setShowFiltres] = useState(true);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -323,20 +324,71 @@ export default function ClientsFournisseurs() {
   const pagedItems = items.slice(startIdx, startIdx + pageSize);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">🏢 Clients / Fournisseurs</h1>
-        {canCreate && <button onClick={openCreate} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">+ Ajouter</button>}
+    <div className="p-6">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Clients / Fournisseurs</h1>
+        <div className="flex flex-wrap gap-2 justify-end">
+          {canCreate && (
+            <button
+              type="button"
+              onClick={openCreate}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
+            >
+              + Ajouter
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Filtres */}
-      <div className="flex gap-3 mb-6">
-        <input type="text" placeholder="Rechercher..." value={search} onChange={e => setSearch(e.target.value)} className="border border-gray-300 rounded-md px-3 py-2 text-sm flex-1 max-w-xs" />
-        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="border border-gray-300 rounded-md px-3 py-2 text-sm">
-          <option value="">Tous</option>
-          <option value="client">Clients</option>
-          <option value="fournisseur">Fournisseurs</option>
-        </select>
+      <div className="bg-white rounded-lg shadow mb-6">
+        <button
+          type="button"
+          onClick={() => setShowFiltres(!showFiltres)}
+          className="w-full px-4 py-3 flex justify-between items-center text-left text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-t-lg"
+        >
+          <span>Filtres</span>
+          <span className="text-gray-400">{showFiltres ? '▼' : '▶'}</span>
+        </button>
+        {showFiltres && (
+          <div className="px-4 pb-4 pt-0 border-t border-gray-100">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Nom / recherche</label>
+                <input
+                  type="text"
+                  placeholder="Rechercher…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                <select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Tous</option>
+                  <option value="client">Clients</option>
+                  <option value="fournisseur">Fournisseurs</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end mt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  setTypeFilter('');
+                }}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Réinitialiser
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Liste */}
