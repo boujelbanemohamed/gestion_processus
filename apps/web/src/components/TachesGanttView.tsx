@@ -69,11 +69,13 @@ type Props = {
   taches: TacheGantt[];
   getCanEdit?: (t: TacheGantt) => boolean;
   onBarClick?: (t: TacheGantt) => void;
+  /** En-tête de la colonne des libellés (ex. « User story / projet ») */
+  rowLabelTitle?: string;
 };
 
 const DAY_MS = 86400000;
 
-export default function TachesGanttView({ taches, getCanEdit, onBarClick }: Props) {
+export default function TachesGanttView({ taches, getCanEdit, onBarClick, rowLabelTitle = 'Tâche / projet' }: Props) {
   const model = useMemo(() => {
     if (!taches.length) return null;
     const rows = taches.map((tache) => ({ tache, ...getTacheGanttRange(tache) }));
@@ -110,7 +112,7 @@ export default function TachesGanttView({ taches, getCanEdit, onBarClick }: Prop
               className="shrink-0 border-r border-gray-200 px-2 flex items-end pb-1 font-medium text-xs text-gray-600 bg-gray-50 sticky left-0 z-10"
               style={{ width: labelColW }}
             >
-              Tâche / projet
+              {rowLabelTitle}
             </div>
             <div className="relative h-full" style={{ width: timelineW }}>
               {Array.from({ length: totalDays }).map((_, i) => {
@@ -144,7 +146,7 @@ export default function TachesGanttView({ taches, getCanEdit, onBarClick }: Prop
             const leftPx = leftDays * colWidth;
             const widthPx = Math.max(spanDays * colWidth, 10);
             const barClass = BAR_BG[tache.statut] || 'bg-gray-500';
-            const mayClick = Boolean(onBarClick && getCanEdit?.(tache));
+            const mayClick = Boolean(onBarClick && (!getCanEdit || getCanEdit(tache)));
 
             return (
               <div key={tache.id} className="flex min-h-[44px] border-b border-gray-100 hover:bg-gray-50/80">

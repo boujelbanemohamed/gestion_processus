@@ -17,6 +17,8 @@ type Props = {
   getCanEdit: (t: KanbanTache) => boolean;
   onMoveTache: (tacheId: string, newStatut: string) => Promise<void>;
   onCardClick: (t: KanbanTache) => void;
+  /** Vue synthétique (ex. user stories / epics) : pas de glisser-déposer */
+  readOnly?: boolean;
 };
 
 export default function TachesKanbanView({
@@ -25,6 +27,7 @@ export default function TachesKanbanView({
   getCanEdit,
   onMoveTache,
   onCardClick,
+  readOnly = false,
 }: Props) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverStatut, setDragOverStatut] = useState<string | null>(null);
@@ -45,7 +48,7 @@ export default function TachesKanbanView({
   const grouped = byColumn();
 
   const handleDragStart = (e: React.DragEvent, t: KanbanTache) => {
-    if (!getCanEdit(t)) {
+    if (readOnly || !getCanEdit(t)) {
       e.preventDefault();
       return;
     }
@@ -75,7 +78,7 @@ export default function TachesKanbanView({
       setDraggingId(null);
       return;
     }
-    if (!getCanEdit(t)) {
+    if (readOnly || !getCanEdit(t)) {
       setDraggingId(null);
       return;
     }
@@ -91,8 +94,17 @@ export default function TachesKanbanView({
   return (
     <div className="space-y-3">
       <p className="text-sm text-gray-500">
-        {taches.length} tâche(s) — glissez une carte vers une autre colonne pour changer le statut
-        <span className="text-gray-400"> (admin / contributeur)</span>
+        {readOnly ? (
+          <>
+            {taches.length} élément(s) — colonnes selon le statut agrégé des tâches liées (lecture seule, pas de
+            glisser-déposer)
+          </>
+        ) : (
+          <>
+            {taches.length} tâche(s) — glissez une carte vers une autre colonne pour changer le statut
+            <span className="text-gray-400"> (admin / contributeur)</span>
+          </>
+        )}
       </p>
       <div className="flex gap-3 overflow-x-auto pb-3 -mx-1 px-1 snap-x snap-mandatory">
         {columns.map((col) => {
@@ -115,7 +127,7 @@ export default function TachesKanbanView({
               </div>
               <div className="p-2 space-y-2 overflow-y-auto flex-1 min-h-[120px]">
                 {list.map((t) => {
-                  const editable = getCanEdit(t);
+                  const editable = !readOnly && getCanEdit(t);
                   const isDragging = draggingId === t.id;
                   const isMoving = movingId === t.id;
                   return (
@@ -147,7 +159,9 @@ export default function TachesKanbanView({
                           {t.assignesUtilisateurs.map((u) => `${u.prenom} ${u.nom}`).join(', ')}
                         </p>
                       )}
-                      {!editable && <p className="text-[10px] text-amber-700 mt-2 font-medium">Lecture seule — pas de glisser-déposer</p>}
+                      {!editable && !readOnly && (
+                        <p className="text-[10px] text-amber-700 mt-2 font-medium">Lecture seule — pas de glisser-déposer</p>
+                      )}
                     </div>
                   );
                 })}

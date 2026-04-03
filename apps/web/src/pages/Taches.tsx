@@ -1,6 +1,6 @@
-import { useEffect, useState, useRef, type FormEvent } from 'react';
-import TachesGanttView from '../components/TachesGanttView';
-import TachesKanbanView from '../components/TachesKanbanView';
+import { useEffect, useState, useRef, useMemo, type FormEvent } from 'react';
+import TachesGanttView, { type TacheGantt } from '../components/TachesGanttView';
+import TachesKanbanView, { type KanbanTache } from '../components/TachesKanbanView';
 import TachesEnRetardBloc, { type TacheEnRetardItem } from '../components/TachesEnRetardBloc';
 import {
   EpicCreateModal,
@@ -1497,6 +1497,222 @@ function truncateUi(s: string, n: number) {
   return t.length <= n ? t : `${t.slice(0, n)}…`;
 }
 
+/** Statut Kanban/Gantt pour une user story ou un epic, dérivé des tâches liées. */
+function deriveAggregatedStatutFromTasks(
+  taskList: { statut: string; dateFinApprox?: string }[],
+  now: Date
+): string {
+  if (taskList.length === 0) return 'cree';
+  const active = taskList.filter((t) => t.statut !== 'archive');
+  if (active.length === 0) return 'termine';
+  const nonTerm = active.filter((t) => t.statut !== 'termine');
+  if (nonTerm.length === 0) return 'termine';
+  const anyBlocked = nonTerm.some(
+    (t) =>
+      t.statut === 'bloque' ||
+      Boolean(t.dateFinApprox && new Date(t.dateFinApprox) < now && t.statut !== 'termine')
+  );
+  if (anyBlocked) return 'bloque';
+  if (nonTerm.some((t) => t.statut === 'en_cours')) return 'en_cours';
+  if (nonTerm.some((t) => t.statut === 'en_attente')) return 'en_attente';
+  if (nonTerm.some((t) => t.statut === 'a_faire')) return 'a_faire';
+  return 'cree';
+}
+
+function collectAssignesFromTasks(tl: Tache[]): { id: string; nom: string; prenom: string }[] {
+  const assignMap = new Map<string, { id: string; nom: string; prenom: string }>();
+  for (const t of tl) {
+    for (const u of t.assignesUtilisateurs || []) assignMap.set(u.id, u);
+  }
+  return [...assignMap.values()];
+}
+
+function userStoryToKanbanAndGantt(us: UserStoryRow, taches: Tache[]): { kanban: KanbanTache; gantt: TacheGantt } {
+  const now = new Date();
+  const tl = taches.filter((t) => t.userStory?.id === us.id);
+  const statut = deriveAggregatedStatutFromTasks(
+    tl.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
+    now
+  );
+  const debuts = tl.map((t) => t.dateDebut).filter(Boolean) as string[];
+  const fins = tl.map((t) => t.dateFinApprox).filter(Boolean) as string[];
+  let dateDebut: string | undefined;
+  let dateFinApprox: string | undefined;
+  if (debuts.length) dateDebut = debuts.reduce((a, b) => (new Date(a) < new Date(b) ? a : b));
+  if (fins.length) dateFinApprox = fins.reduce((a, b) => (new Date(a) > new Date(b) ? a : b));
+  const nom = truncateUi(us.description, 100);
+  return {
+    kanban: {
+      id: us.id,
+      nom,
+      statut,
+      dateFinApprox,
+      projet: us.epic?.projet,
+      assignesUtilisateurs: collectAssignesFromTasks(tl),
+    },
+    gantt: {
+      id: us.id,
+      nom,
+      statut,
+      dateDebut,
+      dateFinApprox,
+      projet: us.epic?.projet,
+    },
+  };
+}
+
+function tasksForEpic(ep: EpicRow, allUserStories: UserStoryRow[], taches: Tache[]): Tache[] {
+  const usIds = new Set(allUserStories.filter((us) => us.epicId === ep.id).map((us) => us.id));
+  return taches.filter((t) => t.userStory?.id && usIds.has(t.userStory.id));
+}
+
+function epicToKanbanAndGantt(
+  ep: EpicRow,
+  taches: Tache[],
+  allUserStories: UserStoryRow[]
+): { kanban: KanbanTache; gantt: TacheGantt } {
+  const now = new Date();
+  const tl = tasksForEpic(ep, allUserStories, taches);
+  const statut = deriveAggregatedStatutFromTasks(
+    tl.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
+    now
+  );
+  const debuts = tl.map((t) => t.dateDebut).filter(Boolean) as string[];
+  const fins = tl.map((t) => t.dateFinApprox).filter(Boolean) as string[];
+  let dateDebut: string | undefined;
+  let dateFinApprox: string | undefined;
+  if (debuts.length) dateDebut = debuts.reduce((a, b) => (new Date(a) < new Date(b) ? a : b));
+  if (fins.length) dateFinApprox = fins.reduce((a, b) => (new Date(a) > new Date(b) ? a : b));
+  return {
+    kanban: {
+      id: ep.id,
+      nom: ep.nom,
+      statut,
+      dateFinApprox,
+      projet: ep.projet,
+      assignesUtilisateurs: collectAssignesFromTasks(tl),
+    },
+    gantt: {
+      id: ep.id,
+      nom: ep.nom,
+      statut,
+      dateDebut,
+      dateFinApprox,
+      projet: ep.projet,
+    },
+  };
+}
+
+function UserStoriesAgileDashboard({ userStories, taches }: { userStories: UserStoryRow[]; taches: Tache[] }) {
+  const now = new Date();
+  let termineAgg = 0;
+  let bloqueAgg = 0;
+  let encoursAgg = 0;
+  let sansTache = 0;
+  for (const us of userStories) {
+    const tl = taches.filter((t) => t.userStory?.id === us.id);
+    if (tl.length === 0) {
+      sansTache++;
+      continue;
+    }
+    const s = deriveAggregatedStatutFromTasks(
+      tl.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
+      now
+    );
+    if (s === 'termine') termineAgg++;
+    else if (s === 'bloque') bloqueAgg++;
+    else if (s === 'en_cours') encoursAgg++;
+  }
+  return (
+    <div className="mb-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-white rounded-lg shadow p-3 text-center border border-gray-100">
+          <div className="text-2xl font-bold text-gray-800">{userStories.length}</div>
+          <div className="text-xs text-gray-500 mt-0.5">User stories</div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-3 text-center border border-gray-100">
+          <div className="text-2xl font-bold text-green-600">{termineAgg}</div>
+          <div className="text-xs text-gray-500 mt-0.5">Tâches toutes terminées</div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-3 text-center border border-gray-100">
+          <div className="text-2xl font-bold text-blue-600">{encoursAgg}</div>
+          <div className="text-xs text-gray-500 mt-0.5">En cours (agrégé)</div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-3 text-center border border-gray-100">
+          <div className="text-2xl font-bold text-red-600">{bloqueAgg}</div>
+          <div className="text-xs text-gray-500 mt-0.5">Retard / bloqué</div>
+        </div>
+      </div>
+      {sansTache > 0 && (
+        <p className="text-xs text-gray-500 mt-2">
+          {sansTache} user story(s) sans tâche liée (statut « Créée » sur Kanban / Gantt).
+        </p>
+      )}
+      <p className="text-xs text-gray-400 mt-1">Indicateurs basés sur les tâches rattachées à chaque user story.</p>
+    </div>
+  );
+}
+
+function EpicsAgileDashboard({
+  epics,
+  taches,
+  userStories,
+}: {
+  epics: EpicRow[];
+  taches: Tache[];
+  userStories: UserStoryRow[];
+}) {
+  const now = new Date();
+  let termineAgg = 0;
+  let bloqueAgg = 0;
+  let encoursAgg = 0;
+  let sansTache = 0;
+  for (const ep of epics) {
+    const tl = tasksForEpic(ep, userStories, taches);
+    if (tl.length === 0) {
+      sansTache++;
+      continue;
+    }
+    const s = deriveAggregatedStatutFromTasks(
+      tl.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
+      now
+    );
+    if (s === 'termine') termineAgg++;
+    else if (s === 'bloque') bloqueAgg++;
+    else if (s === 'en_cours') encoursAgg++;
+  }
+  return (
+    <div className="mb-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-white rounded-lg shadow p-3 text-center border border-gray-100">
+          <div className="text-2xl font-bold text-gray-800">{epics.length}</div>
+          <div className="text-xs text-gray-500 mt-0.5">Epics</div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-3 text-center border border-gray-100">
+          <div className="text-2xl font-bold text-green-600">{termineAgg}</div>
+          <div className="text-xs text-gray-500 mt-0.5">Tâches toutes terminées</div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-3 text-center border border-gray-100">
+          <div className="text-2xl font-bold text-blue-600">{encoursAgg}</div>
+          <div className="text-xs text-gray-500 mt-0.5">En cours (agrégé)</div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-3 text-center border border-gray-100">
+          <div className="text-2xl font-bold text-red-600">{bloqueAgg}</div>
+          <div className="text-xs text-gray-500 mt-0.5">Retard / bloqué</div>
+        </div>
+      </div>
+      {sansTache > 0 && (
+        <p className="text-xs text-gray-500 mt-2">
+          {sansTache} epic(s) sans tâche via les user stories (statut « Créée » sur Kanban / Gantt).
+        </p>
+      )}
+      <p className="text-xs text-gray-400 mt-1">Indicateurs basés sur toutes les tâches des user stories de l&apos;epic.</p>
+    </div>
+  );
+}
+
+const noopKanbanMove = async (_id: string, _s: string) => {};
+
 // ─── Page Principale ──────────────────────────────────────────────────────────
 export default function Taches() {
   const { user: currentUser } = useAuth();
@@ -1511,6 +1727,10 @@ export default function Taches() {
   const [showModal, setShowModal] = useState(false);
   const [editTache, setEditTache] = useState<Tache | undefined>();
   const [showDashboard, setShowDashboard] = useState(false);
+  const [usViewMode, setUsViewMode] = useState<'list' | 'kanban' | 'gantt'>('list');
+  const [epicViewMode, setEpicViewMode] = useState<'list' | 'kanban' | 'gantt'>('list');
+  const [showUsDashboard, setShowUsDashboard] = useState(false);
+  const [showEpicDashboard, setShowEpicDashboard] = useState(false);
   const [showEpicCreateModal, setShowEpicCreateModal] = useState(false);
   const [showUsCreateModal, setShowUsCreateModal] = useState(false);
   const [detailEpicId, setDetailEpicId] = useState<string | null>(null);
@@ -1696,6 +1916,23 @@ export default function Taches() {
 
   const visibleTacheIds = new Set(visibleTaches.map((t) => t.id));
   const tachesEnRetardFiltrees = tachesEnRetard.filter((item) => visibleTacheIds.has(item.id));
+
+  const usAgileKanbanItems = useMemo(
+    () => visibleUserStories.map((us) => userStoryToKanbanAndGantt(us, taches).kanban),
+    [visibleUserStories, taches]
+  );
+  const usAgileGanttItems = useMemo(
+    () => visibleUserStories.map((us) => userStoryToKanbanAndGantt(us, taches).gantt),
+    [visibleUserStories, taches]
+  );
+  const epicAgileKanbanItems = useMemo(
+    () => visibleEpics.map((ep) => epicToKanbanAndGantt(ep, taches, userStories).kanban),
+    [visibleEpics, taches, userStories]
+  );
+  const epicAgileGanttItems = useMemo(
+    () => visibleEpics.map((ep) => epicToKanbanAndGantt(ep, taches, userStories).gantt),
+    [visibleEpics, taches, userStories]
+  );
 
   const totalPages = Math.max(1, Math.ceil(visibleTaches.length / pageSize));
   const pagedTaches = visibleTaches.slice((page - 1) * pageSize, page * pageSize);
@@ -2073,6 +2310,39 @@ export default function Taches() {
         <h2 id="sec-user-stories" className="text-xl font-semibold text-gray-900 border-b border-gray-200 pb-2 mb-4">
           User stories
         </h2>
+        <div className="flex flex-wrap gap-2 items-center mb-4">
+          <div className="flex rounded-lg border border-gray-300 overflow-hidden shadow-sm">
+            <button
+              type="button"
+              onClick={() => setUsViewMode('list')}
+              className={`px-3 py-2 text-sm font-medium ${usViewMode === 'list' ? 'bg-violet-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Liste
+            </button>
+            <button
+              type="button"
+              onClick={() => setUsViewMode('kanban')}
+              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${usViewMode === 'kanban' ? 'bg-violet-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Kanban
+            </button>
+            <button
+              type="button"
+              onClick={() => setUsViewMode('gantt')}
+              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${usViewMode === 'gantt' ? 'bg-violet-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Gantt
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowUsDashboard(!showUsDashboard)}
+            className={`px-4 py-2 rounded border text-sm font-medium transition-colors ${showUsDashboard ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            {showUsDashboard ? '📊 Masquer dashboard' : '📊 Dashboard'}
+          </button>
+        </div>
+        {showUsDashboard && <UserStoriesAgileDashboard userStories={visibleUserStories} taches={taches} />}
         {userStoriesEnRetardList.length > 0 && (
           <div className="bg-white p-4 rounded-lg shadow mb-4 border-l-4 border-amber-500">
             <h3 className="text-md font-semibold text-gray-800 mb-1">User stories en retard</h3>
@@ -2096,38 +2366,62 @@ export default function Taches() {
             </ul>
           </div>
         )}
-        <p className="text-sm text-gray-500 mb-2">{visibleUserStories.length} user story(s)</p>
-        <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
-          {visibleUserStories.length === 0 && (
-            <div className="bg-white rounded-lg shadow p-6 text-center text-gray-400">Aucune user story à afficher</div>
-          )}
-          {visibleUserStories.map((us) => (
-            <div
-              key={us.id}
-              className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm flex flex-wrap justify-between gap-2 items-start"
-            >
-              <div className="min-w-0 flex-1">
-                <button
-                  type="button"
-                  className="text-left font-medium text-gray-900 hover:text-blue-700"
-                  onClick={() => setDetailUserStoryId(us.id)}
+        {usViewMode === 'gantt' ? (
+          <div className="space-y-2">
+            <p className="text-sm text-gray-500">
+              {visibleUserStories.length} user story(s) — plage temporelle dérivée des dates des tâches liées (min début, max fin).
+            </p>
+            <TachesGanttView
+              taches={usAgileGanttItems}
+              rowLabelTitle="User story / projet"
+              onBarClick={(row) => setDetailUserStoryId(row.id)}
+            />
+          </div>
+        ) : usViewMode === 'kanban' ? (
+          <TachesKanbanView
+            taches={usAgileKanbanItems}
+            columns={STATUT_OPTIONS}
+            readOnly
+            getCanEdit={() => false}
+            onMoveTache={noopKanbanMove}
+            onCardClick={(row) => setDetailUserStoryId(row.id)}
+          />
+        ) : (
+          <>
+            <p className="text-sm text-gray-500 mb-2">{visibleUserStories.length} user story(s)</p>
+            <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
+              {visibleUserStories.length === 0 && (
+                <div className="bg-white rounded-lg shadow p-6 text-center text-gray-400">Aucune user story à afficher</div>
+              )}
+              {visibleUserStories.map((us) => (
+                <div
+                  key={us.id}
+                  className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm flex flex-wrap justify-between gap-2 items-start"
                 >
-                  {truncateUi(us.description, 200)}
-                </button>
-                <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-x-2 gap-y-0">
-                  {us.epic ? (
-                    <>
-                      <span>Epic : {us.epic.nom}</span>
-                      {us.epic.projet && <span>· {us.epic.projet.nom}</span>}
-                    </>
-                  ) : (
-                    <span className="italic">Sans epic</span>
-                  )}
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      className="text-left font-medium text-gray-900 hover:text-blue-700"
+                      onClick={() => setDetailUserStoryId(us.id)}
+                    >
+                      {truncateUi(us.description, 200)}
+                    </button>
+                    <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-x-2 gap-y-0">
+                      {us.epic ? (
+                        <>
+                          <span>Epic : {us.epic.nom}</span>
+                          {us.epic.projet && <span>· {us.epic.projet.nom}</span>}
+                        </>
+                      ) : (
+                        <span className="italic">Sans epic</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        )}
       </section>
       )}
 
@@ -2137,6 +2431,41 @@ export default function Taches() {
         <h2 id="sec-epics" className="text-xl font-semibold text-gray-900 border-b border-gray-200 pb-2 mb-4">
           Epics
         </h2>
+        <div className="flex flex-wrap gap-2 items-center mb-4">
+          <div className="flex rounded-lg border border-gray-300 overflow-hidden shadow-sm">
+            <button
+              type="button"
+              onClick={() => setEpicViewMode('list')}
+              className={`px-3 py-2 text-sm font-medium ${epicViewMode === 'list' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Liste
+            </button>
+            <button
+              type="button"
+              onClick={() => setEpicViewMode('kanban')}
+              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${epicViewMode === 'kanban' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Kanban
+            </button>
+            <button
+              type="button"
+              onClick={() => setEpicViewMode('gantt')}
+              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${epicViewMode === 'gantt' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Gantt
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowEpicDashboard(!showEpicDashboard)}
+            className={`px-4 py-2 rounded border text-sm font-medium transition-colors ${showEpicDashboard ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            {showEpicDashboard ? '📊 Masquer dashboard' : '📊 Dashboard'}
+          </button>
+        </div>
+        {showEpicDashboard && (
+          <EpicsAgileDashboard epics={visibleEpics} taches={taches} userStories={userStories} />
+        )}
         {epicsEnRetardList.length > 0 && (
           <div className="bg-white p-4 rounded-lg shadow mb-4 border-l-4 border-amber-500">
             <h3 className="text-md font-semibold text-gray-800 mb-1">Epics en retard</h3>
@@ -2160,36 +2489,60 @@ export default function Taches() {
             </ul>
           </div>
         )}
-        <p className="text-sm text-gray-500 mb-2">{visibleEpics.length} epic(s)</p>
-        <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
-          {visibleEpics.length === 0 && (
-            <div className="bg-white rounded-lg shadow p-6 text-center text-gray-400">Aucun epic à afficher</div>
-          )}
-          {visibleEpics.map((ep) => (
-            <div
-              key={ep.id}
-              className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm flex flex-wrap justify-between gap-2 items-start"
-            >
-              <div className="min-w-0 flex-1">
-                <button
-                  type="button"
-                  className="text-left font-semibold text-gray-900 hover:text-blue-700"
-                  onClick={() => setDetailEpicId(ep.id)}
+        {epicViewMode === 'gantt' ? (
+          <div className="space-y-2">
+            <p className="text-sm text-gray-500">
+              {visibleEpics.length} epic(s) — plage temporelle agrégée sur toutes les tâches des user stories de l&apos;epic.
+            </p>
+            <TachesGanttView
+              taches={epicAgileGanttItems}
+              rowLabelTitle="Epic / projet"
+              onBarClick={(row) => setDetailEpicId(row.id)}
+            />
+          </div>
+        ) : epicViewMode === 'kanban' ? (
+          <TachesKanbanView
+            taches={epicAgileKanbanItems}
+            columns={STATUT_OPTIONS}
+            readOnly
+            getCanEdit={() => false}
+            onMoveTache={noopKanbanMove}
+            onCardClick={(row) => setDetailEpicId(row.id)}
+          />
+        ) : (
+          <>
+            <p className="text-sm text-gray-500 mb-2">{visibleEpics.length} epic(s)</p>
+            <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
+              {visibleEpics.length === 0 && (
+                <div className="bg-white rounded-lg shadow p-6 text-center text-gray-400">Aucun epic à afficher</div>
+              )}
+              {visibleEpics.map((ep) => (
+                <div
+                  key={ep.id}
+                  className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm flex flex-wrap justify-between gap-2 items-start"
                 >
-                  {ep.nom}
-                </button>
-                <p className="text-xs text-gray-500 mt-1">
-                  {ep.projet?.nom ?? 'Projet —'} · {(ep.userStories?.length ?? 0)} user story(s)
-                  {(ep.assignesEntites?.length ?? 0) > 0 && (
-                    <span className="ml-1">
-                      · Entités : {(ep.assignesEntites || []).map((ae) => ae.entite.nom).join(', ')}
-                    </span>
-                  )}
-                </p>
-              </div>
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      className="text-left font-semibold text-gray-900 hover:text-blue-700"
+                      onClick={() => setDetailEpicId(ep.id)}
+                    >
+                      {ep.nom}
+                    </button>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {ep.projet?.nom ?? 'Projet —'} · {(ep.userStories?.length ?? 0)} user story(s)
+                      {(ep.assignesEntites?.length ?? 0) > 0 && (
+                        <span className="ml-1">
+                          · Entités : {(ep.assignesEntites || []).map((ae) => ae.entite.nom).join(', ')}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        )}
       </section>
       )}
 
