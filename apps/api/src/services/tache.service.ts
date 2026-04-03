@@ -55,7 +55,10 @@ const TACHE_INCLUDE = {
           description: true,
           projetId: true,
           projet: { select: { id: true, nom: true } },
-          entite: { select: { id: true, nom: true } },
+          assignesEntites: {
+            orderBy: { createdAt: 'asc' as const },
+            select: { entite: { select: { id: true, nom: true } } },
+          },
         },
       },
     },
