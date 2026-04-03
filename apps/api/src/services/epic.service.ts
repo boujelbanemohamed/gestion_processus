@@ -64,6 +64,41 @@ export class EpicService {
     });
   }
 
+  async updateEpic(
+    id: string,
+    data: {
+      nom?: string;
+      description?: string | null;
+      projetId?: string;
+      entiteIds?: string[];
+    }
+  ) {
+    const ep = await prisma.epic.findUnique({ where: { id } });
+    if (!ep) throw new Error('Epic introuvable');
+
+    const dataEpic: { nom?: string; description?: string | null; projetId?: string } = {};
+    if (data.nom !== undefined) dataEpic.nom = data.nom.trim();
+    if (data.description !== undefined) dataEpic.description = data.description?.trim() || null;
+    if (data.projetId !== undefined) dataEpic.projetId = data.projetId;
+
+    await prisma.$transaction(async (tx) => {
+      if (Object.keys(dataEpic).length > 0) {
+        await tx.epic.update({ where: { id }, data: dataEpic });
+      }
+      if (data.entiteIds !== undefined) {
+        await tx.epicEntite.deleteMany({ where: { epicId: id } });
+        const unique = [...new Set(data.entiteIds.map((e) => e.trim()).filter(Boolean))];
+        if (unique.length > 0) {
+          await tx.epicEntite.createMany({
+            data: unique.map((entiteId) => ({ epicId: id, entiteId })),
+          });
+        }
+      }
+    });
+
+    return this.getEpic(id);
+  }
+
   async createEpic(data: {
     nom: string;
     description?: string | null;

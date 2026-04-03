@@ -41,6 +41,30 @@ export const getEpic = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const updateEpic = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { nom, description, projetId, entiteIds } = req.body;
+    const eIds = entiteIds !== undefined
+      ? Array.isArray(entiteIds)
+        ? entiteIds
+        : entiteIds
+          ? [entiteIds]
+          : []
+      : undefined;
+    const row = await epicService.updateEpic(req.params.id, {
+      ...(nom !== undefined && { nom }),
+      ...(description !== undefined && { description: description ?? null }),
+      ...(projetId !== undefined && { projetId }),
+      ...(eIds !== undefined && { entiteIds: eIds }),
+    });
+    await logAccess(req, res, 'modification', 'projet', row!.id, row!.nom, { type: 'epic' });
+    res.json(row);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+};
+
 export const createEpic = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });

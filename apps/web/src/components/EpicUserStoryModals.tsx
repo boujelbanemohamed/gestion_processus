@@ -240,6 +240,356 @@ export function EpicCreateModal({
   );
 }
 
+/** Référence minimale tâche pour rattachement US (évite import circulaire). */
+export type TacheForUserStoryLink = {
+  id: string;
+  nom: string;
+  projetId?: string | null;
+  userStory?: { id: string } | null;
+};
+
+export function UserStoryEditModal({
+  userStoryId,
+  onClose,
+  onSaved,
+  projets: _projets,
+  epics,
+  taches,
+}: {
+  userStoryId: string;
+  onClose: () => void;
+  onSaved: () => void;
+  projets: ProjetOption[];
+  epics: EpicRow[];
+  taches: TacheForUserStoryLink[];
+}) {
+  const [loading, setLoading] = useState(true);
+  const [description, setDescription] = useState('');
+  const [epicId, setEpicId] = useState('');
+  const [projetFilter, setProjetFilter] = useState('');
+  const [selectedTacheIds, setSelectedTacheIds] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    let cancel = false;
+    setLoading(true);
+    setErr('');
+    api
+      .get(`/user-stories/${userStoryId}`)
+      .then((r) => {
+        if (cancel || !r.data) return;
+        const us = r.data as UserStoryRow;
+        setDescription(us.description || '');
+        const eid = us.epicId || '';
+        setEpicId(eid);
+        const pid = (us.epic as EpicRow | undefined)?.projetId || '';
+        setProjetFilter(pid);
+        const linked = (us.taches || []).map((t) => t.id);
+        setSelectedTacheIds(linked);
+      })
+      .catch(() => {
+        if (!cancel) setErr('Impossible de charger la user story.');
+      })
+      .finally(() => {
+        if (!cancel) setLoading(false);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [userStoryId]);
+
+  const epicObj = epics.find((e) => e.id === epicId);
+  const lockProjetId = epicObj?.projetId || '';
+
+  const filteredEpics = projetFilter ? epics.filter((e) => e.projetId === projetFilter) : epics;
+
+  const tachesPourLier = taches.filter((t) => {
+    if (lockProjetId && t.projetId !== lockProjetId) return false;
+    if (t.userStory?.id && t.userStory.id !== userStoryId) return false;
+    return true;
+  });
+
+  const toggleTache = (id: string) =>
+    setSelectedTacheIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setErr('');
+    if (!description.trim() || !epicId) {
+      setErr('Description et epic requis.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.put(`/user-stories/${userStoryId}`, {
+        description: description.trim(),
+        epicId,
+        tacheIds: selectedTacheIds,
+      });
+      onSaved();
+      onClose();
+    } catch (ex: any) {
+      setErr(ex?.response?.data?.error || ex?.message || 'Erreur');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[75] p-4">
+        <div className="bg-white rounded-xl p-8 shadow-xl">
+          <p className="text-gray-600">Chargement…</p>
+          <button type="button" onClick={onClose} className="mt-4 text-sm text-blue-600">
+            Fermer
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[75] p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b px-5 py-3 flex justify-between items-center">
+          <h2 className="text-lg font-semibold">Modifier la User story</h2>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">
+            ×
+          </button>
+        </div>
+        <form onSubmit={submit} className="p-5 space-y-4">
+          {err && <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{err}</div>}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Filtrer les epics par projet</label>
+            <select
+              value={projetFilter}
+              onChange={(e) => {
+                setProjetFilter(e.target.value);
+                setEpicId('');
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            >
+              <option value="">Tous les projets</option>
+              {_projets.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nom}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Epic *</label>
+            <select
+              value={epicId}
+              onChange={(e) => setEpicId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              required
+            >
+              <option value="">— Choisir un epic —</option>
+              {filteredEpics.map((ep) => (
+                <option key={ep.id} value={ep.id}>
+                  {ep.nom} {ep.projet?.nom ? `(${ep.projet.nom})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tâches à rattacher</label>
+            <p className="text-xs text-gray-500 mb-2">Projet de l&apos;epic : tâches libres ou déjà liées à cette user story.</p>
+            <div className="border rounded-md max-h-44 overflow-y-auto p-2 space-y-1">
+              {tachesPourLier.map((t) => (
+                <label key={t.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
+                  <input type="checkbox" checked={selectedTacheIds.includes(t.id)} onChange={() => toggleTache(t.id)} />
+                  <span>{t.nom}</span>
+                </label>
+              ))}
+              {epicId && tachesPourLier.length === 0 && (
+                <p className="text-xs text-gray-400">Aucune tâche disponible pour ce projet</p>
+              )}
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 border rounded-md text-gray-700">
+              Annuler
+            </button>
+            <button type="submit" disabled={saving} className="px-4 py-2 bg-violet-600 text-white rounded-md disabled:opacity-50">
+              {saving ? 'Enregistrement…' : 'Enregistrer'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export function EpicEditModal({
+  epicId,
+  onClose,
+  onSaved,
+  projets,
+  entites,
+}: {
+  epicId: string;
+  onClose: () => void;
+  onSaved: () => void;
+  projets: ProjetOption[];
+  entites: EntiteOption[];
+}) {
+  const [loading, setLoading] = useState(true);
+  const [nom, setNom] = useState('');
+  const [description, setDescription] = useState('');
+  const [projetId, setProjetId] = useState('');
+  const [selectedEntiteIds, setSelectedEntiteIds] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    let cancel = false;
+    setLoading(true);
+    setErr('');
+    api
+      .get(`/epics/${epicId}`)
+      .then((r) => {
+        if (cancel || !r.data) return;
+        const ep = r.data as EpicRow;
+        setNom(ep.nom || '');
+        setDescription(ep.description || '');
+        setProjetId(ep.projetId || '');
+        setSelectedEntiteIds((ep.assignesEntites || []).map((ae) => ae.entite.id));
+      })
+      .catch(() => {
+        if (!cancel) setErr("Impossible de charger l'epic.");
+      })
+      .finally(() => {
+        if (!cancel) setLoading(false);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [epicId]);
+
+  const toggleEntite = (id: string) =>
+    setSelectedEntiteIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setErr('');
+    if (!nom.trim() || !projetId) {
+      setErr('Nom et projet sont obligatoires.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.put(`/epics/${epicId}`, {
+        nom: nom.trim(),
+        description: description.trim() || null,
+        projetId,
+        entiteIds: selectedEntiteIds,
+      });
+      onSaved();
+      onClose();
+    } catch (ex: any) {
+      setErr(ex?.response?.data?.error || ex?.message || 'Erreur');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[75] p-4">
+        <div className="bg-white rounded-xl p-8 shadow-xl">
+          <p className="text-gray-600">Chargement…</p>
+          <button type="button" onClick={onClose} className="mt-4 text-sm text-blue-600">
+            Fermer
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[75] p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b px-5 py-3 flex justify-between items-center">
+          <h2 className="text-lg font-semibold">Modifier l&apos;Epic</h2>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">
+            ×
+          </button>
+        </div>
+        <form onSubmit={submit} className="p-5 space-y-4">
+          {err && <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{err}</div>}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nom de l&apos;Epic *</label>
+            <input
+              value={nom}
+              onChange={(e) => setNom(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Projet associé *</label>
+            <select
+              value={projetId}
+              onChange={(e) => setProjetId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              required
+            >
+              <option value="">— Choisir —</option>
+              {projets.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nom}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Entités assignées</label>
+            <div className="border rounded-md max-h-36 overflow-y-auto p-2 space-y-1">
+              {entites.map((e) => (
+                <label key={e.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
+                  <input type="checkbox" checked={selectedEntiteIds.includes(e.id)} onChange={() => toggleEntite(e.id)} />
+                  {e.nom}
+                </label>
+              ))}
+              {entites.length === 0 && <p className="text-xs text-gray-400">Aucune entité</p>}
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 border rounded-md text-gray-700">
+              Annuler
+            </button>
+            <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-md disabled:opacity-50">
+              {saving ? 'Enregistrement…' : 'Enregistrer'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function EpicDetailModal({ epicId, onClose }: { epicId: string; onClose: () => void }) {
   const [epic, setEpic] = useState<EpicRow | null>(null);
   const [loading, setLoading] = useState(true);

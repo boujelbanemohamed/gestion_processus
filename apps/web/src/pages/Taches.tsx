@@ -5,7 +5,9 @@ import TachesEnRetardBloc, { type TacheEnRetardItem } from '../components/Taches
 import {
   EpicCreateModal,
   EpicDetailModal,
+  EpicEditModal,
   UserStoryDetailModal,
+  UserStoryEditModal,
   type EpicRow,
   type UserStoryRow,
 } from '../components/EpicUserStoryModals';
@@ -1758,6 +1760,10 @@ export default function Taches() {
   const [showUsCreateModal, setShowUsCreateModal] = useState(false);
   const [detailEpicId, setDetailEpicId] = useState<string | null>(null);
   const [detailUserStoryId, setDetailUserStoryId] = useState<string | null>(null);
+  const [editUserStoryId, setEditUserStoryId] = useState<string | null>(null);
+  const [editEpicId, setEditEpicId] = useState<string | null>(null);
+  const [expandedUsListId, setExpandedUsListId] = useState<string | null>(null);
+  const [expandedEpicListId, setExpandedEpicListId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'gantt' | 'kanban'>('list');
   const defaultSectionViews = { taches: true, userStories: true, epics: true };
   const [sectionViews, setSectionViews] = useState(defaultSectionViews);
@@ -1841,6 +1847,7 @@ export default function Taches() {
   };
 
   const canCreate = isAdmin || isContributeur || !!currentUser;
+  const canEditUsEpic = isAdmin || isContributeur;
 
   // Filtrage selon rôle + filtres UI
   const visibleTaches = taches.filter(t => {
@@ -2416,32 +2423,85 @@ export default function Taches() {
               {visibleUserStories.length === 0 && (
                 <div className="bg-white rounded-lg shadow p-6 text-center text-gray-400">Aucune user story à afficher</div>
               )}
-              {visibleUserStories.map((us) => (
-                <div
-                  key={us.id}
-                  className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm flex flex-wrap justify-between gap-2 items-start"
-                >
-                  <div className="min-w-0 flex-1">
-                    <button
-                      type="button"
-                      className="text-left font-medium text-gray-900 hover:text-blue-700"
-                      onClick={() => setDetailUserStoryId(us.id)}
-                    >
-                      {truncateUi(us.description, 200)}
-                    </button>
-                    <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-x-2 gap-y-0">
-                      {us.epic ? (
-                        <>
-                          <span>Epic : {us.epic.nom}</span>
-                          {us.epic.projet && <span>· {us.epic.projet.nom}</span>}
-                        </>
-                      ) : (
-                        <span className="italic">Sans epic</span>
-                      )}
+              {visibleUserStories.map((us) => {
+                const usExpanded = expandedUsListId === us.id;
+                return (
+                  <div
+                    key={us.id}
+                    className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden"
+                  >
+                    <div className="p-3 flex flex-wrap justify-between gap-2 items-start">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-gray-900">{truncateUi(us.description, 200)}</p>
+                        <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-x-2 gap-y-0">
+                          {us.epic ? (
+                            <>
+                              <span>Epic : {us.epic.nom}</span>
+                              {us.epic.projet && <span>· {us.epic.projet.nom}</span>}
+                            </>
+                          ) : (
+                            <span className="italic">Sans epic</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex gap-2 shrink-0 items-start flex-wrap justify-end">
+                        {canEditUsEpic ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+                            ✏️ Modification
+                          </span>
+                        ) : (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
+                            👁 Lecture seule
+                          </span>
+                        )}
+                        {canEditUsEpic && (
+                          <button
+                            type="button"
+                            onClick={() => setEditUserStoryId(us.id)}
+                            className="text-xs px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-gray-600"
+                          >
+                            ✏️ Modifier
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setExpandedUsListId(usExpanded ? null : us.id)}
+                          className="text-xs px-3 py-1.5 border border-blue-300 rounded hover:bg-blue-50 text-blue-600"
+                        >
+                          {usExpanded ? '▲ Réduire' : '▼ Détails'}
+                        </button>
+                      </div>
                     </div>
+                    {usExpanded && (
+                      <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-3 text-sm">
+                        <div>
+                          <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">Description</h4>
+                          <p className="text-gray-800 whitespace-pre-wrap">{us.description}</p>
+                        </div>
+                        {(us.taches?.length ?? 0) > 0 && (
+                          <div>
+                            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">Tâches liées</h4>
+                            <ul className="list-disc pl-5 text-gray-700">
+                              {(us.taches || []).map((t) => (
+                                <li key={t.id}>
+                                  {t.nom} <span className="text-gray-400">({t.statut})</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setDetailUserStoryId(us.id)}
+                          className="text-sm text-blue-600 hover:underline font-medium"
+                        >
+                          Ouvrir la fiche complète…
+                        </button>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
@@ -2539,30 +2599,85 @@ export default function Taches() {
               {visibleEpics.length === 0 && (
                 <div className="bg-white rounded-lg shadow p-6 text-center text-gray-400">Aucun epic à afficher</div>
               )}
-              {visibleEpics.map((ep) => (
-                <div
-                  key={ep.id}
-                  className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm flex flex-wrap justify-between gap-2 items-start"
-                >
-                  <div className="min-w-0 flex-1">
-                    <button
-                      type="button"
-                      className="text-left font-semibold text-gray-900 hover:text-blue-700"
-                      onClick={() => setDetailEpicId(ep.id)}
-                    >
-                      {ep.nom}
-                    </button>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {ep.projet?.nom ?? 'Projet —'} · {(ep.userStories?.length ?? 0)} user story(s)
-                      {(ep.assignesEntites?.length ?? 0) > 0 && (
-                        <span className="ml-1">
-                          · Entités : {(ep.assignesEntites || []).map((ae) => ae.entite.nom).join(', ')}
-                        </span>
-                      )}
-                    </p>
+              {visibleEpics.map((ep) => {
+                const epExpanded = expandedEpicListId === ep.id;
+                return (
+                  <div
+                    key={ep.id}
+                    className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden"
+                  >
+                    <div className="p-3 flex flex-wrap justify-between gap-2 items-start">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-gray-900">{ep.nom}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {ep.projet?.nom ?? 'Projet —'} · {(ep.userStories?.length ?? 0)} user story(s)
+                          {(ep.assignesEntites?.length ?? 0) > 0 && (
+                            <span className="ml-1">
+                              · Entités : {(ep.assignesEntites || []).map((ae) => ae.entite.nom).join(', ')}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 shrink-0 items-start flex-wrap justify-end">
+                        {canEditUsEpic ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+                            ✏️ Modification
+                          </span>
+                        ) : (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
+                            👁 Lecture seule
+                          </span>
+                        )}
+                        {canEditUsEpic && (
+                          <button
+                            type="button"
+                            onClick={() => setEditEpicId(ep.id)}
+                            className="text-xs px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-gray-600"
+                          >
+                            ✏️ Modifier
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setExpandedEpicListId(epExpanded ? null : ep.id)}
+                          className="text-xs px-3 py-1.5 border border-blue-300 rounded hover:bg-blue-50 text-blue-600"
+                        >
+                          {epExpanded ? '▲ Réduire' : '▼ Détails'}
+                        </button>
+                      </div>
+                    </div>
+                    {epExpanded && (
+                      <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-3 text-sm">
+                        {ep.description && (
+                          <div>
+                            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">Description</h4>
+                            <p className="text-gray-800 whitespace-pre-wrap">{ep.description}</p>
+                          </div>
+                        )}
+                        {(ep.userStories?.length ?? 0) > 0 && (
+                          <div>
+                            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">User stories</h4>
+                            <ul className="space-y-1 text-gray-700">
+                              {(ep.userStories || []).map((u) => (
+                                <li key={u.id} className="text-sm">
+                                  {truncateUi(u.description, 160)}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setDetailEpicId(ep.id)}
+                          className="text-sm text-blue-600 hover:underline font-medium"
+                        >
+                          Ouvrir la fiche complète…
+                        </button>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
@@ -2604,6 +2719,27 @@ export default function Taches() {
 
       {detailEpicId && (
         <EpicDetailModal epicId={detailEpicId} onClose={() => setDetailEpicId(null)} />
+      )}
+
+      {editUserStoryId && (
+        <UserStoryEditModal
+          userStoryId={editUserStoryId}
+          onClose={() => setEditUserStoryId(null)}
+          onSaved={loadAll}
+          projets={projets}
+          epics={epics}
+          taches={taches}
+        />
+      )}
+
+      {editEpicId && (
+        <EpicEditModal
+          epicId={editEpicId}
+          onClose={() => setEditEpicId(null)}
+          onSaved={loadAll}
+          projets={projets}
+          entites={entites}
+        />
       )}
 
       {detailUserStoryId && (
