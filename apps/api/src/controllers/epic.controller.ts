@@ -44,11 +44,12 @@ export const getEpic = async (req: AuthRequest, res: Response) => {
 export const createEpic = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
-    const { nom, description, projetId, entiteId, documentIds, userStoryIdsToAttach } = req.body;
+    const { nom, description, projetId, entiteId, entiteIds, documentIds, userStoryIdsToAttach } = req.body;
     if (!nom?.trim() || !projetId) {
       return res.status(400).json({ error: 'nom et projetId sont requis' });
     }
     const docIds = Array.isArray(documentIds) ? documentIds : documentIds ? [documentIds] : [];
+    const eIds = Array.isArray(entiteIds) ? entiteIds : entiteIds ? [entiteIds] : [];
     const usIds = Array.isArray(userStoryIdsToAttach)
       ? userStoryIdsToAttach
       : userStoryIdsToAttach
@@ -58,6 +59,7 @@ export const createEpic = async (req: AuthRequest, res: Response) => {
       nom,
       description: description ?? null,
       projetId,
+      entiteIds: eIds,
       entiteId: entiteId || null,
       createdById: req.user.userId,
       documentIds: docIds,

@@ -2,7 +2,10 @@ import { prisma } from '../utils/prisma';
 
 const epicInclude = {
   projet: { select: { id: true, nom: true } },
-  entite: { select: { id: true, nom: true } },
+  assignesEntites: {
+    include: { entite: { select: { id: true, nom: true } } },
+    orderBy: { createdAt: 'asc' as const },
+  },
   createdBy: { select: { id: true, nom: true, prenom: true } },
   documents: {
     include: {
@@ -31,7 +34,10 @@ const userStoryInclude = {
   epic: {
     include: {
       projet: { select: { id: true, nom: true } },
-      entite: { select: { id: true, nom: true } },
+      assignesEntites: {
+        include: { entite: { select: { id: true, nom: true } } },
+        orderBy: { createdAt: 'asc' as const },
+      },
     },
   },
   taches: {
@@ -62,19 +68,32 @@ export class EpicService {
     nom: string;
     description?: string | null;
     projetId: string;
+    entiteIds?: string[];
     entiteId?: string | null;
     createdById?: string | null;
     documentIds?: string[];
     userStoryIdsToAttach?: string[];
   }) {
-    const { documentIds = [], userStoryIdsToAttach = [], ...rest } = data;
+    const { documentIds = [], userStoryIdsToAttach = [], entiteIds = [], entiteId, ...rest } = data;
+    const entiteIdSet = new Set<string>();
+    for (const id of entiteIds) {
+      if (id?.trim()) entiteIdSet.add(id.trim());
+    }
+    if (entiteId?.trim()) entiteIdSet.add(entiteId.trim());
+
     const epic = await prisma.epic.create({
       data: {
         nom: rest.nom.trim(),
         description: rest.description?.trim() || null,
         projetId: rest.projetId,
-        entiteId: rest.entiteId || null,
         createdById: rest.createdById || null,
+        ...(entiteIdSet.size > 0
+          ? {
+              assignesEntites: {
+                create: [...entiteIdSet].map((eid) => ({ entiteId: eid })),
+              },
+            }
+          : {}),
         ...(documentIds.length > 0
           ? {
               documents: {
