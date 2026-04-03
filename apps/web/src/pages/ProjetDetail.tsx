@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import ProjetTachesSection from '../components/ProjetTachesSection';
-import { api } from '../services/api';
+import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -21,6 +21,44 @@ const PRIORITY_COLORS: Record<string, string> = {
   'moyenne': 'bg-orange-100 text-orange-800',
   'basse': 'bg-green-100 text-green-800',
 };
+
+const TACHE_STATUT_LABELS: Record<string, string> = {
+  cree: 'Créée',
+  a_faire: 'À faire',
+  en_cours: 'En cours',
+  en_attente: 'En attente',
+  bloque: 'Bloquée',
+  termine: 'Terminée',
+  archive: 'Archivée',
+};
+
+const LABEL_PERM_ROW: Record<string, string> = {
+  lecture: 'lecture',
+  modification: 'modification',
+  suppression: 'suppression',
+  gestion: 'gestion des droits',
+};
+
+const droitsAdminLigne = 'modification + suppression + gestion des accès + lecture';
+
+function permSummaryLine(perms: string[]) {
+  return perms.map((p) => LABEL_PERM_ROW[p] || p).join(' + ');
+}
+
+function isAccesRestreintProjet(p: any) {
+  return !!p.createdById || (p.accesApercu?.delegations?.length ?? 0) > 0;
+}
+
+function getClientLabel(p: any): string {
+  const n = typeof p.nomClient === 'string' ? p.nomClient.trim() : '';
+  if (n) return n;
+  const cfs = p.clientsFournisseurs;
+  if (Array.isArray(cfs) && cfs.length > 0) {
+    const nom = cfs[0]?.clientFournisseur?.nom;
+    if (nom) return nom;
+  }
+  return '— (sans client)';
+}
 
 const PARTIES_PRENANTES_OPTIONS = [
   'Clients', 'Partenaires', 'Fournisseurs', 'Prestataires',
@@ -611,6 +649,7 @@ export default function ProjetDetail() {
       setUploadEstConfidentiel(false);
       setUploadPermissionUserIds([]);
       await loadDocuments();
+      if (!editing) await loadProjet();
     } catch (err) {
       console.error('Erreur upload:', err);
       alert('Erreur lors de l\'upload');
@@ -649,6 +688,7 @@ export default function ProjetDetail() {
     try {
       await api.delete(`/documents/${docId}`);
       await loadDocuments();
+      if (!editing) await loadProjet();
     } catch (err: any) {
       alert(err.response?.data?.error || 'Erreur lors de la suppression');
     }
@@ -704,6 +744,7 @@ export default function ProjetDetail() {
       setShowLierModal(false);
       setSelectedDocIds([]);
       await loadDocuments();
+      if (!editing) await loadProjet();
     } catch (err) {
       alert('Erreur lors de la liaison des documents');
     }
@@ -713,6 +754,7 @@ export default function ProjetDetail() {
     try {
       await api.put(`/documents/${docId}`, { referenceType: null, referenceId: null, typeDocument: 'general' });
       await loadDocuments();
+      if (!editing) await loadProjet();
     } catch (err) {
       alert('Erreur lors de la déliaison du document');
     }
@@ -897,6 +939,20 @@ export default function ProjetDetail() {
   if (loading) return <div className="p-6">Chargement...</div>;
   if (!projet) return <div className="p-6 text-red-600">Projet introuvable</div>;
 
+  const capDetail = {
+    canView: projet.capabilities?.canView !== false,
+    canModify: !!projet.capabilities?.canModify,
+    canDelete: !!projet.capabilities?.canDelete,
+    canManagePermissions: !!projet.capabilities?.canManagePermissions,
+  };
+  const tr = projet.tachesResume || { total: 0, parStatut: {} as Record<string, number>, enRetard: 0, avancementPct: null as number | null };
+  const documentsListeApercu =
+    projet.documentsListe?.length > 0
+      ? projet.documentsListe
+      : documents.map((d: any) => ({ id: d.id, nom: d.nom }));
+  const clientLine = getClientLabel(projet);
+  const showClientLine = clientLine && clientLine !== '— (sans client)';
+
   return (
     <>
       {/* Style d'impression */}
@@ -909,44 +965,24 @@ export default function ProjetDetail() {
         }
       `}</style>
 
-      <div className="p-6 max-w-5xl mx-auto">
-        {/* En-tête */}
-        <div className="flex justify-between items-start mb-6 no-print">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/projets')} className="text-gray-500 hover:text-gray-700 text-sm flex items-center gap-1">
-              ← Retour
+      <div className="p-6">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6 no-print">
+          <div className="flex flex-col gap-1">
+            <button
+              type="button"
+              onClick={() => navigate('/projets')}
+              className="text-gray-500 hover:text-gray-700 text-sm flex items-center gap-1 w-fit"
+            >
+              ← Retour aux projets
             </button>
-            <h1 className="text-2xl font-bold">{projet.nom}</h1>
-            <span className={`px-2 py-1 text-xs rounded ${STATUS_COLORS[projet.statut] || ''}`}>
-              {STATUS_LABELS[projet.statut] || projet.statut}
-            </span>
-            <span className={`px-2 py-1 text-xs rounded capitalize ${PRIORITY_COLORS[projet.priorite] || ''}`}>
-              {projet.priorite}
-            </span>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={handlePrint} className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 flex items-center gap-1">
-              🖨️ Imprimer
-            </button>
-            {editing ? (
-              <>
-                <button onClick={() => { setEditing(false); loadProjet(); }} className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50">Annuler</button>
-                <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm disabled:opacity-50">{saving ? 'Enregistrement...' : 'Enregistrer'}</button>
-              </>
-            ) : (
-              <>
-                <button onClick={() => setEditing(true)} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm">Modifier</button>
-                <button onClick={handleDelete} className="px-3 py-2 text-sm border border-red-300 rounded-md text-red-600 hover:bg-red-50">Supprimer</button>
-              </>
-            )}
+            <h1 className="text-2xl font-bold text-gray-900">Projet</h1>
           </div>
         </div>
 
         {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm no-print">{error}</div>}
 
-        {/* Zone imprimable */}
-        <div id="print-zone" ref={printRef}>
-
+        {/* Zone imprimable (même disposition carte que la liste Projets) */}
+        <div id="print-zone" ref={printRef} className="space-y-4">
           {/* En-tête impression */}
           <div className="hidden print:block mb-6 border-b pb-4">
             <h1 className="text-3xl font-bold">{projet.nom}</h1>
@@ -957,8 +993,204 @@ export default function ProjetDetail() {
             <p className="text-sm text-gray-500 mt-1">Fiche générée le {new Date().toLocaleDateString('fr-FR')}</p>
           </div>
 
+          {/* Carte récapitulatif (alignée sur une ligne de la page Projets) */}
+          <div className="bg-white rounded-lg shadow p-5">
+            <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-3 mb-2 flex-wrap">
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[projet.statut] || 'bg-gray-100 text-gray-700'}`}>
+                    {STATUS_LABELS[projet.statut] || projet.statut}
+                  </span>
+                  <h2 className="text-lg font-semibold text-gray-900">{projet.nom}</h2>
+                  {projet.codeProjet && <span className="text-xs text-gray-500 font-mono">{projet.codeProjet}</span>}
+                  <span className={`px-2 py-0.5 rounded text-xs capitalize ${PRIORITY_COLORS[projet.priorite] || 'bg-gray-100 text-gray-700'}`}>
+                    {projet.priorite}
+                  </span>
+                </div>
+                {showClientLine && <p className="text-sm text-gray-600 mb-1">Client : {clientLine}</p>}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600">
+                  <div>
+                    <span className="font-medium">Début : </span>
+                    {projet.dateDebut ? new Date(projet.dateDebut).toLocaleDateString('fr-FR') : '—'}
+                  </div>
+                  <div>
+                    <span className="font-medium">Fin prévue : </span>
+                    {projet.dateFinPrevue ? new Date(projet.dateFinPrevue).toLocaleDateString('fr-FR') : '—'}
+                  </div>
+                  {projet.createdBy && (
+                    <div>
+                      <span className="font-medium">Créé par : </span>
+                      {projet.createdBy.prenom} {projet.createdBy.nom}
+                    </div>
+                  )}
+                  {tr.avancementPct != null && (
+                    <div>
+                      <span className="font-medium">Avancement tâches : </span>
+                      {tr.avancementPct}%
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2 items-center">
+                  <span className="text-xs font-semibold text-gray-500 uppercase">Tâches</span>
+                  {tr.total === 0 ? (
+                    <span className="text-xs text-gray-400">Aucune tâche</span>
+                  ) : (
+                    <>
+                      <span className="text-xs text-gray-700 font-medium">{tr.total} au total</span>
+                      {Object.entries(tr.parStatut || {}).map(([st, n]) =>
+                        (n as number) > 0 ? (
+                          <span key={st} className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs">
+                            {TACHE_STATUT_LABELS[st] || st} : {n as number}
+                          </span>
+                        ) : null
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {(projet.alertesProjet?.length ?? 0) > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {projet.alertesProjet.map((a: string, i: number) => (
+                      <span key={i} className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded text-xs font-medium">
+                        ⚠ {a}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {documentsListeApercu.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs font-medium text-gray-500 uppercase mb-1">Documents</p>
+                    <div className="flex flex-wrap gap-1">
+                      {documentsListeApercu.map((d: { id: string; nom: string }) => (
+                        <a
+                          key={d.id}
+                          href={`${API_BASE_URL}/documents/${d.id}/view?token=${localStorage.getItem('token')}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2 py-0.5 bg-gray-100 rounded text-xs text-blue-600 hover:underline"
+                        >
+                          📎 {d.nom}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-3 flex flex-wrap items-start gap-2 sm:gap-3 text-xs text-gray-700 border border-slate-100 rounded-lg px-3 py-2.5 bg-slate-50/90">
+                  <span className="font-semibold text-gray-600 uppercase shrink-0 pt-0.5">Accès :</span>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0 flex-1">
+                    {isAccesRestreintProjet(projet) ? (
+                      <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-red-50 border border-red-100 text-red-900 shrink-0">
+                        <span className="text-sm leading-none" aria-hidden>
+                          🔒
+                        </span>
+                        <span className="text-[10px] font-semibold leading-tight mt-0.5 text-center">Accès restreint</span>
+                      </div>
+                    ) : (
+                      <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-green-50 border border-green-100 text-green-900 shrink-0">
+                        <span className="text-[10px] font-semibold leading-tight text-center">Accès élargi</span>
+                      </div>
+                    )}
+                    {(() => {
+                      const actifAdmins = users.filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'));
+                      const creatorId = projet.createdById || projet.createdBy?.id;
+                      return (
+                        <>
+                          {actifAdmins.map((a: any) => {
+                            const isCreator = creatorId === a.id;
+                            return (
+                              <div key={`adm-detail-${a.id}`} className="min-w-0">
+                                <span className="font-medium text-gray-900">
+                                  {a.prenom} {a.nom}
+                                </span>
+                                <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                  {isCreator ? `(Administrateur et créateur : ${droitsAdminLigne})` : `(Admin : ${droitsAdminLigne})`}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          {projet.createdBy && creatorId && !actifAdmins.some((a: any) => a.id === creatorId) && (
+                            <div className="min-w-0">
+                              <span className="font-medium text-gray-900">
+                                {projet.createdBy.prenom} {projet.createdBy.nom}
+                              </span>
+                              <span className="text-gray-500 italic block sm:inline sm:ml-1">(Créateur : {droitsAdminLigne})</span>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                    {(projet.accesApercu?.delegations || []).map((d: any) => (
+                      <div key={`${d.user?.id}-${(d.permissionEntryIds || []).join('-')}`} className="min-w-0">
+                        <span className="font-medium text-gray-900">
+                          {d.user.prenom} {d.user.nom}
+                        </span>
+                        <span className="text-gray-500 italic block sm:inline sm:ml-1">({permSummaryLine(d.permissions || [])})</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem] no-print">
+                <button
+                  type="button"
+                  onClick={handlePrint}
+                  className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                >
+                  🖨️ Imprimer
+                </button>
+                {editing ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditing(false);
+                        void loadProjet();
+                      }}
+                      className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleSave()}
+                      disabled={saving}
+                      className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50"
+                    >
+                      {saving ? 'Enregistrement…' : 'Enregistrer'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {capDetail.canModify && (
+                      <button
+                        type="button"
+                        onClick={() => setEditing(true)}
+                        className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                      >
+                        ✏️ Modifier
+                      </button>
+                    )}
+                    {capDetail.canDelete && (
+                      <button
+                        type="button"
+                        onClick={() => void handleDelete()}
+                        className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                      >
+                        🗑 Mettre en corbeille
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* ① Informations générales */}
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <div className="bg-white rounded-lg shadow p-5">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <span className="w-7 h-7 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center text-sm font-bold">1</span>
               Informations générales
@@ -1024,7 +1256,7 @@ export default function ProjetDetail() {
           </div>
 
           {/* ② Gouvernance */}
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <div className="bg-white rounded-lg shadow p-5">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <span className="w-7 h-7 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center text-sm font-bold">2</span>
               Gouvernance du projet
@@ -1099,7 +1331,7 @@ export default function ProjetDetail() {
           </div>
 
           {/* ③ Contexte et description */}
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <div className="bg-white rounded-lg shadow p-5">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <span className="w-7 h-7 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-sm font-bold">3</span>
               Contexte et description
@@ -1151,7 +1383,7 @@ export default function ProjetDetail() {
           </div>
 
           {/* ④ Objectifs */}
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <div className="bg-white rounded-lg shadow p-5">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <span className="w-7 h-7 bg-orange-100 text-orange-700 rounded-full flex items-center justify-center text-sm font-bold">4</span>
               Objectifs du projet
@@ -1225,7 +1457,7 @@ export default function ProjetDetail() {
           </div>
 
         {/* Section Documents */}
-        <div className="bg-white rounded-lg shadow p-6 mt-6 print:hidden">
+        <div className="bg-white rounded-lg shadow p-5 print:hidden">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-gray-900">📎 Documents du projet</h2>
             <div className="flex gap-2"><button onClick={() => setShowUploadModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700">+ Ajouter un document</button><button onClick={handleOpenLierModal} className="px-4 py-2 bg-gray-600 text-white rounded-md text-sm hover:bg-gray-700">🔗 Lier un document existant</button></div>
@@ -1348,7 +1580,7 @@ export default function ProjetDetail() {
         </div>
 
         {id && (
-          <div className="print:hidden mt-6">
+          <div className="print:hidden">
             <ProjetTachesSection
               projetId={id}
               projet={projet}
@@ -1361,7 +1593,7 @@ export default function ProjetDetail() {
               onTachesRefresh={refreshTachesProjet}
             />
             {projet && (
-              <div className="bg-white rounded-lg shadow p-6 mt-6 border border-gray-100">
+              <div className="bg-white rounded-lg shadow p-5 border border-gray-100">
                 <h2 className="text-lg font-semibold text-gray-900 mb-1">Recap Accès</h2>
                 <p className="text-xs text-gray-500 mb-5">
                   Synthèse des habilitations sur la fiche projet, les documents et les tâches. Les droits délégués sur le
@@ -1474,6 +1706,7 @@ export default function ProjetDetail() {
           </div>
         )}
         </div>{/* fin print-zone */}
+      </div>{/* p-6 page */}
       {/* Modal Modifier Accès */}
       {showAccesModal && acceDoc && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -1611,7 +1844,6 @@ export default function ProjetDetail() {
           </div>
         </div>
       )}
-      </div>
       {accessBlockedModal && (
         <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4"
