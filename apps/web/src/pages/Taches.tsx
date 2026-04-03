@@ -1647,18 +1647,19 @@ export default function Taches() {
               <button
                 type="button"
                 onClick={() => setShowEpicCreateModal(true)}
-                className="px-4 py-2 border border-indigo-300 text-indigo-800 rounded hover:bg-indigo-50 text-sm font-medium"
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
               >
                 + Nouvel Epic
               </button>
               <button
                 type="button"
                 onClick={() => setShowUsCreateModal(true)}
-                className="px-4 py-2 border border-violet-300 text-violet-800 rounded hover:bg-violet-50 text-sm font-medium"
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
               >
-                + User Story
+                + Nouvelle User Story
               </button>
               <button
+                type="button"
                 onClick={() => {
                   setEditTache(undefined);
                   setShowModal(true);
