@@ -53,7 +53,7 @@ export class EpicService {
   private async collectUserIdsPourTachesUserStories(userStoryIds: string[], authorId: string) {
     if (userStoryIds.length === 0) return new Set<string>();
     const taches = await prisma.tache.findMany({
-      where: { userStoryId: { in: userStoryIds } },
+      where: { userStoryId: { in: userStoryIds }, deletedAt: null },
       select: {
         createurId: true,
         assignesUtilisateurs: { include: { user: { select: { id: true } } } },
@@ -114,7 +114,7 @@ export class EpicService {
   }
 
   async listEpics(filters: { projetId?: string }) {
-    const where: any = {};
+    const where: any = { deletedAt: null };
     if (filters.projetId) where.projetId = filters.projetId;
     return prisma.epic.findMany({
       where,
@@ -124,8 +124,8 @@ export class EpicService {
   }
 
   async getEpic(id: string) {
-    return prisma.epic.findUnique({
-      where: { id },
+    return prisma.epic.findFirst({
+      where: { id, deletedAt: null },
       include: epicInclude,
     });
   }
@@ -139,7 +139,7 @@ export class EpicService {
       entiteIds?: string[];
     }
   ) {
-    const ep = await prisma.epic.findUnique({ where: { id } });
+    const ep = await prisma.epic.findFirst({ where: { id, deletedAt: null } });
     if (!ep) throw new Error('Epic introuvable');
 
     const dataEpic: { nom?: string; description?: string | null; projetId?: string } = {};
@@ -208,7 +208,7 @@ export class EpicService {
 
     if (userStoryIdsToAttach.length > 0) {
       await prisma.userStory.updateMany({
-        where: { id: { in: userStoryIdsToAttach } },
+        where: { id: { in: userStoryIdsToAttach }, deletedAt: null },
         data: { epicId: epic.id },
       });
     }
@@ -217,6 +217,8 @@ export class EpicService {
   }
 
   async lierDocumentEpic(epicId: string, documentId: string) {
+    const ep = await prisma.epic.findFirst({ where: { id: epicId, deletedAt: null } });
+    if (!ep) throw new Error('Epic introuvable');
     return prisma.epicDocument.upsert({
       where: { epicId_documentId: { epicId, documentId } },
       create: { epicId, documentId },
@@ -231,7 +233,7 @@ export class EpicService {
     nom: string,
     description?: string
   ) {
-    const ep = await prisma.epic.findUnique({ where: { id: epicId } });
+    const ep = await prisma.epic.findFirst({ where: { id: epicId, deletedAt: null } });
     if (!ep) throw new Error('Epic introuvable');
     const document = await prisma.document.create({
       data: {
@@ -253,18 +255,26 @@ export class EpicService {
   }
 
   async listUserStories(filters: { epicId?: string; projetId?: string; orphelines?: boolean }) {
-    const parts: object[] = [];
+    const parts: object[] = [
+      { deletedAt: null },
+      { OR: [{ epicId: null }, { epic: { deletedAt: null } }] },
+    ];
     if (filters.epicId) parts.push({ epicId: filters.epicId });
     if (filters.orphelines) parts.push({ epicId: null });
     if (filters.projetId) {
       parts.push({
         OR: [
-          { epic: { projetId: filters.projetId } },
-          { AND: [{ epicId: null }, { taches: { some: { projetId: filters.projetId } } }] },
+          { epic: { projetId: filters.projetId, deletedAt: null } },
+          {
+            AND: [
+              { epicId: null },
+              { taches: { some: { projetId: filters.projetId, deletedAt: null } } },
+            ],
+          },
         ],
       });
     }
-    const where = parts.length === 0 ? {} : parts.length === 1 ? parts[0] : { AND: parts };
+    const where = parts.length === 1 ? parts[0] : { AND: parts };
     return prisma.userStory.findMany({
       where,
       include: userStoryInclude,
@@ -273,8 +283,8 @@ export class EpicService {
   }
 
   async getUserStory(id: string) {
-    return prisma.userStory.findUnique({
-      where: { id },
+    return prisma.userStory.findFirst({
+      where: { id, deletedAt: null },
       include: userStoryInclude,
     });
   }
@@ -284,6 +294,11 @@ export class EpicService {
     epicId: string;
     tacheIds?: string[];
   }) {
+    const epic = await prisma.epic.findFirst({
+      where: { id: data.epicId, deletedAt: null },
+    });
+    if (!epic) throw new Error('Epic introuvable ou supprimé');
+
     const tacheIds = data.tacheIds || [];
     const us = await prisma.userStory.create({
       data: {
@@ -293,7 +308,7 @@ export class EpicService {
     });
     if (tacheIds.length > 0) {
       await prisma.tache.updateMany({
-        where: { id: { in: tacheIds } },
+        where: { id: { in: tacheIds }, deletedAt: null },
         data: { userStoryId: us.id },
       });
     }
@@ -308,6 +323,16 @@ export class EpicService {
       tacheIds?: string[];
     }
   ) {
+    const existing = await prisma.userStory.findUnique({ where: { id } });
+    if (!existing || existing.deletedAt) throw new Error('User story introuvable');
+
+    if (data.epicId !== undefined && data.epicId !== null) {
+      const ep = await prisma.epic.findFirst({
+        where: { id: data.epicId, deletedAt: null },
+      });
+      if (!ep) throw new Error('Epic introuvable ou supprimé');
+    }
+
     if (data.description !== undefined || data.epicId !== undefined) {
       await prisma.userStory.update({
         where: { id },
@@ -318,10 +343,13 @@ export class EpicService {
       });
     }
     if (data.tacheIds !== undefined) {
-      await prisma.tache.updateMany({ where: { userStoryId: id }, data: { userStoryId: null } });
+      await prisma.tache.updateMany({
+        where: { userStoryId: id, deletedAt: null },
+        data: { userStoryId: null },
+      });
       if (data.tacheIds.length > 0) {
         await prisma.tache.updateMany({
-          where: { id: { in: data.tacheIds } },
+          where: { id: { in: data.tacheIds }, deletedAt: null },
           data: { userStoryId: id },
         });
       }
@@ -341,7 +369,10 @@ export class EpicService {
   }
 
   async addCommentaireEpic(epicId: string, userId: string, contenu: string, fichier?: Express.Multer.File) {
-    const ep = await prisma.epic.findUnique({ where: { id: epicId }, select: { nom: true } });
+    const ep = await prisma.epic.findFirst({
+      where: { id: epicId, deletedAt: null },
+      select: { nom: true },
+    });
     if (!ep) throw new Error('Epic introuvable');
 
     const commentaire = await prisma.epicCommentaire.create({
@@ -416,8 +447,8 @@ export class EpicService {
     contenu: string,
     fichier?: Express.Multer.File
   ) {
-    const usRow = await prisma.userStory.findUnique({
-      where: { id: userStoryId },
+    const usRow = await prisma.userStory.findFirst({
+      where: { id: userStoryId, deletedAt: null },
       select: { description: true },
     });
     if (!usRow) throw new Error('User story introuvable');
@@ -479,5 +510,124 @@ export class EpicService {
       where: { id: commentaireId },
       select: { pieceJointePath: true, pieceJointeNom: true, pieceJointeType: true },
     });
+  }
+
+  // ── Corbeille (soft delete / restauration) ─────────────────────────────────
+  async softDeleteEpic(id: string, _userId: string, role: string) {
+    const ep = await prisma.epic.findFirst({ where: { id, deletedAt: null } });
+    if (!ep) throw new Error('Epic introuvable');
+    if (role === 'lecteur') throw new Error('Accès refusé');
+    if (role !== 'admin' && role !== 'contributeur') throw new Error('Accès refusé');
+    await prisma.epic.update({ where: { id }, data: { deletedAt: new Date() } });
+  }
+
+  async restoreEpic(id: string, userId: string, role: string) {
+    const ep = await prisma.epic.findUnique({ where: { id } });
+    if (!ep || !ep.deletedAt) throw new Error('Epic introuvable dans la corbeille');
+    if (role !== 'admin' && ep.createdById !== userId) throw new Error('Accès refusé');
+    await prisma.epic.update({ where: { id }, data: { deletedAt: null } });
+    return this.getEpic(id);
+  }
+
+  async listEpicsCorbeille(userId: string, role: string) {
+    if (role === 'lecteur') return [];
+    const where: Record<string, unknown> = { deletedAt: { not: null } };
+    if (role === 'contributeur') (where as any).createdById = userId;
+    return prisma.epic.findMany({
+      where,
+      include: {
+        projet: { select: { id: true, nom: true } },
+        createdBy: { select: { id: true, nom: true, prenom: true } },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+  }
+
+  async deleteEpicPermanent(id: string) {
+    const ep = await prisma.epic.findUnique({ where: { id } });
+    if (!ep || !ep.deletedAt) throw new Error('Epic introuvable ou non en corbeille');
+    await prisma.epic.delete({ where: { id } });
+  }
+
+  async softDeleteUserStory(id: string, _userId: string, role: string) {
+    const us = await prisma.userStory.findFirst({ where: { id, deletedAt: null } });
+    if (!us) throw new Error('User story introuvable');
+    if (role === 'lecteur') throw new Error('Accès refusé');
+    if (role !== 'admin' && role !== 'contributeur') throw new Error('Accès refusé');
+    await prisma.userStory.update({ where: { id }, data: { deletedAt: new Date() } });
+  }
+
+  private async userStoryRestoreAllowed(userId: string, role: string, usId: string) {
+    if (role === 'admin') return true;
+    if (role !== 'contributeur') return false;
+    const us = await prisma.userStory.findUnique({
+      where: { id: usId },
+      include: {
+        epic: { select: { createdById: true, deletedAt: true } },
+        taches: {
+          where: { deletedAt: null },
+          select: {
+            createurId: true,
+            assignesUtilisateurs: { select: { userId: true } },
+          },
+        },
+      },
+    });
+    if (!us) return false;
+    if (us.epic && !us.epic.deletedAt && us.epic.createdById === userId) return true;
+    return us.taches.some(
+      (t) =>
+        t.createurId === userId || t.assignesUtilisateurs.some((a) => a.userId === userId)
+    );
+  }
+
+  async restoreUserStory(id: string, userId: string, role: string) {
+    const us = await prisma.userStory.findUnique({ where: { id } });
+    if (!us || !us.deletedAt) throw new Error('User story introuvable dans la corbeille');
+    if (!(await this.userStoryRestoreAllowed(userId, role, id))) throw new Error('Accès refusé');
+    await prisma.userStory.update({ where: { id }, data: { deletedAt: null } });
+    return this.getUserStory(id);
+  }
+
+  async listUserStoriesCorbeille(userId: string, role: string) {
+    if (role === 'lecteur') return [];
+    if (role === 'admin') {
+      return prisma.userStory.findMany({
+        where: { deletedAt: { not: null } },
+        include: {
+          epic: { select: { id: true, nom: true, projetId: true, projet: { select: { nom: true } } } },
+        },
+        orderBy: { deletedAt: 'desc' },
+      });
+    }
+    return prisma.userStory.findMany({
+      where: {
+        deletedAt: { not: null },
+        OR: [
+          { epic: { is: { createdById: userId, deletedAt: null } } },
+          {
+            taches: {
+              some: {
+                deletedAt: null,
+                OR: [
+                  { createurId: userId },
+                  { assignesUtilisateurs: { some: { userId } } },
+                ],
+              },
+            },
+          },
+        ],
+      },
+      include: {
+        epic: { select: { id: true, nom: true, projetId: true, projet: { select: { nom: true } } } },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+  }
+
+  async deleteUserStoryPermanent(id: string) {
+    const us = await prisma.userStory.findUnique({ where: { id } });
+    if (!us || !us.deletedAt) throw new Error('User story introuvable ou non en corbeille');
+    await prisma.userStory.delete({ where: { id } });
   }
 }

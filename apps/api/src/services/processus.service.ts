@@ -210,7 +210,7 @@ async function enrichLiensProcessus(
       const pids = projets.map((p) => p.id);
       const tc =
         pids.length > 0
-          ? await prisma.tache.count({ where: { projetId: { in: pids } } })
+          ? await prisma.tache.count({ where: { projetId: { in: pids }, deletedAt: null } })
           : 0;
       tachesTotalByProc.set(r.id, tc);
     })

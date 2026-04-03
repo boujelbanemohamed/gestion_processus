@@ -771,6 +771,7 @@ model Epic {
   createdBy   User?    @relation("EpicCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
 
   userStories      UserStory[]
   documents        EpicDocument[]
@@ -778,6 +779,7 @@ model Epic {
   commentaires     EpicCommentaire[]
 
   @@index([projetId])
+  @@index([deletedAt])
 }
 
 model EpicEntite {
@@ -801,11 +803,13 @@ model UserStory {
   epic        Epic?    @relation(fields: [epicId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
 
   taches       Tache[]
   commentaires UserStoryCommentaire[]
 
   @@index([epicId])
+  @@index([deletedAt])
 }
 
 model EpicCommentaire {
@@ -869,6 +873,7 @@ model Tache {
   createur            User?         @relation("TacheCreateur", fields: [createurId], references: [id], onDelete: SetNull)
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
+  deletedAt           DateTime?
 
   assignesUtilisateurs TacheUser[]
   assignesEntites      TacheEntite[]
@@ -881,6 +886,7 @@ model Tache {
   @@index([projetId])
   @@index([createurId])
   @@index([userStoryId])
+  @@index([deletedAt])
 }
 
 model TacheUser {

@@ -18,7 +18,18 @@ export const getCorbeille = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut accéder à la corbeille.' });
     }
 
-    const [processus, documents, licences, clientsFournisseurs, contrats, entites, projets] = await Promise.all([
+    const [
+      processus,
+      documents,
+      licences,
+      clientsFournisseurs,
+      contrats,
+      entites,
+      projets,
+      tachesAgile,
+      epicsAgile,
+      userStoriesAgile,
+    ] = await Promise.all([
       corbeilleService.getProcessusSupprimes(),
       corbeilleService.getDocumentsSupprimes(),
       corbeilleService.getLicencesSupprimees(),
@@ -26,6 +37,9 @@ export const getCorbeille = async (req: AuthRequest, res: Response) => {
       corbeilleService.getContratsSupprimes(),
       corbeilleService.getEntitesSupprimees(),
       corbeilleService.getProjetsSupprimes(),
+      corbeilleService.getTachesAgileSupprimees(),
+      corbeilleService.getEpicsAgileSupprimes(),
+      corbeilleService.getUserStoriesAgileSupprimees(),
     ]);
 
     res.json({
@@ -36,6 +50,9 @@ export const getCorbeille = async (req: AuthRequest, res: Response) => {
       contrats,
       entites,
       projets,
+      tachesAgile,
+      epicsAgile,
+      userStoriesAgile,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -304,6 +321,108 @@ export const supprimerDefinitivementProjet = async (req: AuthRequest, res: Respo
     await corbeilleService.supprimerDefinitivementProjet(req.params.id);
     await logAccess(req, res, 'suppression', 'projet', req.params.id, undefined, {
       action: 'suppression_definitive',
+    });
+    res.status(204).send();
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const restaurerTacheAgile = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut restaurer des éléments.' });
+    }
+    const row = await corbeilleService.restaurerTacheAgile(req.params.id);
+    await logAccess(req, res, 'modification', 'projet', row!.id, row!.nom, { action: 'restauration_tache' });
+    res.json(row);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const supprimerDefinitivementTacheAgile = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé.' });
+    }
+    await corbeilleService.supprimerDefinitivementTacheAgile(req.params.id);
+    await logAccess(req, res, 'suppression', 'projet', req.params.id, undefined, {
+      action: 'suppression_definitive_tache',
+    });
+    res.status(204).send();
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const restaurerEpicAgile = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé.' });
+    }
+    const row = await corbeilleService.restaurerEpicAgile(req.params.id);
+    await logAccess(req, res, 'modification', 'projet', row!.id, row!.nom, { action: 'restauration_epic' });
+    res.json(row);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const supprimerDefinitivementEpicAgile = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé.' });
+    }
+    await corbeilleService.supprimerDefinitivementEpicAgile(req.params.id);
+    await logAccess(req, res, 'suppression', 'projet', req.params.id, undefined, {
+      action: 'suppression_definitive_epic',
+    });
+    res.status(204).send();
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const restaurerUserStoryAgile = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé.' });
+    }
+    const row = await corbeilleService.restaurerUserStoryAgile(req.params.id);
+    await logAccess(req, res, 'modification', 'projet', row!.id, 'User story', { action: 'restauration_user_story' });
+    res.json(row);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const supprimerDefinitivementUserStoryAgile = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé.' });
+    }
+    await corbeilleService.supprimerDefinitivementUserStoryAgile(req.params.id);
+    await logAccess(req, res, 'suppression', 'projet', req.params.id, undefined, {
+      action: 'suppression_definitive_user_story',
     });
     res.status(204).send();
   } catch (error: any) {

@@ -80,11 +80,35 @@ export const updateTache = async (req: AuthRequest, res: Response) => {
 export const deleteTache = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
-    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Accès refusé' });
-    await tacheService.delete(req.params.id);
+    await tacheService.softDelete(req.params.id, req.user.userId, req.user.role);
+    await logAccess(req, res, 'suppression', 'projet', req.params.id, undefined, { action: 'corbeille_tache' });
     res.status(204).end();
   } catch (error: any) {
+    const code =
+      error.message === 'Accès refusé' ? 403 : error.message === 'Tâche non trouvée' ? 404 : 400;
+    res.status(code).json({ error: error.message });
+  }
+};
+
+export const getTachesCorbeille = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const list = await tacheService.listCorbeille(req.user.userId, req.user.role);
+    res.json(list);
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+};
+
+export const restoreTache = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const t = await tacheService.restore(req.params.id, req.user.userId, req.user.role);
+    res.json(t);
+  } catch (error: any) {
+    const code =
+      error.message === 'Accès refusé' ? 403 : error.message?.includes('non trouvée') ? 404 : 400;
+    res.status(code).json({ error: error.message });
   }
 };
 

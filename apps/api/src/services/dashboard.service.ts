@@ -107,6 +107,7 @@ export class DashboardService {
     const now = new Date();
 
     const baseWhere: any = {
+      deletedAt: null,
       statut: { notIn: [...TACHE_STATUTS_FINALISES] },
       dateFinApprox: { not: null, lt: now },
     };

@@ -4,10 +4,14 @@ import { clientFournisseurService, logCfHistory } from './client-fournisseur.ser
 import { contratService } from './contrat.service';
 import { EntiteService } from './entite.service';
 import { ProjetService } from './projet.service';
+import { TacheService } from './tache.service';
+import { EpicService } from './epic.service';
 
 const licenceService = new LicenceService();
 const entiteService = new EntiteService();
 const projetService = new ProjetService();
+const tacheService = new TacheService();
+const epicService = new EpicService();
 
 export class CorbeilleService {
   // Récupérer tous les processus supprimés
@@ -231,5 +235,73 @@ export class CorbeilleService {
 
   async supprimerDefinitivementProjet(id: string) {
     return projetService.deletePermanent(id);
+  }
+
+  async getTachesAgileSupprimees() {
+    return prisma.tache.findMany({
+      where: { deletedAt: { not: null } },
+      select: {
+        id: true,
+        nom: true,
+        deletedAt: true,
+        projetId: true,
+        projet: { select: { nom: true } },
+        createur: { select: { id: true, nom: true, prenom: true } },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+  }
+
+  async restaurerTacheAgile(id: string) {
+    return tacheService.restore(id, '', 'admin');
+  }
+
+  async supprimerDefinitivementTacheAgile(id: string) {
+    return tacheService.deletePermanent(id);
+  }
+
+  async getEpicsAgileSupprimes() {
+    return prisma.epic.findMany({
+      where: { deletedAt: { not: null } },
+      select: {
+        id: true,
+        nom: true,
+        deletedAt: true,
+        projetId: true,
+        projet: { select: { nom: true } },
+        createdBy: { select: { id: true, nom: true, prenom: true } },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+  }
+
+  async restaurerEpicAgile(id: string) {
+    return epicService.restoreEpic(id, '', 'admin');
+  }
+
+  async supprimerDefinitivementEpicAgile(id: string) {
+    return epicService.deleteEpicPermanent(id);
+  }
+
+  async getUserStoriesAgileSupprimees() {
+    return prisma.userStory.findMany({
+      where: { deletedAt: { not: null } },
+      select: {
+        id: true,
+        description: true,
+        deletedAt: true,
+        epicId: true,
+        epic: { select: { id: true, nom: true, projet: { select: { nom: true } } } },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+  }
+
+  async restaurerUserStoryAgile(id: string) {
+    return epicService.restoreUserStory(id, '', 'admin');
+  }
+
+  async supprimerDefinitivementUserStoryAgile(id: string) {
+    return epicService.deleteUserStoryPermanent(id);
   }
 }

@@ -282,3 +282,71 @@ export const downloadUserStoryCommentaireFichier = async (req: AuthRequest, res:
     res.status(500).json({ error: e.message });
   }
 };
+
+export const getEpicsCorbeille = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const list = await epicService.listEpicsCorbeille(req.user.userId, req.user.role);
+    res.json(list);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const softDeleteEpic = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    await epicService.softDeleteEpic(req.params.id, req.user.userId, req.user.role);
+    await logAccess(req, res, 'suppression', 'projet', req.params.id, undefined, { action: 'corbeille_epic' });
+    res.status(204).end();
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : e.message === 'Epic introuvable' ? 404 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const restoreEpic = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const row = await epicService.restoreEpic(req.params.id, req.user.userId, req.user.role);
+    res.json(row);
+  } catch (e: any) {
+    const code =
+      e.message === 'Accès refusé' ? 403 : e.message?.includes('introuvable') ? 404 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const getUserStoriesCorbeille = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const list = await epicService.listUserStoriesCorbeille(req.user.userId, req.user.role);
+    res.json(list);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const softDeleteUserStory = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    await epicService.softDeleteUserStory(req.params.id, req.user.userId, req.user.role);
+    await logAccess(req, res, 'suppression', 'projet', req.params.id, undefined, { action: 'corbeille_user_story' });
+    res.status(204).end();
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : e.message === 'User story introuvable' ? 404 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const restoreUserStory = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const row = await epicService.restoreUserStory(req.params.id, req.user.userId, req.user.role);
+    res.json(row);
+  } catch (e: any) {
+    const code =
+      e.message === 'Accès refusé' ? 403 : e.message?.includes('introuvable') ? 404 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};

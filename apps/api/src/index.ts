@@ -189,6 +189,12 @@ app.post("/api/v1/corbeille/entites/:id/restaurer", corbeilleController.restaure
 app.delete("/api/v1/corbeille/entites/:id", corbeilleController.supprimerDefinitivementEntite);
 app.post("/api/v1/corbeille/projets/:id/restaurer", corbeilleController.restaurerProjet);
 app.delete("/api/v1/corbeille/projets/:id", corbeilleController.supprimerDefinitivementProjet);
+app.post("/api/v1/corbeille/taches-agile/:id/restaurer", corbeilleController.restaurerTacheAgile);
+app.delete("/api/v1/corbeille/taches-agile/:id", corbeilleController.supprimerDefinitivementTacheAgile);
+app.post("/api/v1/corbeille/epics-agile/:id/restaurer", corbeilleController.restaurerEpicAgile);
+app.delete("/api/v1/corbeille/epics-agile/:id", corbeilleController.supprimerDefinitivementEpicAgile);
+app.post("/api/v1/corbeille/user-stories-agile/:id/restaurer", corbeilleController.restaurerUserStoryAgile);
+app.delete("/api/v1/corbeille/user-stories-agile/:id", corbeilleController.supprimerDefinitivementUserStoryAgile);
 
 // Favoris
 app.get("/api/v1/favoris", favorisController.getFavoris);
@@ -253,8 +259,10 @@ app.delete("/api/v1/contrats/:id/documents/:documentId", contratController.remov
 
 // Tâches
 app.get("/api/v1/taches", tacheController.getAllTaches);
+app.get("/api/v1/taches/corbeille", tacheController.getTachesCorbeille);
 // Documents de tâches
 app.get("/api/v1/taches/documents-liables", tacheController.getDocumentsLiables);
+app.post("/api/v1/taches/:id/restaurer", tacheController.restoreTache);
 app.get("/api/v1/taches/:id", tacheController.getTache);
 app.post("/api/v1/taches", tacheController.createTache);
 app.put("/api/v1/taches/:id", tacheController.updateTache);
@@ -268,6 +276,7 @@ app.post("/api/v1/taches/:id/documents", tacheController.uploadMiddleware, tache
 
 // Epics & user stories (routes spécifiques avant :id)
 app.get("/api/v1/epics", epicController.getEpics);
+app.get("/api/v1/epics/corbeille", epicController.getEpicsCorbeille);
 app.post("/api/v1/epics", epicController.createEpic);
 app.post("/api/v1/epics/:id/documents/lier", epicController.lierDocumentEpic);
 app.post("/api/v1/epics/:id/documents", epicController.epicUploadMiddleware, epicController.uploadDocumentEpic);
@@ -281,9 +290,12 @@ app.get(
   "/api/v1/epics/:id/commentaires/:commentaireId/fichier",
   epicController.downloadEpicCommentaireFichier,
 );
+app.post("/api/v1/epics/:id/restaurer", epicController.restoreEpic);
+app.delete("/api/v1/epics/:id", epicController.softDeleteEpic);
 app.get("/api/v1/epics/:id", epicController.getEpic);
 app.put("/api/v1/epics/:id", epicController.updateEpic);
 app.get("/api/v1/user-stories", epicController.getUserStories);
+app.get("/api/v1/user-stories/corbeille", epicController.getUserStoriesCorbeille);
 app.post("/api/v1/user-stories", epicController.createUserStory);
 app.get("/api/v1/user-stories/:id/commentaires", epicController.getUserStoryCommentaires);
 app.post(
@@ -295,6 +307,8 @@ app.get(
   "/api/v1/user-stories/:id/commentaires/:commentaireId/fichier",
   epicController.downloadUserStoryCommentaireFichier,
 );
+app.post("/api/v1/user-stories/:id/restaurer", epicController.restoreUserStory);
+app.delete("/api/v1/user-stories/:id", epicController.softDeleteUserStory);
 app.get("/api/v1/user-stories/:id", epicController.getUserStory);
 app.put("/api/v1/user-stories/:id", epicController.updateUserStory);
 

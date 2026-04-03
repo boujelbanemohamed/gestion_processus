@@ -9,9 +9,19 @@ export default function Corbeille() {
   const [contrats, setContrats] = useState<any[]>([]);
   const [entites, setEntites] = useState<any[]>([]);
   const [projets, setProjets] = useState<any[]>([]);
+  const [tachesAgile, setTachesAgile] = useState<any[]>([]);
+  const [epicsAgile, setEpicsAgile] = useState<any[]>([]);
+  const [userStoriesAgile, setUserStoriesAgile] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
-    'processus' | 'documents' | 'licences' | 'clientsFournisseurs' | 'contrats' | 'entites' | 'projets'
+    | 'processus'
+    | 'documents'
+    | 'licences'
+    | 'clientsFournisseurs'
+    | 'contrats'
+    | 'entites'
+    | 'projets'
+    | 'agile'
   >('processus');
 
   useEffect(() => {
@@ -28,6 +38,9 @@ export default function Corbeille() {
       setContrats(response.data.contrats || []);
       setEntites(response.data.entites || []);
       setProjets(response.data.projets || []);
+      setTachesAgile(response.data.tachesAgile || []);
+      setEpicsAgile(response.data.epicsAgile || []);
+      setUserStoriesAgile(response.data.userStoriesAgile || []);
     } catch (error) {
       console.error('Erreur chargement corbeille:', error);
     } finally {
@@ -175,6 +188,68 @@ export default function Corbeille() {
     }
   };
 
+  const agileTotal = tachesAgile.length + epicsAgile.length + userStoriesAgile.length;
+
+  const handleRestaurerTacheAgile = async (id: string) => {
+    if (!window.confirm('Restaurer cette tâche ?')) return;
+    try {
+      await api.post(`/corbeille/taches-agile/${id}/restaurer`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur restauration:', error);
+    }
+  };
+
+  const handleSupprimerTacheAgile = async (id: string) => {
+    if (!window.confirm('Supprimer définitivement cette tâche ? Irréversible.')) return;
+    try {
+      await api.delete(`/corbeille/taches-agile/${id}`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur suppression:', error);
+    }
+  };
+
+  const handleRestaurerEpicAgile = async (id: string) => {
+    if (!window.confirm('Restaurer cet epic ?')) return;
+    try {
+      await api.post(`/corbeille/epics-agile/${id}/restaurer`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur restauration:', error);
+    }
+  };
+
+  const handleSupprimerEpicAgile = async (id: string) => {
+    if (!window.confirm('Supprimer définitivement cet epic ? Irréversible.')) return;
+    try {
+      await api.delete(`/corbeille/epics-agile/${id}`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur suppression:', error);
+    }
+  };
+
+  const handleRestaurerUserStoryAgile = async (id: string) => {
+    if (!window.confirm('Restaurer cette user story ?')) return;
+    try {
+      await api.post(`/corbeille/user-stories-agile/${id}/restaurer`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur restauration:', error);
+    }
+  };
+
+  const handleSupprimerUserStoryAgile = async (id: string) => {
+    if (!window.confirm('Supprimer définitivement cette user story ? Irréversible.')) return;
+    try {
+      await api.delete(`/corbeille/user-stories-agile/${id}`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur suppression:', error);
+    }
+  };
+
   if (loading) return <div className="p-6">Chargement...</div>;
 
   return (
@@ -252,6 +327,17 @@ export default function Corbeille() {
           }`}
         >
           Projets ({projets.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('agile')}
+          className={`pb-2 px-1 text-sm font-medium border-b-2 ${
+            activeTab === 'agile'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Tâches & backlog ({agileTotal})
         </button>
       </div>
 
@@ -585,6 +671,159 @@ export default function Corbeille() {
           {projets.length === 0 && (
             <div className="text-center py-8 text-gray-500">Aucun projet en corbeille</div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'agile' && (
+        <div className="space-y-10">
+          <section>
+            <h2 className="text-lg font-semibold text-gray-800 mb-3">Tâches supprimées</h2>
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Projet</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supprimé le</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {tachesAgile.map((t) => (
+                    <tr key={t.id}>
+                      <td className="px-6 py-4 text-sm text-gray-900">{t.nom}</td>
+                      <td className="px-6 py-4 text-sm text-gray-500">{t.projet?.nom || '—'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-500">
+                        {t.deletedAt ? new Date(t.deletedAt).toLocaleDateString('fr-FR') : '—'}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <div className="flex gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handleRestaurerTacheAgile(t.id)}
+                            className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
+                          >
+                            Restaurer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSupprimerTacheAgile(t.id)}
+                            className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200"
+                          >
+                            Supprimer définitivement
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {tachesAgile.length === 0 && (
+                <div className="text-center py-6 text-gray-500">Aucune tâche en corbeille</div>
+              )}
+            </div>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-semibold text-gray-800 mb-3">Epics supprimés</h2>
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Projet</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supprimé le</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {epicsAgile.map((e) => (
+                    <tr key={e.id}>
+                      <td className="px-6 py-4 text-sm text-gray-900">{e.nom}</td>
+                      <td className="px-6 py-4 text-sm text-gray-500">{e.projet?.nom || '—'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-500">
+                        {e.deletedAt ? new Date(e.deletedAt).toLocaleDateString('fr-FR') : '—'}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <div className="flex gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handleRestaurerEpicAgile(e.id)}
+                            className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
+                          >
+                            Restaurer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSupprimerEpicAgile(e.id)}
+                            className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200"
+                          >
+                            Supprimer définitivement
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {epicsAgile.length === 0 && (
+                <div className="text-center py-6 text-gray-500">Aucun epic en corbeille</div>
+              )}
+            </div>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-semibold text-gray-800 mb-3">User stories supprimées</h2>
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Epic / Projet</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supprimé le</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {userStoriesAgile.map((us) => (
+                    <tr key={us.id}>
+                      <td className="px-6 py-4 text-sm text-gray-900 max-w-md truncate" title={us.description}>
+                        {us.description || '—'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500">
+                        {us.epic?.nom ? `${us.epic.nom} · ${us.epic.projet?.nom || ''}` : '—'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500">
+                        {us.deletedAt ? new Date(us.deletedAt).toLocaleDateString('fr-FR') : '—'}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        <div className="flex gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handleRestaurerUserStoryAgile(us.id)}
+                            className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
+                          >
+                            Restaurer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSupprimerUserStoryAgile(us.id)}
+                            className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200"
+                          >
+                            Supprimer définitivement
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {userStoriesAgile.length === 0 && (
+                <div className="text-center py-6 text-gray-500">Aucune user story en corbeille</div>
+              )}
+            </div>
+          </section>
+
         </div>
       )}
     </div>

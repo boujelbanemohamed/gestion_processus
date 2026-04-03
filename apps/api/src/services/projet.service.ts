@@ -140,13 +140,14 @@ async function enrichTachesEtDocuments(projetIds: string[]) {
   const [groupStatut, overdueGroups, docsNested] = await Promise.all([
     prisma.tache.groupBy({
       by: ['projetId', 'statut'],
-      where: { projetId: { in: projetIds } },
+      where: { projetId: { in: projetIds }, deletedAt: null },
       _count: { _all: true },
     }),
     prisma.tache.groupBy({
       by: ['projetId'],
       where: {
         projetId: { in: projetIds },
+        deletedAt: null,
         dateFinApprox: { lt: new Date() },
         statut: { notIn: [...TACHE_TERMINEES] },
       },

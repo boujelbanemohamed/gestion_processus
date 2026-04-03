@@ -77,15 +77,23 @@ function formatTache(t: any) {
   };
 }
 
+function canContributeurAgirSurTache(
+  userId: string,
+  t: { createurId: string | null; assignesUtilisateurs: { userId: string }[] }
+) {
+  if (t.createurId === userId) return true;
+  return (t.assignesUtilisateurs || []).some((a) => a.userId === userId);
+}
+
 export class TacheService {
   private notificationService = new NotificationService();
   async findAll(filters: { statut?: string; projetId?: string; createurId?: string } = {}) {
-    const where: any = {};
+    const where: any = { deletedAt: null };
     if (filters.statut) where.statut = filters.statut;
     if (filters.projetId) where.projetId = filters.projetId;
     if (filters.createurId) where.createurId = filters.createurId;
 
-    const taches = await (prisma as any).tache.findMany({
+    const taches = await prisma.tache.findMany({
       where,
       include: TACHE_INCLUDE,
       orderBy: { createdAt: 'desc' },
@@ -94,12 +102,66 @@ export class TacheService {
   }
 
   async findOne(id: string) {
-    const t = await (prisma as any).tache.findUnique({
-      where: { id },
+    const t = await prisma.tache.findFirst({
+      where: { id, deletedAt: null },
       include: TACHE_INCLUDE,
     });
     if (!t) return null;
     return formatTache(t);
+  }
+
+  async listCorbeille(userId: string, role: string) {
+    const where: any = { deletedAt: { not: null } };
+    if (role !== 'admin') {
+      where.OR = [
+        { createurId: userId },
+        { assignesUtilisateurs: { some: { userId } } },
+      ];
+    }
+    const taches = await prisma.tache.findMany({
+      where,
+      include: TACHE_INCLUDE,
+      orderBy: { deletedAt: 'desc' },
+    });
+    return taches.map(formatTache);
+  }
+
+  async softDelete(id: string, userId: string, role: string) {
+    const existing = await prisma.tache.findUnique({
+      where: { id },
+      include: { assignesUtilisateurs: true },
+    });
+    if (!existing || existing.deletedAt) throw new Error('Tâche non trouvée');
+    if (role === 'lecteur') throw new Error('Accès refusé');
+    if (role === 'contributeur' && !canContributeurAgirSurTache(userId, existing)) {
+      throw new Error('Accès refusé');
+    }
+    await prisma.tache.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+  }
+
+  async restore(id: string, userId: string, role: string) {
+    const existing = await prisma.tache.findUnique({
+      where: { id },
+      include: { assignesUtilisateurs: true },
+    });
+    if (!existing || !existing.deletedAt) throw new Error('Tâche non trouvée dans la corbeille');
+    if (role !== 'admin' && !canContributeurAgirSurTache(userId, existing)) {
+      throw new Error('Accès refusé');
+    }
+    await prisma.tache.update({
+      where: { id },
+      data: { deletedAt: null },
+    });
+    return this.findOne(id);
+  }
+
+  async deletePermanent(id: string) {
+    const existing = await prisma.tache.findUnique({ where: { id } });
+    if (!existing || !existing.deletedAt) throw new Error('Tâche introuvable ou non en corbeille');
+    await prisma.tache.delete({ where: { id } });
   }
 
   async create(data: any, createurId: string) {
@@ -113,7 +175,7 @@ export class TacheService {
       liaisons = [],
     } = data;
 
-    const tache = await (prisma as any).tache.create({
+    const tache = await prisma.tache.create({
       data: {
         nom,
         statut: statut || 'cree',
@@ -179,6 +241,9 @@ export class TacheService {
   }
 
   async update(id: string, data: any) {
+    const cur = await prisma.tache.findUnique({ where: { id } });
+    if (!cur || cur.deletedAt) throw new Error('Tâche non trouvée');
+
     const {
       nom, statut, dateDebut, dateFinApprox,
       description, scenarioExecution, critereAcceptation,
@@ -190,7 +255,7 @@ export class TacheService {
     } = data;
 
     // Mise à jour du champ de base
-    await (prisma as any).tache.update({
+    await prisma.tache.update({
       where: { id },
       data: {
         ...(nom !== undefined && { nom }),
@@ -207,9 +272,9 @@ export class TacheService {
 
     // Sync utilisateurs assignés
     if (assignesUtilisateurIds !== undefined) {
-      await (prisma as any).tacheUser.deleteMany({ where: { tacheId: id } });
+      await prisma.tacheUser.deleteMany({ where: { tacheId: id } });
       if (assignesUtilisateurIds.length > 0) {
-        await (prisma as any).tacheUser.createMany({
+        await prisma.tacheUser.createMany({
           data: assignesUtilisateurIds.map((userId: string) => ({ tacheId: id, userId })),
           skipDuplicates: true,
         });
@@ -218,9 +283,9 @@ export class TacheService {
 
     // Sync entités assignées
     if (assignesEntiteIds !== undefined) {
-      await (prisma as any).tacheEntite.deleteMany({ where: { tacheId: id } });
+      await prisma.tacheEntite.deleteMany({ where: { tacheId: id } });
       if (assignesEntiteIds.length > 0) {
-        await (prisma as any).tacheEntite.createMany({
+        await prisma.tacheEntite.createMany({
           data: assignesEntiteIds.map((entiteId: string) => ({ tacheId: id, entiteId })),
           skipDuplicates: true,
         });
@@ -229,10 +294,10 @@ export class TacheService {
 
     // Sync liaisons
     if (liaisons !== undefined) {
-      await (prisma as any).tacheLiaison.deleteMany({ where: { tacheId: id } });
+      await prisma.tacheLiaison.deleteMany({ where: { tacheId: id } });
       const validLiaisons = liaisons.filter((l: any) => l.tacheLieeId && l.tacheLieeId !== id);
       if (validLiaisons.length > 0) {
-        await (prisma as any).tacheLiaison.createMany({
+        await prisma.tacheLiaison.createMany({
           data: validLiaisons.map((l: any) => ({
             tacheId: id,
             tacheLieeId: l.tacheLieeId,
@@ -288,12 +353,14 @@ export class TacheService {
     return tacheUpdated;
   }
 
-  async delete(id: string) {
-    await (prisma as any).tache.delete({ where: { id } });
-  }
 
   // ── Commentaires ──────────────────────────────────────────────────
   async getCommentaires(tacheId: string) {
+    const ok = await prisma.tache.findFirst({
+      where: { id: tacheId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!ok) return [];
     return (prisma as any).tacheCommentaire.findMany({
       where: { tacheId },
       include: { user: { select: { id: true, nom: true, prenom: true } } },
@@ -304,7 +371,12 @@ export class TacheService {
   }
 
   async addCommentaire(tacheId: string, userId: string, contenu: string, fichier?: Express.Multer.File) {
-    // Créer le commentaire
+    const tOk = await prisma.tache.findFirst({
+      where: { id: tacheId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!tOk) throw new Error('Tâche non trouvée');
+
     const commentaire = await (prisma as any).tacheCommentaire.create({
       data: {
         tacheId,
@@ -318,8 +390,8 @@ export class TacheService {
     });
 
     // Charger la tâche pour mentions et notifications
-    const tache = await (prisma as any).tache.findUnique({
-      where: { id: tacheId },
+    const tache = await prisma.tache.findFirst({
+      where: { id: tacheId, deletedAt: null },
       select: {
         nom: true, createurId: true,
         assignesUtilisateurs: { include: { user: { select: { id: true, email: true, nom: true, prenom: true } } } },
@@ -373,10 +445,11 @@ export class TacheService {
   // ── Documents ─────────────────────────────────────────────────────────────
 
   async uploadDocument(tacheId: string, userId: string, fichier: Express.Multer.File, nom: string, description?: string) {
-    const tache = await (prisma as any).tache.findUnique({
-      where: { id: tacheId },
-      select: { nom: true }
+    const tache = await prisma.tache.findFirst({
+      where: { id: tacheId, deletedAt: null },
+      select: { nom: true },
     });
+    if (!tache) throw new Error('Tâche non trouvée');
 
     // Créer le document via le service document existant
     const document = await prisma.document.create({

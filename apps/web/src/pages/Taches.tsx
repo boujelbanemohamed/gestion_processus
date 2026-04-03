@@ -1473,7 +1473,16 @@ function DocumentsTache({ tacheId, documents, canEdit }: {
 
 // ─── Carte Tâche ─────────────────────────────────────────────────────────────
 export function TacheCard({
-  tache, onEdit, canEdit, users, currentUserRole, allUsers, onOpenEpic, onOpenUserStory,
+  tache,
+  onEdit,
+  canEdit,
+  users,
+  currentUserRole,
+  allUsers,
+  onOpenEpic,
+  onOpenUserStory,
+  onSoftDelete,
+  onRefreshData,
 }: {
   tache: Tache;
   onEdit: () => void;
@@ -1483,6 +1492,8 @@ export function TacheCard({
   allUsers: UserOption[];
   onOpenEpic?: (epicId: string) => void;
   onOpenUserStory?: (userStoryId: string) => void;
+  onSoftDelete?: (id: string) => void;
+  onRefreshData?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const now = new Date();
@@ -1577,6 +1588,15 @@ export function TacheCard({
                 ✏️ Modifier
               </button>
             )}
+            {canEdit && onSoftDelete && (
+              <button
+                type="button"
+                onClick={() => onSoftDelete(tache.id)}
+                className="text-xs px-3 py-1.5 border border-red-200 rounded hover:bg-red-50 text-red-700"
+              >
+                🗑 Corbeille
+              </button>
+            )}
             <button onClick={() => setExpanded(!expanded)}
               className="text-xs px-3 py-1.5 border border-blue-300 rounded hover:bg-blue-50 text-blue-600">
               {expanded ? '▲ Réduire' : '▼ Détails'}
@@ -1587,6 +1607,7 @@ export function TacheCard({
 
       {expanded && (
         <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-4">
+          {onRefreshData && <TacheLienUserStoryBlock tache={tache} onUpdated={onRefreshData} />}
           {tache.description && (
             <div>
               <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">Description</h4>
@@ -1633,6 +1654,286 @@ function isTacheEnRetardKpi(t: Tache, now: Date): boolean {
 function truncateUi(s: string, n: number) {
   const t = s.trim();
   return t.length <= n ? t : `${t.slice(0, n)}…`;
+}
+
+function TacheLienUserStoryBlock({ tache, onUpdated }: { tache: Tache; onUpdated: () => void }) {
+  const [userStoryId, setUserStoryId] = useState(tache.userStory?.id || '');
+  const [options, setOptions] = useState<{ id: string; description: string }[]>([]);
+  const [saving, setSaving] = useState(false);
+  const projetId = tache.projetId || '';
+
+  useEffect(() => {
+    setUserStoryId(tache.userStory?.id || '');
+  }, [tache.id, tache.userStory?.id]);
+
+  useEffect(() => {
+    if (!projetId) {
+      setOptions([]);
+      return;
+    }
+    let cancel = false;
+    api
+      .get('/user-stories', { params: { projetId } })
+      .then((r) => {
+        if (!cancel) setOptions(Array.isArray(r.data) ? r.data : []);
+      })
+      .catch(() => {
+        if (!cancel) setOptions([]);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [projetId]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put(`/taches/${tache.id}`, { userStoryId: userStoryId || null });
+      onUpdated();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur lors du rattachement');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border border-gray-200 rounded-lg p-3 bg-white">
+      <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Lier à une user story</h4>
+      {!projetId ? (
+        <p className="text-xs text-amber-700">
+          Associez d&apos;abord un projet à la tâche (bouton Modifier) pour afficher les user stories du projet.
+        </p>
+      ) : (
+        <>
+          <select
+            value={userStoryId}
+            onChange={(e) => setUserStoryId(e.target.value)}
+            className="w-full text-sm border border-gray-300 rounded-md px-2 py-1.5 mb-2"
+          >
+            <option value="">— Aucune —</option>
+            {options.map((us) => (
+              <option key={us.id} value={us.id}>
+                {truncateUi(us.description || '', 100)}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void save()}
+            className="text-xs px-3 py-1.5 bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50"
+          >
+            {saving ? 'Enregistrement…' : 'Enregistrer le lien'}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function UserStoryLienEpicEtTachesBlock({
+  us,
+  epics,
+  taches,
+  onUpdated,
+}: {
+  us: UserStoryRow;
+  epics: EpicRow[];
+  taches: Tache[];
+  onUpdated: () => void;
+}) {
+  const projetId =
+    us.epic?.projetId ||
+    (us.taches || []).find((t) => t.projetId)?.projetId ||
+    taches.find((t) => t.userStory?.id === us.id)?.projetId ||
+    '';
+  const epicsProjet = projetId ? epics.filter((e) => e.projetId === projetId) : [];
+
+  const [epicId, setEpicId] = useState(us.epicId || '');
+  const [selectedTacheIds, setSelectedTacheIds] = useState<string[]>(() =>
+    (us.taches || []).map((t) => t.id)
+  );
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setEpicId(us.epicId || '');
+    setSelectedTacheIds((us.taches || []).map((t) => t.id));
+  }, [us.id, us.epicId, us.taches]);
+
+  const candidateTaches = projetId
+    ? taches.filter(
+        (t) =>
+          t.projetId === projetId &&
+          (!t.userStory?.id || t.userStory?.id === us.id)
+      )
+    : [];
+
+  const toggleTache = (id: string) => {
+    setSelectedTacheIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const save = async () => {
+    if (!epicId) {
+      alert('Sélectionnez un epic (requis).');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.put(`/user-stories/${us.id}`, {
+        epicId,
+        tacheIds: selectedTacheIds,
+      });
+      onUpdated();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 border border-gray-200 rounded-lg p-3 bg-white">
+      <div>
+        <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">Epic</h4>
+        <select
+          value={epicId}
+          onChange={(e) => setEpicId(e.target.value)}
+          className="w-full text-sm border border-gray-300 rounded-md px-2 py-1.5"
+        >
+          <option value="">— Choisir un epic —</option>
+          {epicsProjet.map((ep) => (
+            <option key={ep.id} value={ep.id}>
+              {ep.nom}
+            </option>
+          ))}
+        </select>
+      </div>
+      {projetId ? (
+        <div>
+          <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">Tâches liées</h4>
+          <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-md p-2 space-y-1 text-sm">
+            {candidateTaches.map((t) => (
+              <label key={t.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 rounded px-1">
+                <input
+                  type="checkbox"
+                  checked={selectedTacheIds.includes(t.id)}
+                  onChange={() => toggleTache(t.id)}
+                  className="rounded"
+                />
+                <span>{t.nom}</span>
+              </label>
+            ))}
+            {candidateTaches.length === 0 && (
+              <p className="text-xs text-gray-400">Aucune tâche éligible pour ce projet.</p>
+            )}
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs text-amber-700">
+          Projet indéterminé : rattachez d&apos;abord un epic du bon projet ou une tâche du projet.
+        </p>
+      )}
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => void save()}
+        className="text-xs px-3 py-1.5 bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50"
+      >
+        {saving ? 'Enregistrement…' : 'Enregistrer epic et tâches'}
+      </button>
+    </div>
+  );
+}
+
+function EpicLienUserStoriesBlock({
+  ep,
+  userStories,
+  taches,
+  onUpdated,
+}: {
+  ep: EpicRow;
+  userStories: UserStoryRow[];
+  taches: Tache[];
+  onUpdated: () => void;
+}) {
+  const storiesOnEpic = userStories.filter((u) => u.epicId === ep.id);
+  const orphanCandidates = userStories.filter((u) => {
+    if (u.epicId) return false;
+    const viaTachesPage = taches.some(
+      (t) => t.userStory?.id === u.id && t.projetId === ep.projetId
+    );
+    const viaSummary = (u.taches || []).some((t) => t.projetId === ep.projetId);
+    return viaTachesPage || viaSummary;
+  });
+
+  const detach = async (usId: string) => {
+    if (!window.confirm('Retirer cette user story de l’epic ?')) return;
+    try {
+      await api.put(`/user-stories/${usId}`, { epicId: null });
+      onUpdated();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur');
+    }
+  };
+
+  const attach = async (usId: string) => {
+    try {
+      await api.put(`/user-stories/${usId}`, { epicId: ep.id });
+      onUpdated();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur');
+    }
+  };
+
+  return (
+    <div className="border border-gray-200 rounded-lg p-3 bg-white space-y-3">
+      <div>
+        <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">User stories de l’epic</h4>
+        {storiesOnEpic.length === 0 ? (
+          <p className="text-xs text-gray-400">Aucune pour l’instant.</p>
+        ) : (
+          <ul className="text-sm space-y-1">
+            {storiesOnEpic.map((u) => (
+              <li key={u.id} className="flex justify-between items-center gap-2">
+                <span className="truncate min-w-0">{truncateUi(u.description, 90)}</span>
+                <button
+                  type="button"
+                  onClick={() => void detach(u.id)}
+                  className="shrink-0 text-xs text-red-600 hover:underline"
+                >
+                  Retirer
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div>
+        <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">Rattacher une user story orpheline (même projet)</h4>
+        {orphanCandidates.length === 0 ? (
+          <p className="text-xs text-gray-400">Aucune orpheline éligible.</p>
+        ) : (
+          <ul className="text-sm space-y-1 max-h-36 overflow-y-auto">
+            {orphanCandidates.map((u) => (
+              <li key={u.id} className="flex justify-between items-center gap-2">
+                <span className="truncate min-w-0">{truncateUi(u.description, 90)}</span>
+                <button
+                  type="button"
+                  onClick={() => void attach(u.id)}
+                  className="shrink-0 text-xs text-indigo-600 hover:underline"
+                >
+                  Rattacher
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /** Statut Kanban/Gantt pour une user story ou un epic, dérivé des tâches liées. */
@@ -1900,6 +2201,16 @@ export default function Taches() {
   const [editEpicId, setEditEpicId] = useState<string | null>(null);
   const [expandedUsListId, setExpandedUsListId] = useState<string | null>(null);
   const [expandedEpicListId, setExpandedEpicListId] = useState<string | null>(null);
+  const [showAgileCorbeilleModal, setShowAgileCorbeilleModal] = useState(false);
+  const [corbTaches, setCorbTaches] = useState<
+    { id: string; nom: string; deletedAt?: string; projet?: { nom: string } }[]
+  >([]);
+  const [corbEpics, setCorbEpics] = useState<
+    { id: string; nom: string; deletedAt?: string; projet?: { nom: string } }[]
+  >([]);
+  const [corbUserStories, setCorbUserStories] = useState<
+    { id: string; description: string; deletedAt?: string; epic?: { nom: string } | null }[]
+  >([]);
   const [viewMode, setViewMode] = useState<'list' | 'gantt' | 'kanban'>('list');
   const defaultSectionViews = { taches: true, userStories: true, epics: true };
   const [sectionViews, setSectionViews] = useState(defaultSectionViews);
@@ -1937,6 +2248,86 @@ export default function Taches() {
       setEpics(Array.isArray(r.data) ? r.data : []);
     } catch {
       setEpics([]);
+    }
+  };
+
+  const loadAgileCorbeille = async () => {
+    try {
+      const [tr, er, ur] = await Promise.all([
+        api.get('/taches/corbeille'),
+        api.get('/epics/corbeille'),
+        api.get('/user-stories/corbeille'),
+      ]);
+      setCorbTaches(Array.isArray(tr.data) ? tr.data : []);
+      setCorbEpics(Array.isArray(er.data) ? er.data : []);
+      setCorbUserStories(Array.isArray(ur.data) ? ur.data : []);
+    } catch {
+      setCorbTaches([]);
+      setCorbEpics([]);
+      setCorbUserStories([]);
+    }
+  };
+
+  const handleSoftDeleteTache = async (id: string) => {
+    const t = taches.find((x) => x.id === id);
+    if (!window.confirm(`Mettre la tâche « ${t?.nom || id} » en corbeille ?`)) return;
+    try {
+      await api.delete(`/taches/${id}`);
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur');
+    }
+  };
+
+  const handleSoftDeleteEpic = async (id: string) => {
+    const ep = epics.find((x) => x.id === id);
+    if (!window.confirm(`Mettre l’epic « ${ep?.nom || id} » en corbeille ?`)) return;
+    try {
+      await api.delete(`/epics/${id}`);
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur');
+    }
+  };
+
+  const handleSoftDeleteUserStory = async (id: string) => {
+    const us = userStories.find((x) => x.id === id);
+    if (!window.confirm(`Mettre cette user story en corbeille ?`)) return;
+    try {
+      await api.delete(`/user-stories/${id}`);
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur');
+    }
+  };
+
+  const restoreTacheCorbeille = async (id: string) => {
+    try {
+      await api.post(`/taches/${id}/restaurer`);
+      await loadAgileCorbeille();
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur restauration');
+    }
+  };
+
+  const restoreEpicCorbeille = async (id: string) => {
+    try {
+      await api.post(`/epics/${id}/restaurer`);
+      await loadAgileCorbeille();
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur restauration');
+    }
+  };
+
+  const restoreUserStoryCorbeille = async (id: string) => {
+    try {
+      await api.post(`/user-stories/${id}/restaurer`);
+      await loadAgileCorbeille();
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur restauration');
     }
   };
 
@@ -2123,34 +2514,48 @@ export default function Taches() {
             tâches.
           </p>
         </div>
-        {canCreate && (
-          <div className="flex flex-wrap gap-2 items-center justify-end">
+        <div className="flex flex-wrap gap-2 items-center justify-end">
+          {canCreate && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowEpicCreateModal(true)}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
+              >
+                + Nouvel Epic
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowUsCreateModal(true)}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
+              >
+                + Nouvelle User Story
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditTache(undefined);
+                  setShowModal(true);
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
+              >
+                + Nouvelle tâche
+              </button>
+            </>
+          )}
+          {(isAdmin || isContributeur) && (
             <button
               type="button"
-              onClick={() => setShowEpicCreateModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
-            >
-              + Nouvel Epic
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowUsCreateModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
-            >
-              + Nouvelle User Story
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEditTache(undefined);
-                setShowModal(true);
+              onClick={async () => {
+                await loadAgileCorbeille();
+                setShowAgileCorbeilleModal(true);
               }}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
+              className="px-4 py-2 border border-amber-300 bg-amber-50 text-amber-900 rounded text-sm font-medium hover:bg-amber-100"
             >
-              + Nouvelle tâche
+              🗑 Corbeille
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Filtres */}
@@ -2436,6 +2841,8 @@ export default function Taches() {
                   allUsers={users}
                   onOpenEpic={(id) => setDetailEpicId(id)}
                   onOpenUserStory={(id) => setDetailUserStoryId(id)}
+                  onSoftDelete={canEdit(t) ? handleSoftDeleteTache : undefined}
+                  onRefreshData={loadAll}
                 />
               ))}
             </div>
@@ -2614,6 +3021,15 @@ export default function Taches() {
                             ✏️ Modifier
                           </button>
                         )}
+                        {canEditUsEpic && (
+                          <button
+                            type="button"
+                            onClick={() => void handleSoftDeleteUserStory(us.id)}
+                            className="text-xs px-3 py-1.5 border border-red-200 rounded hover:bg-red-50 text-red-700"
+                          >
+                            🗑 Corbeille
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => setExpandedUsListId(usExpanded ? null : us.id)}
@@ -2625,6 +3041,14 @@ export default function Taches() {
                     </div>
                     {usExpanded && (
                       <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-3 text-sm">
+                        {canEditUsEpic && (
+                          <UserStoryLienEpicEtTachesBlock
+                            us={us}
+                            epics={epics}
+                            taches={taches}
+                            onUpdated={loadAll}
+                          />
+                        )}
                         <div>
                           <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">Description</h4>
                           <p className="text-gray-800 whitespace-pre-wrap">{us.description}</p>
@@ -2803,6 +3227,15 @@ export default function Taches() {
                             ✏️ Modifier
                           </button>
                         )}
+                        {canEditUsEpic && (
+                          <button
+                            type="button"
+                            onClick={() => void handleSoftDeleteEpic(ep.id)}
+                            className="text-xs px-3 py-1.5 border border-red-200 rounded hover:bg-red-50 text-red-700"
+                          >
+                            🗑 Corbeille
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => setExpandedEpicListId(epExpanded ? null : ep.id)}
@@ -2814,6 +3247,14 @@ export default function Taches() {
                     </div>
                     {epExpanded && (
                       <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-3 text-sm">
+                        {canEditUsEpic && (
+                          <EpicLienUserStoriesBlock
+                            ep={ep}
+                            userStories={userStories}
+                            taches={taches}
+                            onUpdated={loadAll}
+                          />
+                        )}
                         {ep.description && (
                           <div>
                             <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">Description</h4>
@@ -2855,6 +3296,103 @@ export default function Taches() {
           </>
         )}
       </section>
+      )}
+
+      {showAgileCorbeilleModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[88vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-5 border-b sticky top-0 bg-white z-10">
+              <h2 className="text-lg font-semibold">🗑 Corbeille agile</h2>
+              <button
+                type="button"
+                onClick={() => setShowAgileCorbeilleModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-5 space-y-6 text-sm">
+              <section>
+                <h3 className="font-semibold text-gray-800 mb-2">Tâches</h3>
+                {corbTaches.length === 0 && <p className="text-gray-500">Aucune tâche en corbeille.</p>}
+                {corbTaches.map((ct) => (
+                  <div
+                    key={ct.id}
+                    className="flex justify-between items-center gap-2 p-3 border border-gray-200 rounded-lg mb-2 bg-gray-50"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 truncate">{ct.nom}</p>
+                      <p className="text-xs text-gray-500">
+                        {ct.projet?.nom ?? '—'} ·{' '}
+                        {ct.deletedAt ? new Date(ct.deletedAt).toLocaleString('fr-FR') : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void restoreTacheCorbeille(ct.id)}
+                      className="shrink-0 px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700"
+                    >
+                      Restaurer
+                    </button>
+                  </div>
+                ))}
+              </section>
+              <section>
+                <h3 className="font-semibold text-gray-800 mb-2">Epics</h3>
+                {corbEpics.length === 0 && <p className="text-gray-500">Aucun epic en corbeille.</p>}
+                {corbEpics.map((ce) => (
+                  <div
+                    key={ce.id}
+                    className="flex justify-between items-center gap-2 p-3 border border-gray-200 rounded-lg mb-2 bg-gray-50"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 truncate">{ce.nom}</p>
+                      <p className="text-xs text-gray-500">
+                        {ce.projet?.nom ?? '—'} ·{' '}
+                        {ce.deletedAt ? new Date(ce.deletedAt).toLocaleString('fr-FR') : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void restoreEpicCorbeille(ce.id)}
+                      className="shrink-0 px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700"
+                    >
+                      Restaurer
+                    </button>
+                  </div>
+                ))}
+              </section>
+              <section>
+                <h3 className="font-semibold text-gray-800 mb-2">User stories</h3>
+                {corbUserStories.length === 0 && <p className="text-gray-500">Aucune user story en corbeille.</p>}
+                {corbUserStories.map((cu) => (
+                  <div
+                    key={cu.id}
+                    className="flex justify-between items-center gap-2 p-3 border border-gray-200 rounded-lg mb-2 bg-gray-50"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 line-clamp-2">{truncateUi(cu.description, 120)}</p>
+                      <p className="text-xs text-gray-500">
+                        {cu.epic?.nom ?? 'Sans epic'} ·{' '}
+                        {cu.deletedAt ? new Date(cu.deletedAt).toLocaleString('fr-FR') : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void restoreUserStoryCorbeille(cu.id)}
+                      className="shrink-0 px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700"
+                    >
+                      Restaurer
+                    </button>
+                  </div>
+                ))}
+              </section>
+              <p className="text-xs text-gray-400">
+                La suppression définitive est réservée aux administrateurs (page Corbeille globale).
+              </p>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal */}
