@@ -366,7 +366,16 @@ export function TachesDashboard({
 
 // ─── Modal Création / Édition ─────────────────────────────────────────────────
 export function TacheModal({
-  onClose, onSave, projets, users, entites, taches, editTache, lockProjetId, lockUserStoryId,
+  onClose,
+  onSave,
+  projets,
+  users,
+  entites,
+  taches,
+  editTache,
+  lockProjetId,
+  lockUserStoryId,
+  overlayZClass = 'z-50',
 }: {
   onClose: () => void;
   onSave: () => void;
@@ -379,6 +388,8 @@ export function TacheModal({
   lockProjetId?: string;
   /** Si défini, la user story est fixée (ex. création depuis le flux user story). */
   lockUserStoryId?: string;
+  /** Au-dessus d’un autre modal (ex. création US), utiliser z-[90] ou plus. */
+  overlayZClass?: string;
 }) {
   const { user: currentUser } = useAuth();
   const [form, setForm] = useState({
@@ -468,7 +479,9 @@ export function TacheModal({
   const autresTaches = taches.filter(t => t.id !== editTache?.id);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div
+      className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 ${overlayZClass}`}
+    >
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto relative">
         <button onClick={onClose} className="absolute top-3 right-3 text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
         <div className="p-6">
@@ -856,6 +869,7 @@ function UserStoryCreateModalInner({
           taches={taches}
           lockProjetId={lockProjetId}
           lockUserStoryId={draftUserStoryId}
+          overlayZClass="z-[90]"
         />
       )}
     </>
@@ -2835,19 +2849,31 @@ export default function Taches() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2 items-center justify-end">
+          {(isAdmin || isContributeur) && (
+            <button
+              type="button"
+              onClick={async () => {
+                await loadAgileCorbeille();
+                setShowAgileCorbeilleModal(true);
+              }}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
+            >
+              🗑 Corbeille
+            </button>
+          )}
           {canCreate && (
             <>
               <button
                 type="button"
                 onClick={() => setShowEpicCreateModal(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
               >
                 + Nouvel Epic
               </button>
               <button
                 type="button"
                 onClick={() => setShowUsCreateModal(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
               >
                 + Nouvelle User Story
               </button>
@@ -2857,23 +2883,11 @@ export default function Taches() {
                   setEditTache(undefined);
                   setShowModal(true);
                 }}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
               >
                 + Nouvelle tâche
               </button>
             </>
-          )}
-          {(isAdmin || isContributeur) && (
-            <button
-              type="button"
-              onClick={async () => {
-                await loadAgileCorbeille();
-                setShowAgileCorbeilleModal(true);
-              }}
-              className="px-4 py-2 border border-amber-300 bg-amber-50 text-amber-900 rounded text-sm font-medium hover:bg-amber-100"
-            >
-              🗑 Corbeille
-            </button>
           )}
         </div>
       </div>
