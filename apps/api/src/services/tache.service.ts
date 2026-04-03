@@ -46,6 +46,20 @@ const TACHE_INCLUDE = {
       }
     }
   },
+  userStory: {
+    include: {
+      epic: {
+        select: {
+          id: true,
+          nom: true,
+          description: true,
+          projetId: true,
+          projet: { select: { id: true, nom: true } },
+          entite: { select: { id: true, nom: true } },
+        },
+      },
+    },
+  },
 };
 
 function formatTache(t: any) {
@@ -90,6 +104,7 @@ export class TacheService {
       nom, statut, dateDebut, dateFinApprox,
       description, scenarioExecution, critereAcceptation,
       projetId,
+      userStoryId,
       assignesUtilisateurIds = [],
       assignesEntiteIds = [],
       liaisons = [],
@@ -105,6 +120,7 @@ export class TacheService {
         scenarioExecution: scenarioExecution || null,
         critereAcceptation: critereAcceptation || null,
         projetId: projetId || null,
+        userStoryId: userStoryId || null,
         createurId,
         assignesUtilisateurs: {
           create: assignesUtilisateurIds.map((userId: string) => ({ userId })),
@@ -164,6 +180,7 @@ export class TacheService {
       nom, statut, dateDebut, dateFinApprox,
       description, scenarioExecution, critereAcceptation,
       projetId,
+      userStoryId,
       assignesUtilisateurIds,
       assignesEntiteIds,
       liaisons,
@@ -181,6 +198,7 @@ export class TacheService {
         ...(scenarioExecution !== undefined && { scenarioExecution }),
         ...(critereAcceptation !== undefined && { critereAcceptation }),
         ...(projetId !== undefined && { projetId: projetId || null }),
+        ...(userStoryId !== undefined && { userStoryId: userStoryId || null }),
       },
     });
 

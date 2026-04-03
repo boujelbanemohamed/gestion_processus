@@ -68,7 +68,10 @@ const getStatutAuto = (dateDebut: string, dateFin: string) => {
 const emptyForm = {
   nom: '', reference: '', typeLicence: '', cout: '', devise: '',
   statut: 'active', dateDebut: '', dateFin: '', description: '',
-  nombreSieges: '', contratId: '', processusId: '', clientFournisseurId: ''
+  nombreSieges: '',
+  contratIds: [] as string[],
+  processusIds: [] as string[],
+  clientFournisseurIds: [] as string[],
 };
 
 export default function Licences() {
@@ -104,6 +107,9 @@ export default function Licences() {
   const [histoListRow, setHistoListRow] = useState<any[]>([]);
   const [histoLoadingRow, setHistoLoadingRow] = useState(false);
   const detailFileRef = useRef<HTMLInputElement>(null);
+  const pickContratRef = useRef<HTMLSelectElement>(null);
+  const pickProcessusRef = useRef<HTMLSelectElement>(null);
+  const pickCfRef = useRef<HTMLSelectElement>(null);
   const [detailDocUploading, setDetailDocUploading] = useState(false);
 
   useEffect(() => { loadAll(); }, []);
@@ -222,8 +228,9 @@ export default function Licences() {
       dateDebut: l.dateDebut ? l.dateDebut.split('T')[0] : '',
       dateFin: l.dateFin ? l.dateFin.split('T')[0] : '',
       description: l.description || '', nombreSieges: l.nombreSieges || '',
-      contratId: l.contratId || '', processusId: l.processusId || '',
-      clientFournisseurId: l.clientFournisseurId || ''
+      contratIds: (l.contrats || []).map((c: any) => c.id),
+      processusIds: (l.processus || []).map((p: any) => p.id),
+      clientFournisseurIds: (l.clientsFournisseurs || []).map((c: any) => c.id),
     });
     setNewFiles([]); setShowForm(true);
   };
@@ -238,8 +245,9 @@ export default function Licences() {
         nombreSieges: form.nombreSieges ? parseInt(form.nombreSieges as string) : null,
         cout: form.cout ? parseFloat(form.cout as string) : null,
         dateDebut: form.dateDebut || null, dateFin: form.dateFin || null,
-        contratId: form.contratId || null, processusId: form.processusId || null,
-        clientFournisseurId: form.clientFournisseurId || null,
+        contratIds: form.contratIds,
+        processusIds: form.processusIds,
+        clientFournisseurIds: form.clientFournisseurIds,
       };
       let licenceId: string;
       if (editing) {
@@ -405,9 +413,15 @@ export default function Licences() {
                       </span>}
                     </div>
                     <div className="flex flex-wrap gap-2 text-xs">
-                      {l.contrat && <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded">📄 {l.contrat.nom}</span>}
-                      {l.processus && <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded">⚙️ {l.processus.nom}</span>}
-                      {l.clientFournisseur && <span className="px-2 py-0.5 bg-green-50 text-green-700 rounded">🏢 {l.clientFournisseur.nom}</span>}
+                      {(l.contrats || []).map((c: any) => (
+                        <span key={c.id} className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded">📄 {c.nom}</span>
+                      ))}
+                      {(l.processus || []).map((p: any) => (
+                        <span key={p.id} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded">⚙️ {p.nom}</span>
+                      ))}
+                      {(l.clientsFournisseurs || []).map((cf: any) => (
+                        <span key={cf.id} className="px-2 py-0.5 bg-green-50 text-green-700 rounded">🏢 {cf.nom}</span>
+                      ))}
                     </div>
                     {l.documents?.length > 0 && (
                       <div className="mt-2">
@@ -499,7 +513,7 @@ export default function Licences() {
                   </div>
                   <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
                     <button type="button" onClick={() => openDetail(l)} className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200">👁 Détails</button>
-                    {canEditLicence(l) && <button type="button" onClick={() => openEdit(l)} className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">✏️ Modifier</button>}
+                    {canEditLicence(l) && <button type="button" onClick={() => openEdit(l)} className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">✏️ Modifier licence</button>}
                     <button type="button" onClick={() => onAccesButtonClick(l)} className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200">🔐 Accès</button>
                     <button type="button" onClick={() => openHistoriqueRowModal(l)} className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200">📜 Historique</button>
                     {canSoftDelete(l) && (
@@ -561,7 +575,7 @@ export default function Licences() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-screen overflow-y-auto">
             <div className="flex justify-between items-center px-6 py-5 border-b">
-              <h2 className="text-lg font-semibold">{editing ? 'Modifier' : 'Nouvelle licence'}</h2>
+              <h2 className="text-lg font-semibold">{editing ? 'Modifier la licence' : 'Nouvelle licence'}</h2>
               <button type="button" onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none p-1">✕</button>
             </div>
             <div className="p-6 space-y-5">
@@ -623,27 +637,176 @@ export default function Licences() {
                 <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
                 <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} rows={3} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm" />
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-4 border-t border-gray-100 pt-4">
+                <p className="text-xs text-gray-500">
+                  Vous pouvez lier <span className="font-medium text-gray-700">plusieurs</span> contrats, processus et clients / fournisseurs. Ajoutez-les un par un via les listes ci-dessous.
+                </p>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Contrat lié</label>
-                  <select value={form.contratId} onChange={e => setForm({...form, contratId: e.target.value})} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm">
-                    <option value="">Aucun</option>
-                    {contrats.map((c: any) => <option key={c.id} value={c.id}>{c.nom}</option>)}
-                  </select>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Contrats liés</label>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <select
+                      ref={pickContratRef}
+                      defaultValue=""
+                      className="flex-1 min-w-[12rem] border border-gray-300 rounded-md px-3 py-2 text-sm bg-white"
+                    >
+                      <option value="">Choisir un contrat…</option>
+                      {contrats
+                        .filter((c: any) => !form.contratIds.includes(c.id))
+                        .map((c: any) => (
+                          <option key={c.id} value={c.id}>{c.nom}</option>
+                        ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const v = pickContratRef.current?.value;
+                        if (!v) return;
+                        if (!form.contratIds.includes(v)) {
+                          setForm({ ...form, contratIds: [...form.contratIds, v] });
+                        }
+                        if (pickContratRef.current) pickContratRef.current.value = '';
+                      }}
+                      className="px-3 py-2 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 shrink-0"
+                    >
+                      + Ajouter
+                    </button>
+                  </div>
+                  {form.contratIds.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {form.contratIds.map((cid) => {
+                        const c = contrats.find((x: any) => x.id === cid);
+                        return (
+                          <span
+                            key={cid}
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-800 rounded text-xs"
+                          >
+                            {c?.nom || cid}
+                            <button
+                              type="button"
+                              className="text-purple-600 hover:text-purple-900"
+                              onClick={() => setForm({ ...form, contratIds: form.contratIds.filter((id) => id !== cid) })}
+                              aria-label="Retirer"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Processus lié</label>
-                  <select value={form.processusId} onChange={e => setForm({...form, processusId: e.target.value})} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm">
-                    <option value="">Aucun</option>
-                    {processus.map((p: any) => <option key={p.id} value={p.id}>{p.nom}</option>)}
-                  </select>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Processus liés</label>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <select
+                      ref={pickProcessusRef}
+                      defaultValue=""
+                      className="flex-1 min-w-[12rem] border border-gray-300 rounded-md px-3 py-2 text-sm bg-white"
+                    >
+                      <option value="">Choisir un processus…</option>
+                      {processus
+                        .filter((p: any) => !form.processusIds.includes(p.id))
+                        .map((p: any) => (
+                          <option key={p.id} value={p.id}>{p.nom}</option>
+                        ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const v = pickProcessusRef.current?.value;
+                        if (!v) return;
+                        if (!form.processusIds.includes(v)) {
+                          setForm({ ...form, processusIds: [...form.processusIds, v] });
+                        }
+                        if (pickProcessusRef.current) pickProcessusRef.current.value = '';
+                      }}
+                      className="px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 shrink-0"
+                    >
+                      + Ajouter
+                    </button>
+                  </div>
+                  {form.processusIds.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {form.processusIds.map((pid) => {
+                        const p = processus.find((x: any) => x.id === pid);
+                        return (
+                          <span
+                            key={pid}
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-800 rounded text-xs"
+                          >
+                            {p?.nom || pid}
+                            <button
+                              type="button"
+                              className="text-blue-600 hover:text-blue-900"
+                              onClick={() => setForm({ ...form, processusIds: form.processusIds.filter((id) => id !== pid) })}
+                              aria-label="Retirer"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Client/Fournisseur</label>
-                  <select value={form.clientFournisseurId} onChange={e => setForm({...form, clientFournisseurId: e.target.value})} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm">
-                    <option value="">Aucun</option>
-                    {clientsFournisseurs.map((cf: any) => <option key={cf.id} value={cf.id}>{cf.nom}</option>)}
-                  </select>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Clients / fournisseurs liés</label>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <select
+                      ref={pickCfRef}
+                      defaultValue=""
+                      className="flex-1 min-w-[12rem] border border-gray-300 rounded-md px-3 py-2 text-sm bg-white"
+                    >
+                      <option value="">Choisir un client ou fournisseur…</option>
+                      {clientsFournisseurs
+                        .filter((cf: any) => !form.clientFournisseurIds.includes(cf.id))
+                        .map((cf: any) => (
+                          <option key={cf.id} value={cf.id}>{cf.nom}</option>
+                        ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const v = pickCfRef.current?.value;
+                        if (!v) return;
+                        if (!form.clientFournisseurIds.includes(v)) {
+                          setForm({ ...form, clientFournisseurIds: [...form.clientFournisseurIds, v] });
+                        }
+                        if (pickCfRef.current) pickCfRef.current.value = '';
+                      }}
+                      className="px-3 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 shrink-0"
+                    >
+                      + Ajouter
+                    </button>
+                  </div>
+                  {form.clientFournisseurIds.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {form.clientFournisseurIds.map((cfid) => {
+                        const cf = clientsFournisseurs.find((x: any) => x.id === cfid);
+                        return (
+                          <span
+                            key={cfid}
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-green-50 text-green-800 rounded text-xs"
+                          >
+                            {cf?.nom || cfid}
+                            <button
+                              type="button"
+                              className="text-green-600 hover:text-green-900"
+                              onClick={() =>
+                                setForm({
+                                  ...form,
+                                  clientFournisseurIds: form.clientFournisseurIds.filter((id) => id !== cfid),
+                                })
+                              }
+                              aria-label="Retirer"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
               <div>
@@ -816,9 +979,24 @@ export default function Licences() {
                     ['Coût', showDetailModal.cout ? `${showDetailModal.cout} ${showDetailModal.devise}` : null],
                     ['Début', showDetailModal.dateDebut ? new Date(showDetailModal.dateDebut).toLocaleDateString('fr-FR') : null],
                     ['Fin', showDetailModal.dateFin ? new Date(showDetailModal.dateFin).toLocaleDateString('fr-FR') : null],
-                    ['Contrat', showDetailModal.contrat?.nom],
-                    ['Processus', showDetailModal.processus?.nom],
-                    ['Client/Fournisseur', showDetailModal.clientFournisseur?.nom],
+                    [
+                      'Contrats',
+                      (showDetailModal.contrats || []).length
+                        ? (showDetailModal.contrats || []).map((c: any) => c.nom).join(', ')
+                        : null,
+                    ],
+                    [
+                      'Processus',
+                      (showDetailModal.processus || []).length
+                        ? (showDetailModal.processus || []).map((p: any) => p.nom).join(', ')
+                        : null,
+                    ],
+                    [
+                      'Clients / Fournisseurs',
+                      (showDetailModal.clientsFournisseurs || []).length
+                        ? (showDetailModal.clientsFournisseurs || []).map((c: any) => c.nom).join(', ')
+                        : null,
+                    ],
                   ].filter(([,v]) => v).map(([k, v]) => (
                     <div key={k as string}><span className="text-gray-500">{k} :</span> <span className="font-medium">{v as string}</span></div>
                   ))}

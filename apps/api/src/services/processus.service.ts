@@ -157,11 +157,16 @@ async function enrichLiensProcessus(
         })
       )
     ),
-    prisma.licence.findMany({
-      where: { processusId: { in: processusIds }, deletedAt: null },
-      select: { id: true, nom: true, reference: true, processusId: true },
-      orderBy: { updatedAt: 'desc' },
-      take: 200,
+    prisma.licenceProcessus.findMany({
+      where: {
+        processusId: { in: processusIds },
+        licence: { deletedAt: null },
+      },
+      include: {
+        licence: { select: { id: true, nom: true, reference: true, updatedAt: true } },
+      },
+      orderBy: { licence: { updatedAt: 'desc' } },
+      take: 400,
     }),
   ]);
 
@@ -172,11 +177,13 @@ async function enrichLiensProcessus(
 
   const licencesByProc = new Map<string, { id: string; nom: string; reference: string }[]>();
   for (const pid of processusIds) licencesByProc.set(pid, []);
-  for (const l of licAll) {
-    if (!l.processusId) continue;
-    const list = licencesByProc.get(l.processusId) ?? [];
-    if (list.length < 5) list.push({ id: l.id, nom: l.nom, reference: l.reference });
-    licencesByProc.set(l.processusId, list);
+  for (const link of licAll) {
+    const pid = link.processusId;
+    const lic = link.licence;
+    if (!lic) continue;
+    const list = licencesByProc.get(pid) ?? [];
+    if (list.length < 5) list.push({ id: lic.id, nom: lic.nom, reference: lic.reference });
+    licencesByProc.set(pid, list);
   }
 
   const projetsByProc = new Map<string, { id: string; nom: string; codeProjet: string }[]>();

@@ -152,6 +152,7 @@ model User {
   contratPermissions    ContratPermission[]    @relation("ContratPermission")
   tachesCreees          Tache[]                @relation("TacheCreateur")
   tachesAssignees       TacheUser[]            @relation("TacheAssigneUser")
+  epicsCrees            Epic[]                 @relation("EpicCreatedBy")
   tacheCommentaires     TacheCommentaire[]     @relation("TacheCommentaireUser")
   notifications         Notification[]         @relation("NotificationUser")
 
@@ -188,6 +189,7 @@ model Entite {
   processus         ProcessusEntite[]
   projets           ProjetEntite[]
   tachesAssignees   TacheEntite[]
+  epicsAssignees    Epic[]
 
   @@index([parentId])
   @@index([code])
@@ -246,7 +248,7 @@ model Processus {
   entites                ProcessusEntite[]
   categories             ProcessusCategorie[]
   favoris                FavorisProcessus[]
-  licences               Licence[]
+  licenceLiens LicenceProcessus[]
 
   @@index([statut])
   @@index([codeProcessus])
@@ -342,6 +344,7 @@ model Projet {
   @@index([deletedAt])
   contrats              ContratProjet[]
   taches                Tache[]
+  epics                 Epic[]
 }
 
 model ProjetEntite {
@@ -446,6 +449,7 @@ model Document {
   comments            DocumentComment[]
   favoris             FavorisDocument[]
   tacheDocuments      TacheDocument[]    @relation("DocumentTache")
+  epicDocuments       EpicDocument[]
 
   @@index([referenceId, referenceType])
   @@index([typeDocument])
@@ -619,7 +623,7 @@ model ClientFournisseur {
   updatedAt        DateTime @updatedAt
   representants    RepresentantLegal[]
   projets          ClientFournisseurProjet[]
-  licences         Licence[]
+  licenceLiens     LicenceClientFournisseur[]
   historique       ClientFournisseurHistorique[]
 }
 
@@ -678,7 +682,7 @@ model Contrat {
   projets           ContratProjet[]
   documents         ContratDocument[]
   permissions       ContratPermission[]
-  licences          Licence[]
+  licenceLiens      LicenceContrat[]
   historique        ContratHistorique[]
 }
 
@@ -754,6 +758,53 @@ enum LiaisonType {
   simple
 }
 
+/// Epic agile (regroupe des user stories et des tâches via les stories)
+model Epic {
+  id          String   @id @default(uuid())
+  nom         String
+  description String?
+  projetId    String
+  projet      Projet   @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  entiteId    String?
+  entite      Entite?  @relation(fields: [entiteId], references: [id], onDelete: SetNull)
+  createdById String?
+  createdBy   User?    @relation("EpicCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userStories UserStory[]
+  documents   EpicDocument[]
+
+  @@index([projetId])
+  @@index([entiteId])
+}
+
+/// User story : epicId optionnel tant qu’elle n’est pas rattachée à un epic
+model UserStory {
+  id          String   @id @default(uuid())
+  description String
+  epicId      String?
+  epic        Epic?    @relation(fields: [epicId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  taches Tache[]
+
+  @@index([epicId])
+}
+
+model EpicDocument {
+  id         String   @id @default(uuid())
+  epicId     String
+  epic       Epic     @relation(fields: [epicId], references: [id], onDelete: Cascade)
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([epicId, documentId])
+  @@index([documentId])
+}
+
 model Tache {
   id                  String        @id @default(uuid())
   nom                 String
@@ -765,6 +816,8 @@ model Tache {
   critereAcceptation  String?
   projetId            String?
   projet              Projet?       @relation(fields: [projetId], references: [id], onDelete: SetNull)
+  userStoryId         String?
+  userStory           UserStory?    @relation(fields: [userStoryId], references: [id], onDelete: SetNull)
   createurId          String?
   createur            User?         @relation("TacheCreateur", fields: [createurId], references: [id], onDelete: SetNull)
   createdAt           DateTime      @default(now())
@@ -780,6 +833,7 @@ model Tache {
   @@index([statut])
   @@index([projetId])
   @@index([createurId])
+  @@index([userStoryId])
 }
 
 model TacheUser {
@@ -888,37 +942,71 @@ model Devise {
 // ── LICENCES ──────────────────────────────────────────────────────────────────
 
 model Licence {
-  id                  String    @id @default(uuid())
-  nom                 String
-  reference           String    @unique
-  typeLicence         String
-  statut              String    @default("active")
-  cout                Decimal?  @db.Decimal(15, 2)
-  devise              String?
-  nombreSieges        Int?
-  dateDebut           DateTime?
-  dateFin             DateTime?
-  description         String?
-  contratId           String?
-  contrat             Contrat?           @relation(fields: [contratId], references: [id], onDelete: SetNull)
-  processusId         String?
-  processus           Processus?         @relation(fields: [processusId], references: [id], onDelete: SetNull)
-  clientFournisseurId String?
-  clientFournisseur   ClientFournisseur? @relation(fields: [clientFournisseurId], references: [id], onDelete: SetNull)
-  createdById         String?
-  createdBy           User?              @relation("LicenceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  deletedAt           DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id          String    @id @default(uuid())
+  nom         String
+  reference   String    @unique
+  typeLicence String
+  statut      String    @default("active")
+  cout        Decimal?  @db.Decimal(15, 2)
+  devise      String?
+  nombreSieges Int?
+  dateDebut   DateTime?
+  dateFin     DateTime?
+  description String?
 
-  permissions   LicencePermission[]
-  documents     LicenceDocument[]
-  commentaires  LicenceCommentaire[]
-  notifications LicenceNotification[]
+  createdById String?
+  createdBy   User?    @relation("LicenceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  contratsLies              LicenceContrat[]
+  processusLies             LicenceProcessus[]
+  clientsFournisseursLies   LicenceClientFournisseur[]
+  permissions               LicencePermission[]
+  documents                 LicenceDocument[]
+  commentaires              LicenceCommentaire[]
+  notifications             LicenceNotification[]
 
   @@index([statut])
   @@index([deletedAt])
   @@index([createdById])
+}
+
+/// Liaison N-N licence ↔ contrat
+model LicenceContrat {
+  licenceId String
+  contratId String
+  licence   Licence @relation(fields: [licenceId], references: [id], onDelete: Cascade)
+  contrat   Contrat @relation(fields: [contratId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([licenceId, contratId])
+  @@index([contratId])
+}
+
+/// Liaison N-N licence ↔ processus
+model LicenceProcessus {
+  licenceId   String
+  processusId String
+  licence     Licence   @relation(fields: [licenceId], references: [id], onDelete: Cascade)
+  processus   Processus @relation(fields: [processusId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@id([licenceId, processusId])
+  @@index([processusId])
+}
+
+/// Liaison N-N licence ↔ client/fournisseur
+model LicenceClientFournisseur {
+  licenceId           String
+  clientFournisseurId String
+  licence             Licence           @relation(fields: [licenceId], references: [id], onDelete: Cascade)
+  clientFournisseur   ClientFournisseur @relation(fields: [clientFournisseurId], references: [id], onDelete: Cascade)
+  createdAt           DateTime          @default(now())
+
+  @@id([licenceId, clientFournisseurId])
+  @@index([clientFournisseurId])
 }
 
 model LicencePermission {

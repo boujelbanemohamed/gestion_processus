@@ -7,9 +7,11 @@ const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 
 const licenceInclude = {
   createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
-  contrat: { select: { id: true, nom: true } },
-  processus: { select: { id: true, nom: true } },
-  clientFournisseur: { select: { id: true, nom: true } },
+  contratsLies: { include: { contrat: { select: { id: true, nom: true } } } },
+  processusLies: { include: { processus: { select: { id: true, nom: true } } } },
+  clientsFournisseursLies: {
+    include: { clientFournisseur: { select: { id: true, nom: true } } },
+  },
   permissions: {
     include: { user: { select: { id: true, nom: true, prenom: true, email: true } } },
   },
@@ -83,10 +85,43 @@ function formatLicenceRow(l: any) {
   };
 }
 
+/** Fusionne tableaux d’ids et ancienne clé unique (rétrocompat API). */
+export function mergeLicenceLinkIds(arr: unknown, single: unknown): string[] {
+  const out = new Set<string>();
+  if (Array.isArray(arr)) {
+    for (const x of arr) {
+      if (typeof x === 'string' && x.trim()) out.add(x.trim());
+    }
+  }
+  if (typeof single === 'string' && single.trim()) out.add(single.trim());
+  return [...out];
+}
+
+function licenceLinksProvided(data: Record<string, unknown>) {
+  return (
+    data.contratIds !== undefined ||
+    data.contratId !== undefined ||
+    data.processusIds !== undefined ||
+    data.processusId !== undefined ||
+    data.clientFournisseurIds !== undefined ||
+    data.clientFournisseurId !== undefined
+  );
+}
+
 export async function formatLicenceFull(l: any) {
+  const row = formatLicenceRow(l);
+  const {
+    contratsLies: _cl,
+    processusLies: _pl,
+    clientsFournisseursLies: _cfl,
+    ...rest
+  } = row;
   const notifs = await enrichNotifications(l.notifications || []);
   return {
-    ...formatLicenceRow(l),
+    ...rest,
+    contrats: (l.contratsLies || []).map((x: any) => x.contrat).filter(Boolean),
+    processus: (l.processusLies || []).map((x: any) => x.processus).filter(Boolean),
+    clientsFournisseurs: (l.clientsFournisseursLies || []).map((x: any) => x.clientFournisseur).filter(Boolean),
     notifications: notifs,
   };
 }
@@ -154,10 +189,17 @@ export class LicenceService {
       dateDebut,
       dateFin,
       description,
+      contratIds,
       contratId,
+      processusIds,
       processusId,
+      clientFournisseurIds,
       clientFournisseurId,
     } = data;
+
+    const cIds = mergeLicenceLinkIds(contratIds, contratId);
+    const pIds = mergeLicenceLinkIds(processusIds, processusId);
+    const cfIds = mergeLicenceLinkIds(clientFournisseurIds, clientFournisseurId);
 
     const l = await prisma.licence.create({
       data: {
@@ -171,10 +213,12 @@ export class LicenceService {
         dateDebut: dateDebut ? new Date(dateDebut) : null,
         dateFin: dateFin ? new Date(dateFin) : null,
         description: description || null,
-        contratId: contratId || null,
-        processusId: processusId || null,
-        clientFournisseurId: clientFournisseurId || null,
         createdById,
+        contratsLies: { create: cIds.map((contratId) => ({ contratId })) },
+        processusLies: { create: pIds.map((processusId) => ({ processusId })) },
+        clientsFournisseursLies: {
+          create: cfIds.map((clientFournisseurId) => ({ clientFournisseurId })),
+        },
       },
       include: licenceInclude,
     });
@@ -200,32 +244,63 @@ export class LicenceService {
       dateDebut,
       dateFin,
       description,
+      contratIds,
       contratId,
+      processusIds,
       processusId,
+      clientFournisseurIds,
       clientFournisseurId,
     } = data;
 
-    const l = await prisma.licence.update({
-      where: { id },
-      data: {
-        ...(nom !== undefined && { nom }),
-        ...(reference !== undefined && { reference }),
-        ...(typeLicence !== undefined && { typeLicence }),
-        ...(statut !== undefined && { statut }),
-        ...(cout !== undefined && { cout: cout != null && cout !== '' ? new Prisma.Decimal(String(cout)) : null }),
-        ...(devise !== undefined && { devise: devise || null }),
-        ...(nombreSieges !== undefined && {
-          nombreSieges: nombreSieges != null && nombreSieges !== '' ? parseInt(String(nombreSieges), 10) : null,
-        }),
-        ...(dateDebut !== undefined && { dateDebut: dateDebut ? new Date(dateDebut) : null }),
-        ...(dateFin !== undefined && { dateFin: dateFin ? new Date(dateFin) : null }),
-        ...(description !== undefined && { description: description || null }),
-        ...(contratId !== undefined && { contratId: contratId || null }),
-        ...(processusId !== undefined && { processusId: processusId || null }),
-        ...(clientFournisseurId !== undefined && { clientFournisseurId: clientFournisseurId || null }),
-      },
-      include: licenceInclude,
+    await prisma.$transaction(async (tx) => {
+      await tx.licence.update({
+        where: { id },
+        data: {
+          ...(nom !== undefined && { nom }),
+          ...(reference !== undefined && { reference }),
+          ...(typeLicence !== undefined && { typeLicence }),
+          ...(statut !== undefined && { statut }),
+          ...(cout !== undefined && { cout: cout != null && cout !== '' ? new Prisma.Decimal(String(cout)) : null }),
+          ...(devise !== undefined && { devise: devise || null }),
+          ...(nombreSieges !== undefined && {
+            nombreSieges: nombreSieges != null && nombreSieges !== '' ? parseInt(String(nombreSieges), 10) : null,
+          }),
+          ...(dateDebut !== undefined && { dateDebut: dateDebut ? new Date(dateDebut) : null }),
+          ...(dateFin !== undefined && { dateFin: dateFin ? new Date(dateFin) : null }),
+          ...(description !== undefined && { description: description || null }),
+        },
+      });
+
+      if (licenceLinksProvided(data)) {
+        const cIds = mergeLicenceLinkIds(contratIds, contratId);
+        const pIds = mergeLicenceLinkIds(processusIds, processusId);
+        const cfIds = mergeLicenceLinkIds(clientFournisseurIds, clientFournisseurId);
+
+        await tx.licenceContrat.deleteMany({ where: { licenceId: id } });
+        if (cIds.length) {
+          await tx.licenceContrat.createMany({
+            data: cIds.map((contratId) => ({ licenceId: id, contratId })),
+          });
+        }
+
+        await tx.licenceProcessus.deleteMany({ where: { licenceId: id } });
+        if (pIds.length) {
+          await tx.licenceProcessus.createMany({
+            data: pIds.map((processusId) => ({ licenceId: id, processusId })),
+          });
+        }
+
+        await tx.licenceClientFournisseur.deleteMany({ where: { licenceId: id } });
+        if (cfIds.length) {
+          await tx.licenceClientFournisseur.createMany({
+            data: cfIds.map((clientFournisseurId) => ({ licenceId: id, clientFournisseurId })),
+          });
+        }
+      }
     });
+
+    const l = await prisma.licence.findUnique({ where: { id }, include: licenceInclude });
+    if (!l) throw new Error('Licence non trouvée');
     return formatLicenceFull(l);
   }
 
@@ -247,11 +322,12 @@ export class LicenceService {
     const existing = await prisma.licence.findUnique({ where: { id } });
     if (!existing || !existing.deletedAt) throw new Error('Licence non trouvée dans la corbeille');
     if (role !== 'admin' && existing.createdById !== userId) throw new Error('Accès refusé');
-    const l = await prisma.licence.update({
+    await prisma.licence.update({
       where: { id },
       data: { deletedAt: null },
-      include: licenceInclude,
     });
+    const l = await prisma.licence.findUnique({ where: { id }, include: licenceInclude });
+    if (!l) throw new Error('Licence non trouvée dans la corbeille');
     return formatLicenceFull(l);
   }
 

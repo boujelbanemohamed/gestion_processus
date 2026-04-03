@@ -1,7 +1,13 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, type FormEvent } from 'react';
 import TachesGanttView from '../components/TachesGanttView';
 import TachesKanbanView from '../components/TachesKanbanView';
 import TachesEnRetardBloc, { type TacheEnRetardItem } from '../components/TachesEnRetardBloc';
+import {
+  EpicCreateModal,
+  EpicDetailModal,
+  UserStoryDetailModal,
+  type EpicRow,
+} from '../components/EpicUserStoryModals';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 
@@ -39,6 +45,17 @@ export type Tache = {
   documents?: DocTache[];
   createurId?: string;
   createur?: { id: string; nom: string; prenom: string };
+  userStory?: {
+    id: string;
+    description: string;
+    epic?: {
+      id: string;
+      nom: string;
+      description?: string | null;
+      projet?: { id: string; nom: string };
+      entite?: { id: string; nom: string } | null;
+    } | null;
+  } | null;
 };
 
 export type DocTache = {
@@ -345,7 +362,7 @@ export function TachesDashboard({
 
 // ─── Modal Création / Édition ─────────────────────────────────────────────────
 export function TacheModal({
-  onClose, onSave, projets, users, entites, taches, editTache, lockProjetId,
+  onClose, onSave, projets, users, entites, taches, editTache, lockProjetId, lockUserStoryId,
 }: {
   onClose: () => void;
   onSave: () => void;
@@ -356,6 +373,8 @@ export function TacheModal({
   editTache?: Tache;
   /** Si défini, le projet de la tâche est fixé (ex. création depuis la fiche projet). */
   lockProjetId?: string;
+  /** Si défini, la user story est fixée (ex. création depuis le flux user story). */
+  lockUserStoryId?: string;
 }) {
   const { user: currentUser } = useAuth();
   const [form, setForm] = useState({
@@ -377,8 +396,34 @@ export function TacheModal({
   const [liaisons, setLiaisons] = useState<{ tacheLieeId: string; type: string }[]>(
     editTache?.liaisons?.map(l => ({ tacheLieeId: l.tacheLieeId, type: l.type })) || []
   );
+  const [userStoryId, setUserStoryId] = useState(editTache?.userStory?.id || lockUserStoryId || '');
+  const [userStoryOptions, setUserStoryOptions] = useState<{ id: string; description: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (lockUserStoryId) setUserStoryId(lockUserStoryId);
+  }, [lockUserStoryId]);
+
+  useEffect(() => {
+    const pid = form.projetId || lockProjetId;
+    if (!pid) {
+      setUserStoryOptions([]);
+      return;
+    }
+    let cancel = false;
+    api
+      .get('/user-stories', { params: { projetId: pid } })
+      .then((r) => {
+        if (!cancel) setUserStoryOptions(Array.isArray(r.data) ? r.data : []);
+      })
+      .catch(() => {
+        if (!cancel) setUserStoryOptions([]);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [form.projetId, lockProjetId]);
 
   const toggleUser = (id: string) =>
     setSelectedUsers(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -400,6 +445,7 @@ export function TacheModal({
         assignesUtilisateurIds: selectedUsers,
         assignesEntiteIds: selectedEntites,
         liaisons: liaisons.filter(l => l.tacheLieeId),
+        userStoryId: userStoryId || null,
       };
       if (editTache) {
         await api.put(`/taches/${editTache.id}`, payload);
@@ -456,6 +502,28 @@ export function TacheModal({
               </select>
               {lockProjetId && (
                 <p className="text-xs text-gray-500 mt-1">Projet imposé par le contexte (fiche projet).</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">User story</label>
+              <select
+                value={userStoryId}
+                onChange={(e) => setUserStoryId(e.target.value)}
+                disabled={!!lockUserStoryId}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md disabled:bg-gray-100"
+              >
+                <option value="">— Aucune —</option>
+                {userStoryOptions.map((us) => (
+                  <option key={us.id} value={us.id}>
+                    {(us.description || '').slice(0, 80)}
+                    {(us.description || '').length > 80 ? '…' : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">Liste filtrée sur le projet de la tâche.</p>
+              {lockUserStoryId && (
+                <p className="text-xs text-amber-700 mt-1">Rattachement imposé par le contexte (nouvelle tâche depuis une user story).</p>
               )}
             </div>
 
@@ -560,6 +628,233 @@ export function TacheModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function UserStoryCreateModalInner({
+  onClose,
+  onSaved,
+  projets,
+  taches,
+  epics,
+  reloadEpics,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+  projets: ProjetOption[];
+  taches: Tache[];
+  epics: EpicRow[];
+  reloadEpics: () => Promise<void>;
+}) {
+  const [description, setDescription] = useState('');
+  const [epicId, setEpicId] = useState('');
+  const [projetFilter, setProjetFilter] = useState('');
+  const [selectedTacheIds, setSelectedTacheIds] = useState<string[]>([]);
+  const [showTacheModal, setShowTacheModal] = useState(false);
+  const [users, setUsers] = useState<UserOption[]>([]);
+  const [entites, setEntites] = useState<EntiteOption[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const [draftUserStoryId, setDraftUserStoryId] = useState<string | null>(null);
+
+  const epic = epics.find((e) => e.id === epicId);
+  const lockProjetId = epic?.projetId || '';
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [u, e] = await Promise.all([api.get('/users'), api.get('/entites')]);
+        setUsers(u.data || []);
+        setEntites(e.data || []);
+      } catch {
+        setUsers([]);
+        setEntites([]);
+      }
+    })();
+  }, []);
+
+  const filteredEpics = projetFilter ? epics.filter((e) => e.projetId === projetFilter) : epics;
+
+  const tachesPourLier = taches.filter((t) => {
+    if (lockProjetId && t.projetId !== lockProjetId) return false;
+    if (t.userStory?.id) return false;
+    return true;
+  });
+
+  const toggleTache = (id: string) =>
+    setSelectedTacheIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const ensureDraftUserStory = async (): Promise<string | null> => {
+    if (!epicId) {
+      alert('Choisissez un epic.');
+      return null;
+    }
+    if (draftUserStoryId) return draftUserStoryId;
+    const desc = description.trim() || '(Brouillon — complétez la description puis enregistrez)';
+    try {
+      const { data } = await api.post('/user-stories', { description: desc, epicId, tacheIds: [] });
+      if (data?.id) {
+        setDraftUserStoryId(data.id);
+        return data.id as string;
+      }
+    } catch (ex: any) {
+      alert(ex?.response?.data?.error || 'Impossible de créer la user story');
+    }
+    return null;
+  };
+
+  const openNewTache = async () => {
+    const usId = await ensureDraftUserStory();
+    if (!usId) return;
+    setShowTacheModal(true);
+  };
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setErr('');
+    if (!description.trim() || !epicId) {
+      setErr('Description et epic requis.');
+      return;
+    }
+    setSaving(true);
+    try {
+      if (draftUserStoryId) {
+        const { data: usCur } = await api.get(`/user-stories/${draftUserStoryId}`);
+        const fromServer = ((usCur?.taches || []) as { id: string }[]).map((t) => t.id);
+        const merged = [...new Set([...fromServer, ...selectedTacheIds])];
+        await api.put(`/user-stories/${draftUserStoryId}`, {
+          description: description.trim(),
+          tacheIds: merged,
+        });
+      } else {
+        await api.post('/user-stories', {
+          description: description.trim(),
+          epicId,
+          tacheIds: selectedTacheIds,
+        });
+      }
+      await onSaved();
+      await reloadEpics();
+      onClose();
+    } catch (ex: any) {
+      setErr(ex?.response?.data?.error || ex?.message || 'Erreur');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70] p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+          <div className="sticky top-0 bg-white border-b px-5 py-3 flex justify-between items-center">
+            <h2 className="text-lg font-semibold">Nouvelle User Story</h2>
+            <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">
+              ×
+            </button>
+          </div>
+          <form onSubmit={submit} className="p-5 space-y-4">
+            {err && <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{err}</div>}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Filtrer les epics par projet</label>
+              <select
+                value={projetFilter}
+                onChange={(e) => {
+                  setProjetFilter(e.target.value);
+                  setEpicId('');
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              >
+                <option value="">Tous les projets</option>
+                {projets.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nom}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Epic *</label>
+              <select
+                value={epicId}
+                onChange={(e) => {
+                  setEpicId(e.target.value);
+                  setDraftUserStoryId(null);
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                required
+              >
+                <option value="">— Choisir un epic —</option>
+                {filteredEpics.map((ep) => (
+                  <option key={ep.id} value={ep.id}>
+                    {ep.nom} {ep.projet?.nom ? `(${ep.projet.nom})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={4}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tâches existantes à rattacher</label>
+              <div className="border rounded-md max-h-44 overflow-y-auto p-2 space-y-1">
+                {tachesPourLier.map((t) => (
+                  <label key={t.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
+                    <input type="checkbox" checked={selectedTacheIds.includes(t.id)} onChange={() => toggleTache(t.id)} />
+                    <span>{t.nom}</span>
+                  </label>
+                ))}
+                {tachesPourLier.length === 0 && epicId && (
+                  <p className="text-xs text-gray-400">Aucune tâche libre pour ce projet — créez-en une ci-dessous.</p>
+                )}
+              </div>
+            </div>
+            <div>
+              <button
+                type="button"
+                onClick={() => void openNewTache()}
+                disabled={!epicId}
+                className="text-sm px-3 py-2 border border-dashed border-blue-400 text-blue-700 rounded-md hover:bg-blue-50 disabled:opacity-50"
+              >
+                + Nouvelle tâche (rattachée automatiquement à cette user story)
+              </button>
+              {!epicId && <p className="text-xs text-amber-700 mt-1">Sélectionnez un epic d&apos;abord.</p>}
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={onClose} className="px-4 py-2 border rounded-md text-gray-700">
+                Annuler
+              </button>
+              <button type="submit" disabled={saving} className="px-4 py-2 bg-violet-600 text-white rounded-md disabled:opacity-50">
+                {saving ? 'Création…' : 'Enregistrer la User Story'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+      {showTacheModal && draftUserStoryId && lockProjetId && (
+        <TacheModal
+          onClose={() => setShowTacheModal(false)}
+          onSave={async () => {
+            await onSaved();
+            await reloadEpics();
+            setShowTacheModal(false);
+          }}
+          projets={projets}
+          users={users}
+          entites={entites}
+          taches={taches}
+          lockProjetId={lockProjetId}
+          lockUserStoryId={draftUserStoryId}
+        />
+      )}
+    </>
   );
 }
 
@@ -1023,7 +1318,7 @@ function DocumentsTache({ tacheId, documents, canEdit }: {
 
 // ─── Carte Tâche ─────────────────────────────────────────────────────────────
 export function TacheCard({
-  tache, onEdit, canEdit, users, currentUserRole, allUsers
+  tache, onEdit, canEdit, users, currentUserRole, allUsers, onOpenEpic, onOpenUserStory,
 }: {
   tache: Tache;
   onEdit: () => void;
@@ -1031,6 +1326,8 @@ export function TacheCard({
   users: UserOption[];
   currentUserRole: string;
   allUsers: UserOption[];
+  onOpenEpic?: (epicId: string) => void;
+  onOpenUserStory?: (userStoryId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const now = new Date();
@@ -1064,6 +1361,35 @@ export function TacheCard({
                 {tache.assignesEntites?.map(e => (
                   <span key={e.id} className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs">🏢 {e.nom}</span>
                 ))}
+              </div>
+            )}
+            {tache.userStory && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {tache.userStory.epic &&
+                  (onOpenEpic ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenEpic(tache.userStory!.epic!.id)}
+                      className="text-xs px-2 py-1 bg-indigo-50 text-indigo-800 rounded border border-indigo-200 hover:bg-indigo-100 text-left"
+                    >
+                      📗 Epic : {tache.userStory.epic.nom}
+                    </button>
+                  ) : (
+                    <span className="text-xs px-2 py-1 bg-indigo-50 text-indigo-800 rounded border border-indigo-200">
+                      📗 Epic : {tache.userStory.epic.nom}
+                    </span>
+                  ))}
+                {onOpenUserStory ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenUserStory(tache.userStory!.id)}
+                    className="text-xs px-2 py-1 bg-violet-50 text-violet-800 rounded border border-violet-200 hover:bg-violet-100"
+                  >
+                    📘 User story
+                  </button>
+                ) : (
+                  <span className="text-xs px-2 py-1 bg-violet-50 text-violet-800 rounded border border-violet-200">📘 User story</span>
+                )}
               </div>
             )}
             {/* Liaisons */}
@@ -1165,10 +1491,15 @@ export default function Taches() {
   const [projets, setProjets] = useState<ProjetOption[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [entites, setEntites] = useState<EntiteOption[]>([]);
+  const [epics, setEpics] = useState<EpicRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editTache, setEditTache] = useState<Tache | undefined>();
   const [showDashboard, setShowDashboard] = useState(false);
+  const [showEpicCreateModal, setShowEpicCreateModal] = useState(false);
+  const [showUsCreateModal, setShowUsCreateModal] = useState(false);
+  const [detailEpicId, setDetailEpicId] = useState<string | null>(null);
+  const [detailUserStoryId, setDetailUserStoryId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'gantt' | 'kanban'>('list');
   const [filters, setFilters] = useState({ nom: '', statut: '', projetId: '', assigneIds: [] as string[], entiteIds: [] as string[], dateDebutFrom: '', dateDebutTo: '', dateFinFrom: '', dateFinTo: '' });
   const [page, setPage] = useState(1);
@@ -1186,20 +1517,31 @@ export default function Taches() {
     setPage(1);
   }, [filters]);
 
+  const loadEpics = async () => {
+    try {
+      const r = await api.get('/epics');
+      setEpics(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setEpics([]);
+    }
+  };
+
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [tRes, pRes, uRes, eRes, retardRes] = await Promise.all([
+      const [tRes, pRes, uRes, eRes, epicRes, retardRes] = await Promise.all([
         api.get('/taches'),
         api.get('/projets'),
         api.get('/users'),
         api.get('/entites'),
+        api.get('/epics').catch(() => ({ data: [] })),
         api.get('/dashboard/taches-en-retard').catch(() => ({ data: [] as TacheEnRetardItem[] })),
       ]);
       setTaches(tRes.data);
       setProjets(pRes.data);
       setUsers(uRes.data);
       setEntites(eRes.data);
+      setEpics(Array.isArray(epicRes.data) ? epicRes.data : []);
       setTachesEnRetard(Array.isArray(retardRes.data) ? retardRes.data : []);
     } catch (err) {
       console.error('Erreur chargement:', err);
@@ -1301,10 +1643,31 @@ export default function Taches() {
             {showDashboard ? '📊 Masquer dashboard' : '📊 Dashboard'}
           </button>
           {canCreate && (
-            <button onClick={() => { setEditTache(undefined); setShowModal(true); }}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium">
-              + Nouvelle tâche
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setShowEpicCreateModal(true)}
+                className="px-4 py-2 border border-indigo-300 text-indigo-800 rounded hover:bg-indigo-50 text-sm font-medium"
+              >
+                + Nouvel Epic
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowUsCreateModal(true)}
+                className="px-4 py-2 border border-violet-300 text-violet-800 rounded hover:bg-violet-50 text-sm font-medium"
+              >
+                + User Story
+              </button>
+              <button
+                onClick={() => {
+                  setEditTache(undefined);
+                  setShowModal(true);
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
+              >
+                + Nouvelle tâche
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -1463,6 +1826,8 @@ export default function Taches() {
                 users={users}
                 currentUserRole={currentUser?.role || ''}
                 allUsers={users}
+                onOpenEpic={(id) => setDetailEpicId(id)}
+                onOpenUserStory={(id) => setDetailUserStoryId(id)}
               />
             ))}
           </div>
@@ -1497,6 +1862,41 @@ export default function Taches() {
           entites={entites}
           taches={taches}
           editTache={editTache}
+        />
+      )}
+
+      {showEpicCreateModal && (
+        <EpicCreateModal
+          onClose={() => setShowEpicCreateModal(false)}
+          onSaved={loadAll}
+          projets={projets}
+          entites={entites}
+        />
+      )}
+
+      {showUsCreateModal && (
+        <UserStoryCreateModalInner
+          onClose={() => setShowUsCreateModal(false)}
+          onSaved={loadAll}
+          projets={projets}
+          taches={taches}
+          epics={epics}
+          reloadEpics={loadEpics}
+        />
+      )}
+
+      {detailEpicId && (
+        <EpicDetailModal epicId={detailEpicId} onClose={() => setDetailEpicId(null)} />
+      )}
+
+      {detailUserStoryId && (
+        <UserStoryDetailModal
+          userStoryId={detailUserStoryId}
+          onClose={() => setDetailUserStoryId(null)}
+          onOpenEpicId={(eid) => {
+            setDetailUserStoryId(null);
+            setDetailEpicId(eid);
+          }}
         />
       )}
     </div>

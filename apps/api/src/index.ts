@@ -23,6 +23,7 @@ import * as contratController from "./controllers/contrat.controller";
 import * as ocrController from "./controllers/ocr.controller";
 import * as clientFournisseurController from "./controllers/client-fournisseur.controller";
 import * as tacheController from "./controllers/tache.controller";
+import * as epicController from "./controllers/epic.controller";
 import * as notificationController from "./controllers/notification.controller";
 import * as licenceController from "./controllers/licence.controller";
 import * as typeLicenceController from "./controllers/type-licence.controller";
@@ -265,6 +266,16 @@ app.post("/api/v1/taches/:id/documents/lier", tacheController.lierDocument);
 app.delete("/api/v1/taches/:id/documents/:documentId", tacheController.delierDocument);
 app.post("/api/v1/taches/:id/documents", tacheController.uploadMiddleware, tacheController.uploadDocument);
 
+// Epics & user stories (routes spécifiques avant :id)
+app.get("/api/v1/epics", epicController.getEpics);
+app.post("/api/v1/epics", epicController.createEpic);
+app.post("/api/v1/epics/:id/documents/lier", epicController.lierDocumentEpic);
+app.post("/api/v1/epics/:id/documents", epicController.epicUploadMiddleware, epicController.uploadDocumentEpic);
+app.get("/api/v1/epics/:id", epicController.getEpic);
+app.get("/api/v1/user-stories", epicController.getUserStories);
+app.post("/api/v1/user-stories", epicController.createUserStory);
+app.get("/api/v1/user-stories/:id", epicController.getUserStory);
+app.put("/api/v1/user-stories/:id", epicController.updateUserStory);
 
 // Licences (routes spécifiques avant :id)
 app.get("/api/v1/licences/corbeille", licenceController.getLicencesCorbeille);
