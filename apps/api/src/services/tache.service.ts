@@ -330,14 +330,15 @@ export class TacheService {
     const appUrl = process.env.FRONTEND_URL || 'http://172.17.5.198:5173';
 
     // Non-bloquant - mentions
-    this.notificationService.traiterMentions({
-      contenu,
-      auteurId: userId,
-      auteurNom,
-      tacheId,
-      tacheNom: tache?.nom || 'Tâche',
-      appUrl,
-    }).catch((err: any) => console.error('[MENTIONS] Erreur:', err));
+    this.notificationService
+      .traiterMentions({
+        contenu,
+        auteurId: userId,
+        auteurNom,
+        appUrl,
+        context: { type: 'tache', id: tacheId, titre: tache?.nom || 'Tâche' },
+      })
+      .catch((err: any) => console.error('[MENTIONS] Erreur:', err));
     if (tache) {
       const appUrl = process.env.FRONTEND_URL || 'http://172.17.5.198:5173';
       const auteurUser = await prisma.user.findUnique({ where: { id: userId }, select: { nom: true, prenom: true } });

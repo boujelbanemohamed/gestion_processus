@@ -27,11 +27,11 @@ function NotificationsTab() {
   };
 
   const notifications = [
-    { id: 'mention', icon: '📌', pages: ['Tâches', 'Processus', 'Projets', 'Documents', 'Contrats'], titre: 'Mention dans un commentaire', description: 'Envoye lorsque un utilisateur est mentionne via @Prenom Nom dans un commentaire.', destinataire: 'La personne mentionnee', declencheur: 'Ajout commentaire avec @mention', sujet: 'Vous avez ete mentionne dans une tache : [Nom tache]', template: `Bonjour [Prenom Nom],
+    { id: 'mention', icon: '📌', pages: ['Tâches', 'Epics', 'User stories', 'Processus', 'Projets', 'Documents', 'Contrats'], titre: 'Mention dans un commentaire', description: 'Envoye lorsque un utilisateur est mentionne via @Prenom Nom dans un commentaire sur une tache, un epic ou une user story.', destinataire: 'La personne mentionnee', declencheur: 'Ajout commentaire avec @mention', sujet: 'Mention (tache / epic / user story) : [Titre]', template: `Bonjour [Prenom Nom],
 
-[Auteur] vous a mentionne dans un commentaire de la tache :
+[Auteur] vous a mentionne dans un commentaire (tache, epic ou user story) :
 
-[Nom de la tache]
+[Titre]
 
 "[Contenu du commentaire]"
 
@@ -64,9 +64,23 @@ PMO Hub` },
 [Nom de la tache]
 
 PMO Hub` },
-    { id: 'commentaire', icon: '💬', pages: ['Tâches', 'Processus', 'Projets', 'Documents'], titre: 'Nouveau commentaire', description: 'Envoye lorsque un commentaire est ajoute sur une tache.', destinataire: 'Createur et assignes (hors auteur)', declencheur: 'Ajout commentaire sur une tache', sujet: 'Nouveau commentaire : [Nom tache]', template: `Bonjour [Prenom Nom],
+    { id: 'commentaire', icon: '💬', pages: ['Tâches', 'Epics', 'User stories', 'Processus', 'Projets', 'Documents'], titre: 'Nouveau commentaire (tache)', description: 'Envoye lorsque un commentaire est ajoute sur une tache.', destinataire: 'Createur et assignes (hors auteur)', declencheur: 'Ajout commentaire sur une tache', sujet: 'Nouveau commentaire : [Nom tache]', template: `Bonjour [Prenom Nom],
 
 [Auteur] a commente la tache [Nom tache] :
+
+"[Contenu]"
+
+PMO Hub` },
+    { id: 'commentaire_epic', icon: '💬', pages: ['Tâches', 'Epics'], titre: 'Nouveau commentaire sur un epic', description: 'Envoye au createur de l epic et aux createurs / assignes des taches rattachees aux user stories de l epic (hors auteur).', destinataire: 'Createur epic + parties prenantes des taches liees', declencheur: 'Ajout commentaire sur un epic', sujet: 'Nouveau commentaire : [Nom epic]', template: `Bonjour [Prenom Nom],
+
+[Auteur] a commente l epic [Nom epic] :
+
+"[Contenu]"
+
+PMO Hub` },
+    { id: 'commentaire_user_story', icon: '💬', pages: ['Tâches', 'User stories'], titre: 'Nouveau commentaire sur une user story', description: 'Envoye aux createurs et assignes des taches liees a la user story (hors auteur).', destinataire: 'Createurs et assignes des taches liees', declencheur: 'Ajout commentaire sur une user story', sujet: 'Nouveau commentaire : [User story]', template: `Bonjour [Prenom Nom],
+
+[Auteur] a commente la user story [Extrait description] :
 
 "[Contenu]"
 

@@ -61,14 +61,38 @@ export class NotificationService {
   }
 
   // ── Envoyer email de mention ──────────────────────────────────────────────
+  private libelleContexte(type: 'tache' | 'epic' | 'userStory'): { sujet: string; intro: string; libelle: string; cta: string } {
+    if (type === 'epic') {
+      return {
+        sujet: 'epic',
+        intro: 'vous a mentionné dans un commentaire sur l’epic :',
+        libelle: '📗 Epic',
+        cta: 'Voir les tâches →',
+      };
+    }
+    if (type === 'userStory') {
+      return {
+        sujet: 'user story',
+        intro: 'vous a mentionné dans un commentaire sur la user story :',
+        libelle: '📘 User story',
+        cta: 'Voir les tâches →',
+      };
+    }
+    return {
+      sujet: 'tâche',
+      intro: 'vous a mentionné dans un commentaire de la tâche :',
+      libelle: '📋',
+      cta: 'Voir la tâche →',
+    };
+  }
+
   async envoyerEmailMention(data: {
     destinataireEmail: string;
     destinataireNom: string;
     auteurNom: string;
-    tacheNom: string;
-    tacheId: string;
     commentaireContenu: string;
     appUrl: string;
+    context: { type: 'tache' | 'epic' | 'userStory'; titre: string };
   }) {
     try {
       const smtpData = await this.getActiveSMTP();
@@ -78,11 +102,12 @@ export class NotificationService {
       }
       const { smtp, transporter } = smtpData;
       const lien = `${data.appUrl}/taches`;
+      const L = this.libelleContexte(data.context.type);
 
       await transporter.sendMail({
         from: `"${smtp.fromName || 'PMO Hub'}" <${smtp.fromEmail}>`,
         to: data.destinataireEmail,
-        subject: `📌 Vous avez été mentionné dans une tâche : ${data.tacheNom}`,
+        subject: `📌 Mention (${L.sujet}) : ${data.context.titre}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <div style="background: #2563eb; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
@@ -90,13 +115,13 @@ export class NotificationService {
             </div>
             <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-radius: 0 0 8px 8px;">
               <p>Bonjour <strong>${data.destinataireNom}</strong>,</p>
-              <p><strong>${data.auteurNom}</strong> vous a mentionné dans un commentaire de la tâche :</p>
+              <p><strong>${data.auteurNom}</strong> ${L.intro}</p>
               <div style="background: white; border-left: 4px solid #2563eb; padding: 12px; margin: 16px 0; border-radius: 4px;">
-                <p style="margin:0; font-weight: bold; color: #1d4ed8;">📋 ${data.tacheNom}</p>
+                <p style="margin:0; font-weight: bold; color: #1d4ed8;">${L.libelle} ${data.context.titre}</p>
                 <p style="margin: 8px 0 0; color: #374151; font-style: italic;">"${data.commentaireContenu}"</p>
               </div>
               <a href="${lien}" style="display: inline-block; background: #2563eb; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; margin-top: 8px;">
-                Voir la tâche →
+                ${L.cta}
               </a>
               <p style="color: #9ca3af; font-size: 12px; margin-top: 20px;">PMO Hub — Notification automatique</p>
             </div>
@@ -115,9 +140,8 @@ export class NotificationService {
     contenu: string;
     auteurId: string;
     auteurNom: string;
-    tacheId: string;
-    tacheNom: string;
     appUrl: string;
+    context: { type: 'tache' | 'epic' | 'userStory'; id: string; titre: string };
   }) {
     // Extraire les mentions @Prénom Nom (2 mots après @)
     const mentionRegex = /@([A-Za-zÀ-ÿ]+\s+[A-Za-zÀ-ÿ]+)/g;
@@ -147,10 +171,10 @@ export class NotificationService {
       await this.createNotification({
         userId: user.id,
         type: 'mention',
-        titre: `Vous avez été mentionné dans "${data.tacheNom}"`,
+        titre: `Mention : "${data.context.titre}"`,
         contenu: `${data.auteurNom} : ${data.contenu.substring(0, 100)}${data.contenu.length > 100 ? '...' : ''}`,
-        lienType: 'tache',
-        lienId: data.tacheId,
+        lienType: data.context.type,
+        lienId: data.context.id,
       });
 
       // 2. Email
@@ -158,10 +182,9 @@ export class NotificationService {
         destinataireEmail: user.email,
         destinataireNom: `${user.prenom} ${user.nom}`,
         auteurNom: data.auteurNom,
-        tacheNom: data.tacheNom,
-        tacheId: data.tacheId,
         commentaireContenu: data.contenu,
         appUrl: data.appUrl,
+        context: { type: data.context.type, titre: data.context.titre },
       });
     }
   }
@@ -322,18 +345,33 @@ export class NotificationService {
   }
 
   // ── Commentaire sur une tâche ─────────────────────────────────────────────
-  async notifierCommentaire(data: {
-    tacheId: string; tacheNom: string; commentaire: string;
+  async notifierCommentaireSurCible(data: {
+    cibleType: 'tache' | 'epic' | 'userStory';
+    cibleId: string;
+    cibleNom: string;
+    commentaire: string;
     destinataires: { id: string; email: string; nom: string }[];
-    auteurNom: string; appUrl: string;
+    auteurNom: string;
+    appUrl: string;
   }) {
+    const intro =
+      data.cibleType === 'epic'
+        ? `a commenté l’epic <strong>${data.cibleNom}</strong> :`
+        : data.cibleType === 'userStory'
+          ? `a commenté la user story <strong>${data.cibleNom}</strong> :`
+          : `a commenté la tâche <strong>${data.cibleNom}</strong> :`;
+    const cta =
+      data.cibleType === 'tache' ? 'Voir la tâche →' : 'Voir les tâches →';
+
     for (const dest of data.destinataires) {
       try {
         await this.createNotification({
-          userId: dest.id, type: 'commentaire',
-          titre: `Nouveau commentaire sur "${data.tacheNom}"`,
+          userId: dest.id,
+          type: 'commentaire',
+          titre: `Nouveau commentaire sur "${data.cibleNom}"`,
           contenu: `${data.auteurNom} : ${data.commentaire.substring(0, 100)}`,
-          lienType: 'tache', lienId: data.tacheId,
+          lienType: data.cibleType,
+          lienId: data.cibleId,
         });
       } catch { /* silencieux */ }
       try {
@@ -342,20 +380,41 @@ export class NotificationService {
         await smtp.transporter.sendMail({
           from: `"${smtp.smtp.fromName || 'PMO Hub'}" <${smtp.smtp.fromEmail}>`,
           to: dest.email,
-          subject: `💬 Nouveau commentaire : ${data.tacheNom}`,
+          subject: `💬 Nouveau commentaire : ${data.cibleNom}`,
           html: `<div style="font-family:Arial,sans-serif;max-width:600px">
             <div style="background:#0284c7;color:white;padding:20px;border-radius:8px 8px 0 0"><h2 style="margin:0">💬 Nouveau commentaire</h2></div>
             <div style="background:#f9fafb;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
               <p>Bonjour <strong>${dest.nom}</strong>,</p>
-              <p><strong>${data.auteurNom}</strong> a commenté la tâche <strong>${data.tacheNom}</strong> :</p>
+              <p><strong>${data.auteurNom}</strong> ${intro}</p>
               <div style="background:white;border-left:4px solid #0284c7;padding:12px;margin:16px 0;border-radius:4px;font-style:italic">
                 "${data.commentaire.substring(0, 200)}${data.commentaire.length > 200 ? '...' : ''}"
               </div>
-              <a href="${data.appUrl}/taches" style="display:inline-block;background:#0284c7;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Voir la tâche →</a>
+              <a href="${data.appUrl}/taches" style="display:inline-block;background:#0284c7;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">${cta}</a>
             </div></div>`,
         });
-      } catch (err) { console.error('[NOTIF] Erreur commentaire:', err); }
+      } catch (err) {
+        console.error('[NOTIF] Erreur commentaire:', err);
+      }
     }
+  }
+
+  async notifierCommentaire(data: {
+    tacheId: string;
+    tacheNom: string;
+    commentaire: string;
+    destinataires: { id: string; email: string; nom: string }[];
+    auteurNom: string;
+    appUrl: string;
+  }) {
+    return this.notifierCommentaireSurCible({
+      cibleType: 'tache',
+      cibleId: data.tacheId,
+      cibleNom: data.tacheNom,
+      commentaire: data.commentaire,
+      destinataires: data.destinataires,
+      auteurNom: data.auteurNom,
+      appUrl: data.appUrl,
+    });
   }
 
   // ── Document uploadé ──────────────────────────────────────────────────────

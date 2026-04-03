@@ -8,6 +8,7 @@ export type EpicRow = {
   description?: string | null;
   projetId: string;
   projet?: { id: string; nom: string };
+  createdBy?: { id: string; nom: string; prenom: string } | null;
   assignesEntites?: { entite: { id: string; nom: string } }[];
   userStories?: { id: string; description: string; taches?: { id: string; nom: string; statut: string }[] }[];
   documents?: { document: DocTache }[];

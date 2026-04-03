@@ -21,6 +21,34 @@ const storage = multer.diskStorage({
 
 export const epicUploadMiddleware = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } }).single('fichier');
 
+const epicCommentDir = path.join(process.cwd(), 'uploads', 'epics', 'commentaires');
+if (!fs.existsSync(epicCommentDir)) fs.mkdirSync(epicCommentDir, { recursive: true });
+const epicCommentStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, epicCommentDir),
+  filename: (_req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `${unique}${path.extname(file.originalname)}`);
+  },
+});
+export const epicCommentUploadMiddleware = multer({
+  storage: epicCommentStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+}).single('fichier');
+
+const usCommentDir = path.join(process.cwd(), 'uploads', 'user-stories', 'commentaires');
+if (!fs.existsSync(usCommentDir)) fs.mkdirSync(usCommentDir, { recursive: true });
+const usCommentStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, usCommentDir),
+  filename: (_req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `${unique}${path.extname(file.originalname)}`);
+  },
+});
+export const userStoryCommentUploadMiddleware = multer({
+  storage: usCommentStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+}).single('fichier');
+
 export const getEpics = async (req: AuthRequest, res: Response) => {
   try {
     const { projetId } = req.query;
@@ -174,5 +202,83 @@ export const updateUserStory = async (req: AuthRequest, res: Response) => {
     res.json(us);
   } catch (e: any) {
     res.status(400).json({ error: e.message });
+  }
+};
+
+// ── Commentaires epic / user story ───────────────────────────────────────────
+
+export const getEpicCommentaires = async (req: AuthRequest, res: Response) => {
+  try {
+    const list = await epicService.getCommentairesEpic(req.params.id);
+    res.json(list);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const addEpicCommentaire = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { contenu } = req.body;
+    if (!contenu?.trim() && !req.file) {
+      return res.status(400).json({ error: 'Contenu ou fichier requis' });
+    }
+    const row = await epicService.addCommentaireEpic(
+      req.params.id,
+      req.user.userId,
+      contenu?.trim() || '',
+      req.file,
+    );
+    res.status(201).json(row);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+};
+
+export const downloadEpicCommentaireFichier = async (req: AuthRequest, res: Response) => {
+  try {
+    const row = await epicService.getEpicCommentaireFichier(req.params.commentaireId);
+    if (!row?.pieceJointePath) return res.status(404).json({ error: 'Fichier non trouvé' });
+    res.download(row.pieceJointePath, row.pieceJointeNom || 'fichier');
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const getUserStoryCommentaires = async (req: AuthRequest, res: Response) => {
+  try {
+    const list = await epicService.getCommentairesUserStory(req.params.id);
+    res.json(list);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const addUserStoryCommentaire = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { contenu } = req.body;
+    if (!contenu?.trim() && !req.file) {
+      return res.status(400).json({ error: 'Contenu ou fichier requis' });
+    }
+    const row = await epicService.addCommentaireUserStory(
+      req.params.id,
+      req.user.userId,
+      contenu?.trim() || '',
+      req.file,
+    );
+    res.status(201).json(row);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+};
+
+export const downloadUserStoryCommentaireFichier = async (req: AuthRequest, res: Response) => {
+  try {
+    const row = await epicService.getUserStoryCommentaireFichier(req.params.commentaireId);
+    if (!row?.pieceJointePath) return res.status(404).json({ error: 'Fichier non trouvé' });
+    res.download(row.pieceJointePath, row.pieceJointeNom || 'fichier');
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 };

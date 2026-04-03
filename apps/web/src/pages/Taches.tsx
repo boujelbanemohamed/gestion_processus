@@ -862,9 +862,37 @@ function UserStoryCreateModalInner({
   );
 }
 
-// ─── Zone Commentaires ────────────────────────────────────────────────────────
-function CommentairesSection({ tacheId, users }: { tacheId: string; users: UserOption[] }) {
-  const { user: currentUser } = useAuth();
+export type CommentairesTarget = { kind: 'tache' | 'epic' | 'userStory'; id: string };
+
+function commentairesApiPaths(target: CommentairesTarget) {
+  const token = localStorage.getItem('token');
+  const q = token ? `?token=${token}` : '';
+  if (target.kind === 'tache') {
+    return {
+      list: `/taches/${target.id}/commentaires`,
+      post: `/taches/${target.id}/commentaires`,
+      fichierUrl: (commentaireId: string) =>
+        `${API_BASE_URL}/taches/${target.id}/commentaires/${commentaireId}/fichier${q}`,
+    };
+  }
+  if (target.kind === 'epic') {
+    return {
+      list: `/epics/${target.id}/commentaires`,
+      post: `/epics/${target.id}/commentaires`,
+      fichierUrl: (commentaireId: string) =>
+        `${API_BASE_URL}/epics/${target.id}/commentaires/${commentaireId}/fichier${q}`,
+    };
+  }
+  return {
+    list: `/user-stories/${target.id}/commentaires`,
+    post: `/user-stories/${target.id}/commentaires`,
+    fichierUrl: (commentaireId: string) =>
+      `${API_BASE_URL}/user-stories/${target.id}/commentaires/${commentaireId}/fichier${q}`,
+  };
+}
+
+// ─── Zone Commentaires (tâche, epic ou user story) ───────────────────────────
+function CommentairesSection({ target, users }: { target: CommentairesTarget; users: UserOption[] }) {
   const [commentaires, setCommentaires] = useState<Commentaire[]>([]);
   const [texte, setTexte] = useState('');
   const [sending, setSending] = useState(false);
@@ -873,12 +901,15 @@ function CommentairesSection({ tacheId, users }: { tacheId: string; users: UserO
   const [mentionSearch, setMentionSearch] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const paths = commentairesApiPaths(target);
 
-  useEffect(() => { loadCommentaires(); }, [tacheId]);
+  useEffect(() => {
+    void loadCommentaires();
+  }, [target.kind, target.id]);
 
   const loadCommentaires = async () => {
     try {
-      const res = await api.get(`/taches/${tacheId}/commentaires`);
+      const res = await api.get(paths.list);
       setCommentaires(res.data);
     } catch {
       // silencieux
@@ -919,7 +950,7 @@ function CommentairesSection({ tacheId, users }: { tacheId: string; users: UserO
       const formData = new FormData();
       formData.append('contenu', texte.trim());
       if (fichier) formData.append('fichier', fichier);
-      await api.post(`/taches/${tacheId}/commentaires`, formData, {
+      await api.post(paths.post, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setTexte('');
@@ -949,7 +980,7 @@ function CommentairesSection({ tacheId, users }: { tacheId: string; users: UserO
             </div>
             <p className="text-sm text-gray-700 whitespace-pre-wrap">{c.contenu}</p>
             {c.pieceJointeNom && (
-              <a href={`${API_BASE_URL}/taches/${tacheId}/commentaires/${c.id}/fichier?token=${localStorage.getItem('token')}`}
+              <a href={paths.fichierUrl(c.id)}
                 target="_blank" rel="noreferrer"
                 className="text-xs text-blue-600 hover:underline mt-1 block">
                 📎 {c.pieceJointeNom}
@@ -1000,7 +1031,6 @@ function CommentairesSection({ tacheId, users }: { tacheId: string; users: UserO
 }
 
 
-// ── Calcul des personnes ayant accès à une tâche ─────────────────────────────
 // ── Calcul des personnes ayant accès à une tâche ─────────────────────────────
 function getNiveauAcces(droit: string): number {
   if (droit.includes('modification + acces') || droit.includes('modification + accès')) return 3;
@@ -1070,8 +1100,129 @@ function getAccesPersonnes(tache: Tache, allUsers: UserOption[]) {
   }));
 }
 
+type PersonneAcces = { id: string; nom: string; roles: string[]; droit: string };
 
+function aggregateAccesFromTasks(tasks: Tache[], allUsers: UserOption[]): PersonneAcces[] {
+  const merged = new Map<string, { id: string; nom: string; roles: string[]; meilleurAcces: string }>();
+  const mergeOne = (p: PersonneAcces) => {
+    if (merged.has(p.id)) {
+      const ex = merged.get(p.id)!;
+      for (const r of p.roles) {
+        if (!ex.roles.includes(r)) ex.roles.push(r);
+      }
+      if (getNiveauAcces(p.droit) > getNiveauAcces(ex.meilleurAcces)) ex.meilleurAcces = p.droit;
+    } else {
+      merged.set(p.id, { id: p.id, nom: p.nom, roles: [...p.roles], meilleurAcces: p.droit });
+    }
+  };
+  for (const t of tasks) {
+    for (const p of getAccesPersonnes(t, allUsers)) mergeOne(p);
+  }
+  return Array.from(merged.values())
+    .map((p) => ({ id: p.id, nom: p.nom, roles: p.roles, droit: p.meilleurAcces }))
+    .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+}
 
+function getTachesLieesEpic(ep: EpicRow, taches: Tache[]): Tache[] {
+  const usIds = new Set((ep.userStories || []).map((u) => u.id));
+  return taches.filter((t) => t.userStory?.id && usIds.has(t.userStory.id));
+}
+
+function getTachesLieesUserStory(usId: string, taches: Tache[]): Tache[] {
+  return taches.filter((t) => t.userStory?.id === usId);
+}
+
+function getAccesPersonnesEpic(ep: EpicRow, taches: Tache[], allUsers: UserOption[]): PersonneAcces[] {
+  const tasks = getTachesLieesEpic(ep, taches);
+  const base = aggregateAccesFromTasks(tasks, allUsers);
+  if (ep.createdBy?.id) {
+    const id = ep.createdBy.id;
+    const nom = `${ep.createdBy.prenom} ${ep.createdBy.nom}`;
+    const idx = base.findIndex((p) => p.id === id);
+    if (idx < 0) {
+      base.push({ id, nom, roles: ['Créateur epic'], droit: 'modification + lecture' });
+    } else {
+      const p = base[idx];
+      if (!p.roles.includes('Créateur epic')) {
+        base[idx] = { ...p, roles: [...p.roles, 'Créateur epic'] };
+      }
+    }
+  }
+  return base.sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+}
+
+function getAccesPersonnesUserStory(usId: string, taches: Tache[], allUsers: UserOption[]): PersonneAcces[] {
+  return aggregateAccesFromTasks(getTachesLieesUserStory(usId, taches), allUsers);
+}
+
+function getAssignesDepuisTaches(tasks: Tache[]) {
+  const m = new Map<string, string>();
+  for (const t of tasks) {
+    for (const u of t.assignesUtilisateurs || []) {
+      m.set(u.id, `${u.prenom} ${u.nom}`);
+    }
+  }
+  return [...m.entries()]
+    .map(([id, label]) => ({ id, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+}
+
+function getEntitesDepuisTaches(tasks: Tache[]) {
+  const m = new Map<string, string>();
+  for (const t of tasks) {
+    for (const e of t.assignesEntites || []) {
+      m.set(e.id, e.nom);
+    }
+  }
+  return [...m.entries()]
+    .map(([id, nom]) => ({ id, nom }))
+    .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+}
+
+function AccesPersonnesBlock({ personnes }: { personnes: PersonneAcces[] }) {
+  if (personnes.length === 0) {
+    return <p className="text-xs text-gray-400">Aucune personne (agrégation depuis les tâches liées).</p>;
+  }
+  return (
+    <div className="flex flex-wrap gap-3">
+      {personnes.map((p) => (
+        <div key={p.id} className="flex items-center gap-2">
+          <div
+            className={`w-7 h-7 rounded-full text-white flex items-center justify-center text-xs font-bold shrink-0 ${
+              p.droit.includes('modification + accès') || p.droit.includes('modification + acces')
+                ? 'bg-blue-600'
+                : p.droit.includes('modification')
+                  ? 'bg-green-600'
+                  : 'bg-gray-400'
+            }`}
+          >
+            {p.nom
+              .split(' ')
+              .map((n) => n[0])
+              .join('')
+              .slice(0, 2)
+              .toUpperCase()}
+          </div>
+          <div>
+            <p className="text-xs font-medium text-gray-800">{p.nom}</p>
+            <p className="text-xs text-gray-400">{p.roles.join(' · ')}</p>
+            <p
+              className={`text-xs font-medium ${
+                p.droit.includes('modification + accès') || p.droit.includes('modification + acces')
+                  ? 'text-blue-600'
+                  : p.droit.includes('modification')
+                    ? 'text-green-600'
+                    : 'text-gray-500'
+              }`}
+            >
+              {p.droit}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ── Calcul des accès d'un document lié ───────────────────────────────────────
 function getAccesDocument(doc: DocTache) {
@@ -1460,26 +1611,11 @@ export function TacheCard({
           {/* Section Accès */}
           <div>
             <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Accès</h4>
-            <div className="flex flex-wrap gap-3">
-              {getAccesPersonnes(tache, allUsers).map((p: {id: string; nom: string; roles: string[]; droit: string}) => (
-                <div key={p.id} className="flex items-center gap-2">
-                  <div className={`w-7 h-7 rounded-full text-white flex items-center justify-center text-xs font-bold shrink-0 ${p.droit.includes('modification + accès') ? 'bg-blue-600' : p.droit.includes('modification') ? 'bg-green-600' : 'bg-gray-400'}`}>
-                    {p.nom.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-gray-800">{p.nom}</p>
-                    <p className="text-xs text-gray-400">{p.roles.join(' · ')}</p>
-                    <p className={`text-xs font-medium ${p.droit.includes('modification + accès') ? 'text-blue-600' : p.droit.includes('modification') ? 'text-green-600' : 'text-gray-500'}`}>
-                      {p.droit}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <AccesPersonnesBlock personnes={getAccesPersonnes(tache, allUsers)} />
           </div>
 
           <div className="border-t border-gray-200 pt-4">
-            <CommentairesSection tacheId={tache.id} users={users} />
+            <CommentairesSection target={{ kind: 'tache', id: tache.id }} users={users} />
           </div>
         </div>
       )}
@@ -2425,6 +2561,9 @@ export default function Taches() {
               )}
               {visibleUserStories.map((us) => {
                 const usExpanded = expandedUsListId === us.id;
+                const tasksUs = getTachesLieesUserStory(us.id, taches);
+                const assignesUs = getAssignesDepuisTaches(tasksUs);
+                const entitesUsTaches = getEntitesDepuisTaches(tasksUs);
                 return (
                   <div
                     key={us.id}
@@ -2443,6 +2582,18 @@ export default function Taches() {
                             <span className="italic">Sans epic</span>
                           )}
                         </div>
+                        {assignesUs.length > 0 && (
+                          <p className="text-xs text-gray-600 mt-1">
+                            <span className="font-medium text-gray-500">Assignés (tâches) :</span>{' '}
+                            {assignesUs.map((a) => a.label).join(', ')}
+                          </p>
+                        )}
+                        {entitesUsTaches.length > 0 && (
+                          <p className="text-xs text-gray-600 mt-1">
+                            <span className="font-medium text-gray-500">Entités (tâches) :</span>{' '}
+                            {entitesUsTaches.map((e) => e.nom).join(', ')}
+                          </p>
+                        )}
                       </div>
                       <div className="flex gap-2 shrink-0 items-start flex-wrap justify-end">
                         {canEditUsEpic ? (
@@ -2490,6 +2641,13 @@ export default function Taches() {
                             </ul>
                           </div>
                         )}
+                        <div>
+                          <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Accès</h4>
+                          <AccesPersonnesBlock personnes={getAccesPersonnesUserStory(us.id, taches, users)} />
+                        </div>
+                        <div className="border-t border-gray-200 pt-4">
+                          <CommentairesSection target={{ kind: 'userStory', id: us.id }} users={users} />
+                        </div>
                         <button
                           type="button"
                           onClick={() => setDetailUserStoryId(us.id)}
@@ -2601,6 +2759,8 @@ export default function Taches() {
               )}
               {visibleEpics.map((ep) => {
                 const epExpanded = expandedEpicListId === ep.id;
+                const tasksEp = getTachesLieesEpic(ep, taches);
+                const assignesEp = getAssignesDepuisTaches(tasksEp);
                 return (
                   <div
                     key={ep.id}
@@ -2617,6 +2777,12 @@ export default function Taches() {
                             </span>
                           )}
                         </p>
+                        {assignesEp.length > 0 && (
+                          <p className="text-xs text-gray-600 mt-1">
+                            <span className="font-medium text-gray-500">Assignés (tâches liées) :</span>{' '}
+                            {assignesEp.map((a) => a.label).join(', ')}
+                          </p>
+                        )}
                       </div>
                       <div className="flex gap-2 shrink-0 items-start flex-wrap justify-end">
                         {canEditUsEpic ? (
@@ -2666,6 +2832,13 @@ export default function Taches() {
                             </ul>
                           </div>
                         )}
+                        <div>
+                          <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Accès</h4>
+                          <AccesPersonnesBlock personnes={getAccesPersonnesEpic(ep, taches, users)} />
+                        </div>
+                        <div className="border-t border-gray-200 pt-4">
+                          <CommentairesSection target={{ kind: 'epic', id: ep.id }} users={users} />
+                        </div>
                         <button
                           type="button"
                           onClick={() => setDetailEpicId(ep.id)}

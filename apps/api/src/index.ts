@@ -271,10 +271,30 @@ app.get("/api/v1/epics", epicController.getEpics);
 app.post("/api/v1/epics", epicController.createEpic);
 app.post("/api/v1/epics/:id/documents/lier", epicController.lierDocumentEpic);
 app.post("/api/v1/epics/:id/documents", epicController.epicUploadMiddleware, epicController.uploadDocumentEpic);
+app.get("/api/v1/epics/:id/commentaires", epicController.getEpicCommentaires);
+app.post(
+  "/api/v1/epics/:id/commentaires",
+  epicController.epicCommentUploadMiddleware,
+  epicController.addEpicCommentaire,
+);
+app.get(
+  "/api/v1/epics/:id/commentaires/:commentaireId/fichier",
+  epicController.downloadEpicCommentaireFichier,
+);
 app.get("/api/v1/epics/:id", epicController.getEpic);
 app.put("/api/v1/epics/:id", epicController.updateEpic);
 app.get("/api/v1/user-stories", epicController.getUserStories);
 app.post("/api/v1/user-stories", epicController.createUserStory);
+app.get("/api/v1/user-stories/:id/commentaires", epicController.getUserStoryCommentaires);
+app.post(
+  "/api/v1/user-stories/:id/commentaires",
+  epicController.userStoryCommentUploadMiddleware,
+  epicController.addUserStoryCommentaire,
+);
+app.get(
+  "/api/v1/user-stories/:id/commentaires/:commentaireId/fichier",
+  epicController.downloadUserStoryCommentaireFichier,
+);
 app.get("/api/v1/user-stories/:id", epicController.getUserStory);
 app.put("/api/v1/user-stories/:id", epicController.updateUserStory);
 
