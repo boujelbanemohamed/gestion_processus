@@ -18,7 +18,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { path: '/dashboard', label: 'Dashboard' },
     { path: '/processus', label: 'Processus' },
     { path: '/projets', label: 'Projets' },
-    { path: '/taches', label: 'Tâches' },
+    { path: '/taches', label: 'Epics / User story / Tâches' },
     { path: '/clients-fournisseurs', label: 'Clients / Fournisseurs' },
     { path: '/contrats', label: 'Contrats' },
     { path: '/ocr', label: 'OCR' },

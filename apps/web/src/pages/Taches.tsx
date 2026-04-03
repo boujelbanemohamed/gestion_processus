@@ -7,6 +7,7 @@ import {
   EpicDetailModal,
   UserStoryDetailModal,
   type EpicRow,
+  type UserStoryRow,
 } from '../components/EpicUserStoryModals';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
@@ -52,8 +53,9 @@ export type Tache = {
       id: string;
       nom: string;
       description?: string | null;
+      projetId?: string;
       projet?: { id: string; nom: string };
-      entite?: { id: string; nom: string } | null;
+      assignesEntites?: { entite: { id: string; nom: string } }[];
     } | null;
   } | null;
 };
@@ -1483,6 +1485,18 @@ export function TacheCard({
   );
 }
 
+function isTacheEnRetardKpi(t: Tache, now: Date): boolean {
+  if (t.statut === 'termine' || t.statut === 'archive') return false;
+  if (t.statut === 'bloque') return true;
+  if (t.dateFinApprox && new Date(t.dateFinApprox) < now) return true;
+  return false;
+}
+
+function truncateUi(s: string, n: number) {
+  const t = s.trim();
+  return t.length <= n ? t : `${t.slice(0, n)}…`;
+}
+
 // ─── Page Principale ──────────────────────────────────────────────────────────
 export default function Taches() {
   const { user: currentUser } = useAuth();
@@ -1492,6 +1506,7 @@ export default function Taches() {
   const [users, setUsers] = useState<UserOption[]>([]);
   const [entites, setEntites] = useState<EntiteOption[]>([]);
   const [epics, setEpics] = useState<EpicRow[]>([]);
+  const [userStories, setUserStories] = useState<UserStoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editTache, setEditTache] = useState<Tache | undefined>();
@@ -1501,7 +1516,19 @@ export default function Taches() {
   const [detailEpicId, setDetailEpicId] = useState<string | null>(null);
   const [detailUserStoryId, setDetailUserStoryId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'gantt' | 'kanban'>('list');
-  const [filters, setFilters] = useState({ nom: '', statut: '', projetId: '', assigneIds: [] as string[], entiteIds: [] as string[], dateDebutFrom: '', dateDebutTo: '', dateFinFrom: '', dateFinTo: '' });
+  const [filters, setFilters] = useState({
+    nom: '',
+    nomUserStory: '',
+    nomEpic: '',
+    statut: '',
+    projetId: '',
+    assigneIds: [] as string[],
+    entiteIds: [] as string[],
+    dateDebutFrom: '',
+    dateDebutTo: '',
+    dateFinFrom: '',
+    dateFinTo: '',
+  });
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
@@ -1529,12 +1556,13 @@ export default function Taches() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [tRes, pRes, uRes, eRes, epicRes, retardRes] = await Promise.all([
+      const [tRes, pRes, uRes, eRes, epicRes, usRes, retardRes] = await Promise.all([
         api.get('/taches'),
         api.get('/projets'),
         api.get('/users'),
         api.get('/entites'),
         api.get('/epics').catch(() => ({ data: [] })),
+        api.get('/user-stories').catch(() => ({ data: [] })),
         api.get('/dashboard/taches-en-retard').catch(() => ({ data: [] as TacheEnRetardItem[] })),
       ]);
       setTaches(tRes.data);
@@ -1542,6 +1570,7 @@ export default function Taches() {
       setUsers(uRes.data);
       setEntites(eRes.data);
       setEpics(Array.isArray(epicRes.data) ? epicRes.data : []);
+      setUserStories(Array.isArray(usRes.data) ? usRes.data : []);
       setTachesEnRetard(Array.isArray(retardRes.data) ? retardRes.data : []);
     } catch (err) {
       console.error('Erreur chargement:', err);
@@ -1588,6 +1617,14 @@ export default function Taches() {
     if (filters.assigneIds.length > 0 && !filters.assigneIds.every(id => t.assignesUtilisateurs?.some(u => u.id === id))) return false;
     if (filters.entiteIds.length > 0 && !filters.entiteIds.every(id => t.assignesEntites?.some(e => e.id === id))) return false;
     if (filters.nom && !t.nom.toLowerCase().includes(filters.nom.toLowerCase())) return false;
+    if (filters.nomUserStory.trim()) {
+      const q = filters.nomUserStory.trim().toLowerCase();
+      if (!t.userStory?.description?.toLowerCase().includes(q)) return false;
+    }
+    if (filters.nomEpic.trim()) {
+      const q = filters.nomEpic.trim().toLowerCase();
+      if (!t.userStory?.epic?.nom?.toLowerCase().includes(q)) return false;
+    }
     if (filters.statut && t.statut !== filters.statut) return false;
     if (filters.dateDebutFrom && t.dateDebut && new Date(t.dateDebut) < new Date(filters.dateDebutFrom)) return false;
     if (filters.dateDebutTo && t.dateDebut && new Date(t.dateDebut) > new Date(filters.dateDebutTo)) return false;
@@ -1597,84 +1634,112 @@ export default function Taches() {
     return true;
   });
 
+  const taskLevelFiltersActive =
+    !!filters.nom.trim() ||
+    !!filters.statut ||
+    !!filters.dateDebutFrom ||
+    !!filters.dateDebutTo ||
+    !!filters.dateFinFrom ||
+    !!filters.dateFinTo ||
+    filters.assigneIds.length > 0 ||
+    filters.entiteIds.length > 0;
+
+  const visibleUserStories = userStories.filter((us) => {
+    if (filters.projetId) {
+      if (us.epicId) {
+        if (us.epic?.projetId !== filters.projetId) return false;
+      } else {
+        const hasTask = taches.some((t) => t.userStory?.id === us.id && t.projetId === filters.projetId);
+        if (!hasTask) return false;
+      }
+    }
+    if (filters.nomUserStory.trim()) {
+      if (!us.description.toLowerCase().includes(filters.nomUserStory.trim().toLowerCase())) return false;
+    }
+    if (filters.nomEpic.trim()) {
+      const nom = us.epic?.nom?.toLowerCase() ?? '';
+      if (!nom.includes(filters.nomEpic.trim().toLowerCase())) return false;
+    }
+    if (taskLevelFiltersActive) {
+      if (!visibleTaches.some((t) => t.userStory?.id === us.id)) return false;
+    }
+    return true;
+  });
+
+  const visibleEpics = epics.filter((ep) => {
+    if (filters.projetId && ep.projetId !== filters.projetId) return false;
+    if (filters.nomEpic.trim() && !ep.nom.toLowerCase().includes(filters.nomEpic.trim().toLowerCase())) return false;
+    if (filters.nomUserStory.trim()) {
+      const ok = (ep.userStories || []).some((us) =>
+        us.description.toLowerCase().includes(filters.nomUserStory.trim().toLowerCase())
+      );
+      if (!ok) return false;
+    }
+    if (taskLevelFiltersActive) {
+      if (!visibleTaches.some((t) => t.userStory?.epic?.id === ep.id)) return false;
+    }
+    return true;
+  });
+
+  const nowKpi = new Date();
+  const usIdsEnRetard = new Set<string>();
+  const epicIdsEnRetard = new Set<string>();
+  for (const t of taches) {
+    if (!isTacheEnRetardKpi(t, nowKpi)) continue;
+    if (t.userStory?.id) usIdsEnRetard.add(t.userStory.id);
+    if (t.userStory?.epic?.id) epicIdsEnRetard.add(t.userStory.epic.id);
+  }
+  const userStoriesEnRetardList = visibleUserStories.filter((us) => usIdsEnRetard.has(us.id));
+  const epicsEnRetardList = visibleEpics.filter((ep) => epicIdsEnRetard.has(ep.id));
+
+  const visibleTacheIds = new Set(visibleTaches.map((t) => t.id));
+  const tachesEnRetardFiltrees = tachesEnRetard.filter((item) => visibleTacheIds.has(item.id));
+
   const totalPages = Math.max(1, Math.ceil(visibleTaches.length / pageSize));
   const pagedTaches = visibleTaches.slice((page - 1) * pageSize, page * pageSize);
 
-  if (loading) return <div className="p-6 text-gray-500">Chargement des tâches...</div>;
+  if (loading) return <div className="p-6 text-gray-500">Chargement…</div>;
 
   return (
     <div className="p-6">
       {/* En-tête */}
-      <div className="flex flex-wrap justify-between items-center mb-6 gap-3">
+      <div className="flex flex-wrap justify-between items-start mb-6 gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Tâches</h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Vues : <span className="font-medium text-gray-700">Liste</span>,{' '}
-            <span className="font-medium text-gray-700">Kanban</span> (glisser-déposer du statut),{' '}
-            <span className="font-medium text-gray-700">Gantt</span>.
+          <h1 className="text-2xl font-bold text-gray-800">Epics / User story / Tâches</h1>
+          <p className="text-xs text-gray-500 mt-1 max-w-2xl">
+            Les filtres ci-dessous s&apos;appliquent aux trois sections. Les vues Liste, Kanban et Gantt concernent uniquement les
+            tâches.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2 items-center">
-          <div className="flex rounded-lg border border-gray-300 overflow-hidden shadow-sm">
+        {canCreate && (
+          <div className="flex flex-wrap gap-2 items-center justify-end">
             <button
               type="button"
-              onClick={() => setViewMode('list')}
-              className={`px-3 py-2 text-sm font-medium ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+              onClick={() => setShowEpicCreateModal(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
             >
-              Liste
+              + Nouvel Epic
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('kanban')}
-              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${viewMode === 'kanban' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+              onClick={() => setShowUsCreateModal(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
             >
-              Kanban
+              + Nouvelle User Story
             </button>
             <button
               type="button"
-              onClick={() => setViewMode('gantt')}
-              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${viewMode === 'gantt' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+              onClick={() => {
+                setEditTache(undefined);
+                setShowModal(true);
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
             >
-              Gantt
+              + Nouvelle tâche
             </button>
           </div>
-          <button onClick={() => setShowDashboard(!showDashboard)}
-            className={`px-4 py-2 rounded border text-sm font-medium transition-colors ${showDashboard ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
-            {showDashboard ? '📊 Masquer dashboard' : '📊 Dashboard'}
-          </button>
-          {canCreate && (
-            <>
-              <button
-                type="button"
-                onClick={() => setShowEpicCreateModal(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
-              >
-                + Nouvel Epic
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowUsCreateModal(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
-              >
-                + Nouvelle User Story
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditTache(undefined);
-                  setShowModal(true);
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
-              >
-                + Nouvelle tâche
-              </button>
-            </>
-          )}
-        </div>
+        )}
       </div>
-
-      {/* Dashboard */}
-      {showDashboard && <TachesDashboard taches={visibleTaches} />}
 
       {/* Filtres */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
@@ -1733,6 +1798,28 @@ export default function Taches() {
               placeholder="Rechercher..." className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nom de la User story</label>
+            <input
+              type="text"
+              value={filters.nomUserStory}
+              onChange={(e) => setFilters({ ...filters, nomUserStory: e.target.value })}
+              placeholder="Rechercher dans la description…"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nom de l&apos;Epic</label>
+            <input
+              type="text"
+              value={filters.nomEpic}
+              onChange={(e) => setFilters({ ...filters, nomEpic: e.target.value })}
+              placeholder="Rechercher…"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+            />
+          </div>
+
           {/* Plage date début */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Date de début</label>
@@ -1757,101 +1844,287 @@ export default function Taches() {
 
         </div>
         <div className="flex justify-end mt-3">
-          <button onClick={() => setFilters({ nom: '', statut: '', projetId: '', assigneIds: [], entiteIds: [], dateDebutFrom: '', dateDebutTo: '', dateFinFrom: '', dateFinTo: '' })}
-            className="text-sm text-gray-500 hover:text-gray-700 border border-gray-300 rounded px-3 py-1.5">
+          <button
+            type="button"
+            onClick={() =>
+              setFilters({
+                nom: '',
+                nomUserStory: '',
+                nomEpic: '',
+                statut: '',
+                projetId: '',
+                assigneIds: [],
+                entiteIds: [],
+                dateDebutFrom: '',
+                dateDebutTo: '',
+                dateFinFrom: '',
+                dateFinTo: '',
+              })
+            }
+            className="text-sm text-gray-500 hover:text-gray-700 border border-gray-300 rounded px-3 py-1.5"
+          >
             Réinitialiser
           </button>
         </div>
       </div>
 
-      <TachesEnRetardBloc
-        items={tachesEnRetard}
-        hideFooterLink
-        onTacheClick={(id) => {
-          const t = taches.find((x) => x.id === id);
-          if (t) {
-            setEditTache(t);
-            setShowModal(true);
-          }
-        }}
-      />
-
-      {/* Liste, Kanban ou Gantt */}
-      {viewMode === 'gantt' ? (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <p className="text-sm text-gray-500">
-              {visibleTaches.length} tâche(s) sur le diagramme (mêmes filtres que la liste)
-            </p>
-            {visibleTaches.length > 80 && (
-              <p className="text-xs text-amber-700">Beaucoup de tâches : faites défiler horizontalement ou affinez les filtres.</p>
-            )}
+      {/* Section Tâches */}
+      <section className="mb-10" aria-labelledby="sec-taches">
+        <h2 id="sec-taches" className="text-xl font-semibold text-gray-900 border-b border-gray-200 pb-2 mb-4">
+          Tâches
+        </h2>
+        <div className="flex flex-wrap gap-2 items-center mb-4">
+          <div className="flex rounded-lg border border-gray-300 overflow-hidden shadow-sm">
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`px-3 py-2 text-sm font-medium ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Liste
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('kanban')}
+              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${viewMode === 'kanban' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Kanban
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('gantt')}
+              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${viewMode === 'gantt' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            >
+              Gantt
+            </button>
           </div>
-          <TachesGanttView
+          <button
+            type="button"
+            onClick={() => setShowDashboard(!showDashboard)}
+            className={`px-4 py-2 rounded border text-sm font-medium transition-colors ${showDashboard ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            {showDashboard ? '📊 Masquer dashboard' : '📊 Dashboard'}
+          </button>
+        </div>
+        {showDashboard && <TachesDashboard taches={visibleTaches} />}
+        <TachesEnRetardBloc
+          items={tachesEnRetardFiltrees}
+          hideFooterLink
+          onTacheClick={(id) => {
+            const t = taches.find((x) => x.id === id);
+            if (t) {
+              setEditTache(t);
+              setShowModal(true);
+            }
+          }}
+        />
+
+        {viewMode === 'gantt' ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <p className="text-sm text-gray-500">
+                {visibleTaches.length} tâche(s) sur le diagramme (mêmes filtres que la liste)
+              </p>
+              {visibleTaches.length > 80 && (
+                <p className="text-xs text-amber-700">Beaucoup de tâches : faites défiler horizontalement ou affinez les filtres.</p>
+              )}
+            </div>
+            <TachesGanttView
+              taches={visibleTaches}
+              getCanEdit={canEdit}
+              onBarClick={(t) => {
+                setEditTache(t as Tache);
+                setShowModal(true);
+              }}
+            />
+          </div>
+        ) : viewMode === 'kanban' ? (
+          <TachesKanbanView
             taches={visibleTaches}
+            columns={STATUT_OPTIONS}
             getCanEdit={canEdit}
-            onBarClick={(t) => {
+            onMoveTache={handleKanbanMove}
+            onCardClick={(t) => {
               setEditTache(t as Tache);
               setShowModal(true);
             }}
           />
-        </div>
-      ) : viewMode === 'kanban' ? (
-        <TachesKanbanView
-          taches={visibleTaches}
-          columns={STATUT_OPTIONS}
-          getCanEdit={canEdit}
-          onMoveTache={handleKanbanMove}
-          onCardClick={(t) => {
-            setEditTache(t as Tache);
-            setShowModal(true);
-          }}
-        />
-      ) : (
-        <>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">{visibleTaches.length} tâche(s) trouvée(s)</p>
+        ) : (
+          <>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-500">{visibleTaches.length} tâche(s) trouvée(s)</p>
+              </div>
+              {pagedTaches.length === 0 && (
+                <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">Aucune tâche trouvée</div>
+              )}
+              {pagedTaches.map((t) => (
+                <TacheCard
+                  key={t.id}
+                  tache={t}
+                  onEdit={() => {
+                    setEditTache(t);
+                    setShowModal(true);
+                  }}
+                  canEdit={canEdit(t)}
+                  users={users}
+                  currentUserRole={currentUser?.role || ''}
+                  allUsers={users}
+                  onOpenEpic={(id) => setDetailEpicId(id)}
+                  onOpenUserStory={(id) => setDetailUserStoryId(id)}
+                />
+              ))}
             </div>
-            {pagedTaches.length === 0 && (
-              <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">
-                Aucune tâche trouvée
+
+            {visibleTaches.length > pageSize && (
+              <div className="mt-6 flex items-center justify-between">
+                <p className="text-sm text-gray-500">
+                  {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, visibleTaches.length)} sur {visibleTaches.length}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className={`px-4 py-2 rounded text-sm font-medium ${page === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                  >
+                    Précédent
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className={`px-4 py-2 rounded text-sm font-medium ${page === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                  >
+                    Suivant
+                  </button>
+                </div>
               </div>
             )}
-            {pagedTaches.map(t => (
-              <TacheCard
-                key={t.id}
-                tache={t}
-                onEdit={() => { setEditTache(t); setShowModal(true); }}
-                canEdit={canEdit(t)}
-                users={users}
-                currentUserRole={currentUser?.role || ''}
-                allUsers={users}
-                onOpenEpic={(id) => setDetailEpicId(id)}
-                onOpenUserStory={(id) => setDetailUserStoryId(id)}
-              />
-            ))}
-          </div>
+          </>
+        )}
+      </section>
 
-          {visibleTaches.length > pageSize && (
-            <div className="mt-6 flex items-center justify-between">
-              <p className="text-sm text-gray-500">
-                {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, visibleTaches.length)} sur {visibleTaches.length}
-              </p>
-              <div className="flex gap-2">
-                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                  className={`px-4 py-2 rounded text-sm font-medium ${page === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
-                  Précédent
+      {/* Section User stories */}
+      <section className="mb-10" aria-labelledby="sec-user-stories">
+        <h2 id="sec-user-stories" className="text-xl font-semibold text-gray-900 border-b border-gray-200 pb-2 mb-4">
+          User stories
+        </h2>
+        {userStoriesEnRetardList.length > 0 && (
+          <div className="bg-white p-4 rounded-lg shadow mb-4 border-l-4 border-amber-500">
+            <h3 className="text-md font-semibold text-gray-800 mb-1">User stories en retard</h3>
+            <p className="text-xs text-gray-500 mb-3">
+              User stories pour lesquelles au moins une tâche liée est en retard, bloquée ou dépasse son échéance (hors terminé /
+              archivé).
+            </p>
+            <ul className="divide-y divide-gray-100 max-h-52 overflow-y-auto text-sm">
+              {userStoriesEnRetardList.map((us) => (
+                <li key={us.id} className="py-2 flex flex-wrap items-start justify-between gap-2">
+                  <button
+                    type="button"
+                    className="text-left text-blue-700 hover:underline font-medium"
+                    onClick={() => setDetailUserStoryId(us.id)}
+                  >
+                    {truncateUi(us.description, 120)}
+                  </button>
+                  {us.epic && <span className="text-gray-500 text-xs shrink-0">Epic : {us.epic.nom}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <p className="text-sm text-gray-500 mb-2">{visibleUserStories.length} user story(s)</p>
+        <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
+          {visibleUserStories.length === 0 && (
+            <div className="bg-white rounded-lg shadow p-6 text-center text-gray-400">Aucune user story à afficher</div>
+          )}
+          {visibleUserStories.map((us) => (
+            <div
+              key={us.id}
+              className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm flex flex-wrap justify-between gap-2 items-start"
+            >
+              <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  className="text-left font-medium text-gray-900 hover:text-blue-700"
+                  onClick={() => setDetailUserStoryId(us.id)}
+                >
+                  {truncateUi(us.description, 200)}
                 </button>
-                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                  className={`px-4 py-2 rounded text-sm font-medium ${page === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
-                  Suivant
-                </button>
+                <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-x-2 gap-y-0">
+                  {us.epic ? (
+                    <>
+                      <span>Epic : {us.epic.nom}</span>
+                      {us.epic.projet && <span>· {us.epic.projet.nom}</span>}
+                    </>
+                  ) : (
+                    <span className="italic">Sans epic</span>
+                  )}
+                </div>
               </div>
             </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Section Epics */}
+      <section aria-labelledby="sec-epics">
+        <h2 id="sec-epics" className="text-xl font-semibold text-gray-900 border-b border-gray-200 pb-2 mb-4">
+          Epics
+        </h2>
+        {epicsEnRetardList.length > 0 && (
+          <div className="bg-white p-4 rounded-lg shadow mb-4 border-l-4 border-amber-500">
+            <h3 className="text-md font-semibold text-gray-800 mb-1">Epics en retard</h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Epics contenant au moins une tâche (via une user story) en retard, bloquée ou après l&apos;échéance (hors terminé /
+              archivé).
+            </p>
+            <ul className="divide-y divide-gray-100 max-h-52 overflow-y-auto text-sm">
+              {epicsEnRetardList.map((ep) => (
+                <li key={ep.id} className="py-2 flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    className="text-left text-blue-700 hover:underline font-medium"
+                    onClick={() => setDetailEpicId(ep.id)}
+                  >
+                    {ep.nom}
+                  </button>
+                  <span className="text-gray-500 text-xs">{ep.projet?.nom ?? '—'}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <p className="text-sm text-gray-500 mb-2">{visibleEpics.length} epic(s)</p>
+        <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
+          {visibleEpics.length === 0 && (
+            <div className="bg-white rounded-lg shadow p-6 text-center text-gray-400">Aucun epic à afficher</div>
           )}
-        </>
-      )}
+          {visibleEpics.map((ep) => (
+            <div
+              key={ep.id}
+              className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm flex flex-wrap justify-between gap-2 items-start"
+            >
+              <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  className="text-left font-semibold text-gray-900 hover:text-blue-700"
+                  onClick={() => setDetailEpicId(ep.id)}
+                >
+                  {ep.nom}
+                </button>
+                <p className="text-xs text-gray-500 mt-1">
+                  {ep.projet?.nom ?? 'Projet —'} · {(ep.userStories?.length ?? 0)} user story(s)
+                  {(ep.assignesEntites?.length ?? 0) > 0 && (
+                    <span className="ml-1">
+                      · Entités : {(ep.assignesEntites || []).map((ae) => ae.entite.nom).join(', ')}
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* Modal */}
       {showModal && (
