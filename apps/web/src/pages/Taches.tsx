@@ -1834,8 +1834,16 @@ export function TacheCard({
   onRefreshData?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const historiqueAccesRef = useRef<HTMLDivElement>(null);
   const now = new Date();
   const isLate = tache.dateFinApprox && new Date(tache.dateFinApprox) < now && tache.statut !== 'termine' && tache.statut !== 'archive';
+
+  const goHistoriqueAcces = () => {
+    setExpanded(true);
+    window.setTimeout(() => {
+      historiqueAccesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 80);
+  };
 
   return (
     <div className={`bg-white border rounded-lg shadow-sm overflow-hidden ${isLate ? 'border-red-300' : 'border-gray-200'}`}>
@@ -1910,19 +1918,22 @@ export function TacheCard({
               </div>
             )}
           </div>
-          <div className="flex gap-2 shrink-0 items-start flex-wrap justify-end">
-            {/* Badge droits */}
+          <div className="flex flex-col gap-2 shrink-0 items-stretch w-full sm:w-auto sm:min-w-[11rem]">
             {canEdit ? (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium" title="Vous pouvez modifier cette tâche">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium text-center sm:text-left" title="Vous pouvez modifier cette tâche">
                 ✏️ Modification
               </span>
             ) : (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium" title="Vous avez uniquement accès en lecture">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium text-center sm:text-left" title="Vous avez uniquement accès en lecture">
                 👁 Lecture seule
               </span>
             )}
             {canEdit && (
-              <button onClick={onEdit} className="text-xs px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-gray-600">
+              <button
+                type="button"
+                onClick={onEdit}
+                className="w-full px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-center"
+              >
                 ✏️ Modifier
               </button>
             )}
@@ -1930,13 +1941,23 @@ export function TacheCard({
               <button
                 type="button"
                 onClick={() => onSoftDelete(tache.id)}
-                className="text-xs px-3 py-1.5 border border-red-200 rounded hover:bg-red-50 text-red-700"
+                className="w-full px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 text-center"
               >
-                🗑 Corbeille
+                🗑 Mettre en corbeille
               </button>
             )}
-            <button onClick={() => setExpanded(!expanded)}
-              className="text-xs px-3 py-1.5 border border-blue-300 rounded hover:bg-blue-50 text-blue-600">
+            <button
+              type="button"
+              onClick={goHistoriqueAcces}
+              className="w-full px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200 text-center"
+            >
+              Historique et accès
+            </button>
+            <button
+              type="button"
+              onClick={() => setExpanded(!expanded)}
+              className="w-full px-3 py-1.5 text-xs border border-blue-300 text-blue-600 rounded hover:bg-blue-50 text-center"
+            >
               {expanded ? '▲ Réduire' : '▼ Détails'}
             </button>
           </div>
@@ -1967,9 +1988,14 @@ export function TacheCard({
           {/* Section Documents */}
           <DocumentsTache tacheId={tache.id} documents={tache.documents || []} canEdit={canEdit} />
 
-          {/* Section Accès */}
-          <div>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Accès</h4>
+          <div ref={historiqueAccesRef} className="scroll-mt-4 border-t border-gray-200 pt-4 space-y-2">
+            <h4 className="text-xs font-semibold text-gray-500 uppercase">Historique et accès</h4>
+            {tache.createdAt && (
+              <p className="text-xs text-gray-600">
+                Création : {new Date(tache.createdAt).toLocaleString('fr-FR')}
+              </p>
+            )}
+            <p className="text-xs text-gray-500">Personnes habilitées (agrégation depuis la tâche et les liaisons).</p>
             <AccesPersonnesBlock personnes={getAccesPersonnes(tache, allUsers)} />
           </div>
 
@@ -3528,6 +3554,18 @@ export default function Taches() {
           >
             {showDashboard ? 'Masquer le tableau de bord' : 'Tableau de bord'}
           </button>
+          {canCreate && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditTache(undefined);
+                setShowModal(true);
+              }}
+              className="px-3 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+            >
+              + Nouvelle tâche
+            </button>
+          )}
         </div>
         {showDashboard && <TachesDashboard taches={visibleTaches} />}
         <TachesEnRetardBloc
@@ -3647,6 +3685,15 @@ export default function Taches() {
           >
             {showUsDashboard ? 'Masquer le tableau de bord' : 'Tableau de bord'}
           </button>
+          {canCreate && (
+            <button
+              type="button"
+              onClick={() => setShowUsCreateModal(true)}
+              className="px-3 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+            >
+              + Nouvelle user story
+            </button>
+          )}
         </div>
         {showUsDashboard && <UserStoriesAgileDashboard userStories={visibleUserStories} taches={taches} />}
         {userStoriesEnRetardList.length > 0 && (
@@ -3779,42 +3826,57 @@ export default function Taches() {
                             </div>
                           )}
                         </div>
-                        <div className="flex gap-2 shrink-0 items-start flex-wrap justify-end">
-                        {canEditUsEpic ? (
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
-                            ✏️ Modification
-                          </span>
-                        ) : (
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
-                            👁 Lecture seule
-                          </span>
-                        )}
-                        {canEditUsEpic && (
+                        <div className="flex flex-col gap-2 shrink-0 items-stretch w-full sm:w-auto sm:min-w-[11rem]">
+                          {canEditUsEpic ? (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium text-center sm:text-left">
+                              ✏️ Modification
+                            </span>
+                          ) : (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium text-center sm:text-left">
+                              👁 Lecture seule
+                            </span>
+                          )}
+                          {canEditUsEpic && (
+                            <button
+                              type="button"
+                              onClick={() => setEditUserStoryId(us.id)}
+                              className="w-full px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-center"
+                            >
+                              ✏️ Modifier
+                            </button>
+                          )}
+                          {canEditUsEpic && (
+                            <button
+                              type="button"
+                              onClick={() => void handleSoftDeleteUserStory(us.id)}
+                              className="w-full px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 text-center"
+                            >
+                              🗑 Mettre en corbeille
+                            </button>
+                          )}
                           <button
                             type="button"
-                            onClick={() => setEditUserStoryId(us.id)}
-                            className="text-xs px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-gray-600"
+                            onClick={() => {
+                              if (!usExpanded) setExpandedUsListId(us.id);
+                              window.setTimeout(() => {
+                                document.getElementById(`us-hist-acces-${us.id}`)?.scrollIntoView({
+                                  behavior: 'smooth',
+                                  block: 'nearest',
+                                });
+                              }, usExpanded ? 0 : 120);
+                            }}
+                            className="w-full px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200 text-center"
                           >
-                            ✏️ Modifier
+                            Historique et accès
                           </button>
-                        )}
-                        {canEditUsEpic && (
                           <button
                             type="button"
-                            onClick={() => void handleSoftDeleteUserStory(us.id)}
-                            className="text-xs px-3 py-1.5 border border-red-200 rounded hover:bg-red-50 text-red-700"
+                            onClick={() => setExpandedUsListId(usExpanded ? null : us.id)}
+                            className="w-full px-3 py-1.5 text-xs border border-blue-300 text-blue-600 rounded hover:bg-blue-50 text-center"
                           >
-                            🗑 Corbeille
+                            {usExpanded ? '▲ Réduire' : '▼ Détails'}
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setExpandedUsListId(usExpanded ? null : us.id)}
-                          className="text-xs px-3 py-1.5 border border-blue-300 rounded hover:bg-blue-50 text-blue-600"
-                        >
-                          {usExpanded ? '▲ Réduire' : '▼ Détails'}
-                        </button>
-                      </div>
+                        </div>
                     </div>
                   </div>
                     {usExpanded && (
@@ -3843,8 +3905,11 @@ export default function Taches() {
                             </ul>
                           </div>
                         )}
-                        <div>
-                          <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Accès</h4>
+                        <div id={`us-hist-acces-${us.id}`} className="scroll-mt-4 border-t border-gray-200 pt-4 space-y-2">
+                          <h4 className="text-xs font-semibold text-gray-500 uppercase">Historique et accès</h4>
+                          <p className="text-xs text-gray-500">
+                            L&apos;activité récente apparaît dans les commentaires ci-dessous. Personnes habilitées :
+                          </p>
                           <AccesPersonnesBlock personnes={getAccesPersonnesUserStory(us.id, taches, users)} />
                         </div>
                         <div className="border-t border-gray-200 pt-4">
@@ -3909,6 +3974,15 @@ export default function Taches() {
           >
             {showEpicDashboard ? 'Masquer le tableau de bord' : 'Tableau de bord'}
           </button>
+          {canCreate && (
+            <button
+              type="button"
+              onClick={() => setShowEpicCreateModal(true)}
+              className="px-3 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+            >
+              + Nouvel Epic
+            </button>
+          )}
         </div>
         {showEpicDashboard && (
           <EpicsAgileDashboard epics={visibleEpics} taches={taches} userStories={userStories} />
@@ -4056,42 +4130,57 @@ export default function Taches() {
                             </div>
                           )}
                         </div>
-                        <div className="flex gap-2 shrink-0 items-start flex-wrap justify-end">
-                        {canEditUsEpic ? (
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
-                            ✏️ Modification
-                          </span>
-                        ) : (
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
-                            👁 Lecture seule
-                          </span>
-                        )}
-                        {canEditUsEpic && (
+                        <div className="flex flex-col gap-2 shrink-0 items-stretch w-full sm:w-auto sm:min-w-[11rem]">
+                          {canEditUsEpic ? (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium text-center sm:text-left">
+                              ✏️ Modification
+                            </span>
+                          ) : (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium text-center sm:text-left">
+                              👁 Lecture seule
+                            </span>
+                          )}
+                          {canEditUsEpic && (
+                            <button
+                              type="button"
+                              onClick={() => setEditEpicId(ep.id)}
+                              className="w-full px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-center"
+                            >
+                              ✏️ Modifier
+                            </button>
+                          )}
+                          {canEditUsEpic && (
+                            <button
+                              type="button"
+                              onClick={() => void handleSoftDeleteEpic(ep.id)}
+                              className="w-full px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 text-center"
+                            >
+                              🗑 Mettre en corbeille
+                            </button>
+                          )}
                           <button
                             type="button"
-                            onClick={() => setEditEpicId(ep.id)}
-                            className="text-xs px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-gray-600"
+                            onClick={() => {
+                              if (!epExpanded) setExpandedEpicListId(ep.id);
+                              window.setTimeout(() => {
+                                document.getElementById(`ep-hist-acces-${ep.id}`)?.scrollIntoView({
+                                  behavior: 'smooth',
+                                  block: 'nearest',
+                                });
+                              }, epExpanded ? 0 : 120);
+                            }}
+                            className="w-full px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200 text-center"
                           >
-                            ✏️ Modifier
+                            Historique et accès
                           </button>
-                        )}
-                        {canEditUsEpic && (
                           <button
                             type="button"
-                            onClick={() => void handleSoftDeleteEpic(ep.id)}
-                            className="text-xs px-3 py-1.5 border border-red-200 rounded hover:bg-red-50 text-red-700"
+                            onClick={() => setExpandedEpicListId(epExpanded ? null : ep.id)}
+                            className="w-full px-3 py-1.5 text-xs border border-blue-300 text-blue-600 rounded hover:bg-blue-50 text-center"
                           >
-                            🗑 Corbeille
+                            {epExpanded ? '▲ Réduire' : '▼ Détails'}
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setExpandedEpicListId(epExpanded ? null : ep.id)}
-                          className="text-xs px-3 py-1.5 border border-blue-300 rounded hover:bg-blue-50 text-blue-600"
-                        >
-                          {epExpanded ? '▲ Réduire' : '▼ Détails'}
-                        </button>
-                      </div>
+                        </div>
                     </div>
                     </div>
                     {epExpanded && (
@@ -4128,8 +4217,16 @@ export default function Taches() {
                           canEdit={!!canEditUsEpic}
                           onDocumentsChange={loadAll}
                         />
-                        <div>
-                          <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Accès</h4>
+                        <div id={`ep-hist-acces-${ep.id}`} className="scroll-mt-4 border-t border-gray-200 pt-4 space-y-2">
+                          <h4 className="text-xs font-semibold text-gray-500 uppercase">Historique et accès</h4>
+                          {ep.createdBy && (
+                            <p className="text-xs text-gray-600">
+                              Créé par {ep.createdBy.prenom} {ep.createdBy.nom}
+                            </p>
+                          )}
+                          <p className="text-xs text-gray-500">
+                            L&apos;activité récente apparaît dans les commentaires ci-dessous. Personnes habilitées :
+                          </p>
                           <AccesPersonnesBlock personnes={getAccesPersonnesEpic(ep, taches, users)} />
                         </div>
                         <div className="border-t border-gray-200 pt-4">
