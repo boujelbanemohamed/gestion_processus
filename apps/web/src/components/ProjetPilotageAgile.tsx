@@ -39,6 +39,8 @@ type Props = {
   usersForTaches: UserOption[];
   tachesBrutes: Tache[];
   onTachesRefresh?: () => void;
+  /** Masque le titre d’introduction (ex. section repliée pilotée par la fiche projet). */
+  hideIntro?: boolean;
 };
 
 function StatutBarChart({ taches }: { taches: Tache[] }) {
@@ -136,6 +138,7 @@ export default function ProjetPilotageAgile({
   usersForTaches,
   tachesBrutes,
   onTachesRefresh,
+  hideIntro = false,
 }: Props) {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
@@ -244,13 +247,15 @@ export default function ProjetPilotageAgile({
   const projetNom = projet?.nom || 'Projet';
 
   return (
-    <div id="pilotage-agile" className="space-y-8 mb-8 scroll-mt-24">
-      <div className="border-b border-gray-200 pb-2">
-        <h2 className="text-xl font-semibold text-gray-900">Pilotage agile & données</h2>
-        <p className="text-sm text-gray-500 mt-1">
-          Tableau de bord, tâches (liste / Kanban / Gantt), epics, user stories et ressources pour ce projet.
-        </p>
-      </div>
+    <div id="pilotage-agile" className={`space-y-8 scroll-mt-24 ${hideIntro ? '' : 'mb-8'}`}>
+      {!hideIntro && (
+        <div className="border-b border-gray-200 pb-2">
+          <h2 className="text-xl font-semibold text-gray-900">Pilotage agile & données</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Tableau de bord, tâches (liste / Kanban / Gantt), epics, user stories et ressources pour ce projet.
+          </p>
+        </div>
+      )}
 
       {/* 1 Dashboard */}
       <section className="bg-white rounded-lg shadow border border-gray-100 p-6" aria-labelledby="dash-projet-title">

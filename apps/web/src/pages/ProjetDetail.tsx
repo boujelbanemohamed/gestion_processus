@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, type ReactNode } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import ProjetPilotageAgile from '../components/ProjetPilotageAgile';
 import { api, API_BASE_URL } from '../services/api';
@@ -426,6 +426,42 @@ function buildProjetTachesRecapRows(p: any, usersList: any[], taches: any[]): Pr
     .sort((a, b) => a.utilisateur.localeCompare(b.utilisateur, 'fr'));
 }
 
+function ProjetCollapsibleSection({
+  open,
+  onToggle,
+  title,
+  children,
+  className = '',
+}: {
+  open: boolean;
+  onToggle: () => void;
+  title: ReactNode;
+  children: ReactNode;
+  /** Classes sur le conteneur externe (ex. print:hidden) */
+  className?: string;
+}) {
+  return (
+    <div className={`bg-white rounded-lg shadow overflow-hidden ${className}`.trim()}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="w-full px-5 py-4 flex justify-between items-center text-left hover:bg-gray-50 gap-2"
+      >
+        <span className="text-lg font-semibold flex items-center gap-2 min-w-0 text-gray-800">{title}</span>
+        <span className="text-gray-400 shrink-0 text-sm" aria-hidden>
+          {open ? '▼' : '▶'}
+        </span>
+      </button>
+      <div
+        className={`projet-detail-section-panel border-t border-gray-100 px-5 pb-5 pt-4 ${open ? '' : 'hidden'}`}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function ProjetDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -480,6 +516,14 @@ export default function ProjetDetail() {
     documentLabel?: string;
     documentRef?: any;
   } | null>(null);
+
+  const [secInfos, setSecInfos] = useState(false);
+  const [secGouvernance, setSecGouvernance] = useState(false);
+  const [secContexte, setSecContexte] = useState(false);
+  const [secObjectifs, setSecObjectifs] = useState(false);
+  const [secDocuments, setSecDocuments] = useState(false);
+  const [secPilotage, setSecPilotage] = useState(false);
+  const [secRecap, setSecRecap] = useState(false);
 
   useEffect(() => {
     loadProjet();
@@ -962,6 +1006,7 @@ export default function ProjetDetail() {
           #print-zone, #print-zone * { visibility: visible !important; }
           #print-zone { position: absolute; left: 0; top: 0; width: 100%; }
           .no-print { display: none !important; }
+          #print-zone .projet-detail-section-panel { display: block !important; }
         }
       `}</style>
 
@@ -1196,11 +1241,18 @@ export default function ProjetDetail() {
           </div>
 
           {/* ① Informations générales */}
-          <div className="bg-white rounded-lg shadow p-5">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <span className="w-7 h-7 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center text-sm font-bold">1</span>
-              Informations générales
-            </h2>
+          <ProjetCollapsibleSection
+            open={secInfos}
+            onToggle={() => setSecInfos((v) => !v)}
+            title={
+              <>
+                <span className="w-7 h-7 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center text-sm font-bold shrink-0">
+                  1
+                </span>
+                Informations générales
+              </>
+            }
+          >
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               <Field
                 label="Nom du projet"
@@ -1259,14 +1311,21 @@ export default function ProjetDetail() {
                 }
               />
             </div>
-          </div>
+          </ProjetCollapsibleSection>
 
           {/* ② Gouvernance */}
-          <div className="bg-white rounded-lg shadow p-5">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <span className="w-7 h-7 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center text-sm font-bold">2</span>
-              Gouvernance du projet
-            </h2>
+          <ProjetCollapsibleSection
+            open={secGouvernance}
+            onToggle={() => setSecGouvernance((v) => !v)}
+            title={
+              <>
+                <span className="w-7 h-7 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center text-sm font-bold shrink-0">
+                  2
+                </span>
+                Gouvernance du projet
+              </>
+            }
+          >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <UserMultiSelect field="sponsorIds" label="Sponsor / Superviseur" />
               <UserMultiSelect field="chefProjetIds" label="Chef de projet / PMO" />
@@ -1334,14 +1393,21 @@ export default function ProjetDetail() {
                 </div>
               )}
             </div>
-          </div>
+          </ProjetCollapsibleSection>
 
           {/* ③ Contexte et description */}
-          <div className="bg-white rounded-lg shadow p-5">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <span className="w-7 h-7 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-sm font-bold">3</span>
-              Contexte et description
-            </h2>
+          <ProjetCollapsibleSection
+            open={secContexte}
+            onToggle={() => setSecContexte((v) => !v)}
+            title={
+              <>
+                <span className="w-7 h-7 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-sm font-bold shrink-0">
+                  3
+                </span>
+                Contexte et description
+              </>
+            }
+          >
             <div className="space-y-5">
               <div>
                 <label className="block text-sm font-medium text-gray-500 mb-1">Contexte du projet</label>
@@ -1386,14 +1452,21 @@ export default function ProjetDetail() {
                 </div>
               </div>
             </div>
-          </div>
+          </ProjetCollapsibleSection>
 
           {/* ④ Objectifs */}
-          <div className="bg-white rounded-lg shadow p-5">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <span className="w-7 h-7 bg-orange-100 text-orange-700 rounded-full flex items-center justify-center text-sm font-bold">4</span>
-              Objectifs du projet
-            </h2>
+          <ProjetCollapsibleSection
+            open={secObjectifs}
+            onToggle={() => setSecObjectifs((v) => !v)}
+            title={
+              <>
+                <span className="w-7 h-7 bg-orange-100 text-orange-700 rounded-full flex items-center justify-center text-sm font-bold shrink-0">
+                  4
+                </span>
+                Objectifs du projet
+              </>
+            }
+          >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Objectifs stratégiques */}
               <div>
@@ -1460,13 +1533,28 @@ export default function ProjetDetail() {
                 </div>
               )}
             </div>
-          </div>
+          </ProjetCollapsibleSection>
 
         {/* Section Documents */}
-        <div className="bg-white rounded-lg shadow p-5 print:hidden">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">📎 Documents du projet</h2>
-            <div className="flex gap-2"><button onClick={() => setShowUploadModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700">+ Ajouter un document</button><button onClick={handleOpenLierModal} className="px-4 py-2 bg-gray-600 text-white rounded-md text-sm hover:bg-gray-700">🔗 Lier un document existant</button></div>
+        <ProjetCollapsibleSection
+          className="print:hidden"
+          open={secDocuments}
+          onToggle={() => setSecDocuments((v) => !v)}
+          title={<span className="text-gray-900">📎 Documents du projet</span>}
+        >
+          <div className="flex flex-wrap justify-end gap-2 mb-4">
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
+            >
+              + Ajouter un document
+            </button>
+            <button
+              onClick={handleOpenLierModal}
+              className="px-4 py-2 bg-gray-600 text-white rounded-md text-sm hover:bg-gray-700"
+            >
+              🔗 Lier un document existant
+            </button>
           </div>
           <div className="mb-4 rounded-md border border-blue-100 bg-blue-50/80 p-4 text-sm text-gray-700 leading-relaxed">
             <p className="font-medium text-gray-900 mb-2">Trois niveaux d&apos;accès</p>
@@ -1583,25 +1671,35 @@ export default function ProjetDetail() {
               </tbody>
             </table>
           )}
-        </div>
+        </ProjetCollapsibleSection>
 
         {id && (
-          <div className="print:hidden">
-            <ProjetPilotageAgile
-              projetId={id}
-              projet={projet}
-              usersForTaches={users.map((u) => ({
-                id: u.id,
-                nom: u.nom,
-                prenom: u.prenom,
-                role: u.role,
-              }))}
-              tachesBrutes={tachesProjet}
-              onTachesRefresh={refreshTachesProjet}
-            />
+          <div className="print:hidden space-y-4">
+            <ProjetCollapsibleSection
+              open={secPilotage}
+              onToggle={() => setSecPilotage((v) => !v)}
+              title={<span className="text-gray-900">📊 Pilotage du projet</span>}
+            >
+              <ProjetPilotageAgile
+                projetId={id}
+                projet={projet}
+                usersForTaches={users.map((u) => ({
+                  id: u.id,
+                  nom: u.nom,
+                  prenom: u.prenom,
+                  role: u.role,
+                }))}
+                tachesBrutes={tachesProjet}
+                onTachesRefresh={refreshTachesProjet}
+                hideIntro
+              />
+            </ProjetCollapsibleSection>
             {projet && (
-              <div className="bg-white rounded-lg shadow p-5 border border-gray-100">
-                <h2 className="text-lg font-semibold text-gray-900 mb-1">Recap Accès</h2>
+              <ProjetCollapsibleSection
+                open={secRecap}
+                onToggle={() => setSecRecap((v) => !v)}
+                title={<span className="text-gray-900">Recap Accès</span>}
+              >
                 <p className="text-xs text-gray-500 mb-5">
                   Synthèse des habilitations sur la fiche projet, les documents et les tâches. Les droits délégués sur le
                   projet se gèrent depuis la liste des projets (bouton « Accès »).
@@ -1708,7 +1806,7 @@ export default function ProjetDetail() {
                     </table>
                   </div>
                 )}
-              </div>
+              </ProjetCollapsibleSection>
             )}
           </div>
         )}
