@@ -1,8 +1,10 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { CorbeilleService } from '../services/corbeille.service';
+import { pvReunionService } from '../services/pv-reunion.service';
 import { logAccess } from '../middleware/logger';
 import { prisma } from '../utils/prisma';
+import { ResourceType } from '../generated/prisma/enums';
 
 const corbeilleService = new CorbeilleService();
 
@@ -29,6 +31,7 @@ export const getCorbeille = async (req: AuthRequest, res: Response) => {
       tachesAgile,
       epicsAgile,
       userStoriesAgile,
+      pvReunions,
     ] = await Promise.all([
       corbeilleService.getProcessusSupprimes(),
       corbeilleService.getDocumentsSupprimes(),
@@ -40,6 +43,7 @@ export const getCorbeille = async (req: AuthRequest, res: Response) => {
       corbeilleService.getTachesAgileSupprimees(),
       corbeilleService.getEpicsAgileSupprimes(),
       corbeilleService.getUserStoriesAgileSupprimees(),
+      corbeilleService.getPvReunionsSupprimes(),
     ]);
 
     res.json({
@@ -53,6 +57,7 @@ export const getCorbeille = async (req: AuthRequest, res: Response) => {
       tachesAgile,
       epicsAgile,
       userStoriesAgile,
+      pvReunions,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -438,5 +443,28 @@ export const supprimerDefinitivementUserStoryAgile = async (req: AuthRequest, re
     res.status(204).send();
   } catch (error: any) {
     res.status(400).json({ error: error.message });
+  }
+};
+
+export const restaurerPvReunion = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    const pv = await pvReunionService.restoreFromCorbeille(
+      req.params.id,
+      req.user.userId,
+      req.user.role
+    );
+    if (!pv) {
+      return res.status(400).json({ error: 'Élément introuvable ou non en corbeille' });
+    }
+    await logAccess(req, res, 'modification', ResourceType.pvReunion, pv.id, pv.titre, { action: 'restauration' });
+    res.json(pv);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === 'NOT_FOUND') return res.status(400).json({ error: 'Élément introuvable ou non en corbeille' });
+    if (msg === 'FORBIDDEN') return res.status(403).json({ error: 'Accès refusé' });
+    res.status(400).json({ error: msg });
   }
 };

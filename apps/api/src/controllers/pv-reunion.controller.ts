@@ -10,6 +10,7 @@ import {
   parseIdArrayFromBody,
   LiensExplicites,
 } from '../services/pv-reunion.service';
+import { prisma } from '../utils/prisma';
 
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -56,6 +57,58 @@ export const getPvReunions = async (req: AuthRequest, res: Response) => {
     res.json(list);
   } catch (e: unknown) {
     handleErr(res, e);
+  }
+};
+
+export const getPvReunionsCorbeille = async (req: AuthRequest, res: Response) => {
+  try {
+    const list = await pvReunionService.listDeletedForCorbeilleScoped(
+      req.user!.userId,
+      req.user!.role
+    );
+    res.json(list);
+  } catch (e: unknown) {
+    handleErr(res, e);
+  }
+};
+
+export const getPvReunionHistory = async (req: AuthRequest, res: Response) => {
+  try {
+    const pv = await prisma.pvReunion.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      select: { id: true },
+    });
+    if (!pv) return res.status(404).json({ error: 'Non trouvé' });
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
+    const skip = (page - 1) * limit;
+
+    const total = await prisma.journalAcces.count({
+      where: { ressourceType: ResourceType.pvReunion, ressourceId: req.params.id },
+    });
+    const history = await prisma.journalAcces.findMany({
+      where: { ressourceType: ResourceType.pvReunion, ressourceId: req.params.id },
+      include: {
+        user: { select: { id: true, nom: true, prenom: true, email: true } },
+      },
+      orderBy: { timestamp: 'desc' },
+      skip,
+      take: limit,
+    });
+
+    res.json({
+      data: history,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).json({ error: msg });
   }
 };
 

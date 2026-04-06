@@ -68,7 +68,7 @@ const pvIncludeDetail = {
   createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
   presentsUser: { include: { user: { select: { id: true, nom: true, prenom: true, email: true } } } },
   presentsClientFournisseur: {
-    include: { clientFournisseur: { select: { id: true, raisonSociale: true, type: true } } },
+    include: { clientFournisseur: { select: { id: true, nom: true, type: true } } },
   },
   modificationDelegues: {
     include: { user: { select: { id: true, nom: true, prenom: true, email: true } } },
@@ -378,6 +378,39 @@ export class PvReunionService {
       where: { id },
       data: { deletedAt: new Date() },
     });
+  }
+
+  /** PV supprimés visibles par l’utilisateur (admin : tous ; sinon créateur uniquement). */
+  async listDeletedForCorbeilleScoped(userId: string, role: string) {
+    const where: { deletedAt: { not: null }; createdById?: string } = {
+      deletedAt: { not: null },
+    };
+    if (role !== Role.admin) {
+      where.createdById = userId;
+    }
+    return prisma.pvReunion.findMany({
+      where,
+      orderBy: { deletedAt: 'desc' },
+      include: {
+        document: { select: { id: true, nom: true, fichierNomOriginal: true } },
+        createdBy: { select: { id: true, nom: true, prenom: true } },
+        modificationDelegues: { select: { userId: true } },
+      },
+    });
+  }
+
+  async restoreFromCorbeille(id: string, userId: string, role: string) {
+    const existing = await prisma.pvReunion.findFirst({
+      where: { id, deletedAt: { not: null } },
+      include: { modificationDelegues: true },
+    });
+    if (!existing) throw new Error('NOT_FOUND');
+    if (!canModifyPv(existing, userId, role)) throw new Error('FORBIDDEN');
+    await prisma.pvReunion.update({
+      where: { id },
+      data: { deletedAt: null },
+    });
+    return this.findOne(id, userId, role);
   }
 
   async addCommentaire(

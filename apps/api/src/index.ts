@@ -137,6 +137,12 @@ app.delete("/api/v1/projets/:id", projetController.deleteProjet);
 
 // PV de réunion
 app.get("/api/v1/pv-reunions", pvReunionController.getPvReunions);
+app.get("/api/v1/pv-reunions/corbeille", pvReunionController.getPvReunionsCorbeille);
+app.get("/api/v1/pv-reunions/:id/history", pvReunionController.getPvReunionHistory);
+app.get(
+  "/api/v1/pv-reunions/:id/commentaires/:commentId/piece",
+  pvReunionController.downloadPvCommentairePiece
+);
 app.get("/api/v1/pv-reunions/:id", pvReunionController.getPvReunion);
 app.post(
   "/api/v1/pv-reunions",
@@ -149,10 +155,6 @@ app.post(
   "/api/v1/pv-reunions/:id/commentaires",
   pvReunionController.uploadPvCommentaire,
   pvReunionController.addPvCommentaire
-);
-app.get(
-  "/api/v1/pv-reunions/:id/commentaires/:commentId/piece",
-  pvReunionController.downloadPvCommentairePiece
 );
 
 // Documents
@@ -229,6 +231,7 @@ app.post("/api/v1/corbeille/entites/:id/restaurer", corbeilleController.restaure
 app.delete("/api/v1/corbeille/entites/:id", corbeilleController.supprimerDefinitivementEntite);
 app.post("/api/v1/corbeille/projets/:id/restaurer", corbeilleController.restaurerProjet);
 app.delete("/api/v1/corbeille/projets/:id", corbeilleController.supprimerDefinitivementProjet);
+app.post("/api/v1/corbeille/pv-reunions/:id/restaurer", corbeilleController.restaurerPvReunion);
 app.post("/api/v1/corbeille/taches-agile/:id/restaurer", corbeilleController.restaurerTacheAgile);
 app.delete("/api/v1/corbeille/taches-agile/:id", corbeilleController.supprimerDefinitivementTacheAgile);
 app.post("/api/v1/corbeille/epics-agile/:id/restaurer", corbeilleController.restaurerEpicAgile);

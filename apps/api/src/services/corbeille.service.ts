@@ -304,4 +304,15 @@ export class CorbeilleService {
   async supprimerDefinitivementUserStoryAgile(id: string) {
     return epicService.deleteUserStoryPermanent(id);
   }
+
+  async getPvReunionsSupprimes() {
+    return prisma.pvReunion.findMany({
+      where: { deletedAt: { not: null } },
+      include: {
+        document: { select: { id: true, nom: true, fichierNomOriginal: true } },
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+  }
 }

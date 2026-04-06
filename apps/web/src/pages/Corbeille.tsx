@@ -10,6 +10,7 @@ const CORBEILLE_TABS = [
   'contrats',
   'entites',
   'projets',
+  'pv-reunions',
   'agile',
 ] as const;
 type CorbeilleTab = (typeof CORBEILLE_TABS)[number];
@@ -26,6 +27,7 @@ export default function Corbeille() {
   const [tachesAgile, setTachesAgile] = useState<any[]>([]);
   const [epicsAgile, setEpicsAgile] = useState<any[]>([]);
   const [userStoriesAgile, setUserStoriesAgile] = useState<any[]>([]);
+  const [pvReunions, setPvReunions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<
     | 'processus'
@@ -35,6 +37,7 @@ export default function Corbeille() {
     | 'contrats'
     | 'entites'
     | 'projets'
+    | 'pv-reunions'
     | 'agile'
   >('processus');
 
@@ -62,6 +65,7 @@ export default function Corbeille() {
       setTachesAgile(response.data.tachesAgile || []);
       setEpicsAgile(response.data.epicsAgile || []);
       setUserStoriesAgile(response.data.userStoriesAgile || []);
+      setPvReunions(response.data.pvReunions || []);
     } catch (error) {
       console.error('Erreur chargement corbeille:', error);
     } finally {
@@ -271,6 +275,16 @@ export default function Corbeille() {
     }
   };
 
+  const handleRestaurerPvReunion = async (id: string) => {
+    if (!window.confirm('Restaurer ce PV de réunion ?')) return;
+    try {
+      await api.post(`/corbeille/pv-reunions/${id}/restaurer`);
+      await loadCorbeille();
+    } catch (error) {
+      console.error('Erreur restauration:', error);
+    }
+  };
+
   if (loading) return <div className="p-6">Chargement...</div>;
 
   return (
@@ -348,6 +362,17 @@ export default function Corbeille() {
           }`}
         >
           Projets ({projets.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('pv-reunions')}
+          className={`pb-2 px-1 text-sm font-medium border-b-2 ${
+            activeTab === 'pv-reunions'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          PV réunion ({pvReunions.length})
         </button>
         <button
           type="button"
@@ -691,6 +716,46 @@ export default function Corbeille() {
           </table>
           {projets.length === 0 && (
             <div className="text-center py-8 text-gray-500">Aucun projet en corbeille</div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'pv-reunions' && (
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Titre</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Créé par</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supprimé le</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {pvReunions.map((pv) => (
+                <tr key={pv.id}>
+                  <td className="px-6 py-4 text-sm text-gray-900">{pv.titre}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {pv.createdBy ? `${pv.createdBy.prenom} ${pv.createdBy.nom}` : '—'}
+                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {pv.deletedAt ? new Date(pv.deletedAt).toLocaleDateString('fr-FR') : '—'}
+                  </td>
+                  <td className="px-6 py-4 text-sm">
+                    <button
+                      type="button"
+                      onClick={() => handleRestaurerPvReunion(pv.id)}
+                      className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
+                    >
+                      Restaurer
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {pvReunions.length === 0 && (
+            <div className="text-center py-8 text-gray-500">Aucun PV en corbeille</div>
           )}
         </div>
       )}
