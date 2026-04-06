@@ -2013,6 +2013,24 @@ export function TacheCard({
               {tache.dateFinApprox && <span>⏰ {new Date(tache.dateFinApprox).toLocaleDateString('fr-FR')}</span>}
               {tache.createur && <span>👤 {tache.createur.prenom} {tache.createur.nom}</span>}
             </div>
+            <div className="mt-2 space-y-0.5 text-[11px] font-mono text-gray-500 break-all">
+              <div title="Identifiant de la tâche">
+                <span className="text-gray-400 font-sans">Tâche · </span>
+                {tache.id}
+              </div>
+              {tache.userStory && (
+                <div title="Identifiant de la user story">
+                  <span className="text-gray-400 font-sans">User story · </span>
+                  {tache.userStory.id}
+                </div>
+              )}
+              {tache.userStory?.epic && (
+                <div title="Identifiant de l’epic">
+                  <span className="text-gray-400 font-sans">Epic · </span>
+                  {tache.userStory.epic.id}
+                </div>
+              )}
+            </div>
             {(tache.assignesUtilisateurs?.length || 0) > 0 && (
               <div className="flex gap-1 mt-2 flex-wrap">
                 {tache.assignesUtilisateurs?.map(u => (
@@ -2188,7 +2206,7 @@ export function TacheCard({
               <p className="text-sm text-gray-500">Chargement…</p>
             ) : accesDetail ? (
               <div className="space-y-5 text-sm">
-                <div>
+          <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
                   <ul className="space-y-1.5 text-gray-700">
                     {(accesDetail.admins || []).map((a: any) => (
@@ -2200,8 +2218,8 @@ export function TacheCard({
                       </li>
                     ))}
                   </ul>
-                </div>
-                <div>
+                  </div>
+                  <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Créateur</p>
                   {accesDetail.creator ? (
                     <p>
@@ -2213,7 +2231,7 @@ export function TacheCard({
                   ) : (
                     <p className="text-amber-800 text-sm">Créateur non renseigné.</p>
                   )}
-                </div>
+                  </div>
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Assignations</p>
                   {(accesDetail.delegations || []).length === 0 ? (
@@ -2270,7 +2288,7 @@ export function TacheCard({
                     {accesDetail.noteEntites && (
                       <p className="text-xs text-gray-500 mt-2">{accesDetail.noteEntites}</p>
                     )}
-                  </div>
+            </div>
                 )}
                 {accesDetail.canManagePermissions && (
                   <div className="border-t border-gray-200 pt-4 space-y-3">
@@ -2314,7 +2332,7 @@ export function TacheCard({
                       >
                         Ajouter
                       </button>
-                    </div>
+          </div>
                   </div>
                 )}
               </div>
@@ -2735,6 +2753,8 @@ function userStoryToKanbanAndGantt(us: UserStoryRow, taches: Tache[]): { kanban:
   return {
     kanban: {
       id: us.id,
+      entityType: 'user_story' as const,
+      epicRefId: us.epic?.id,
       nom,
       statut,
       dateFinApprox,
@@ -2743,6 +2763,8 @@ function userStoryToKanbanAndGantt(us: UserStoryRow, taches: Tache[]): { kanban:
     },
     gantt: {
       id: us.id,
+      entityType: 'user_story' as const,
+      epicRefId: us.epic?.id,
       nom,
       statut,
       dateDebut,
@@ -2887,6 +2909,7 @@ function epicToKanbanAndGantt(
   return {
     kanban: {
       id: ep.id,
+      entityType: 'epic' as const,
       nom: ep.nom,
       statut,
       dateFinApprox,
@@ -2895,6 +2918,7 @@ function epicToKanbanAndGantt(
     },
     gantt: {
       id: ep.id,
+      entityType: 'epic' as const,
       nom: ep.nom,
       statut,
       dateDebut,
@@ -3279,6 +3303,7 @@ export default function Taches() {
     nom: '',
     nomUserStory: '',
     nomEpic: '',
+    idsRecherche: '',
     statut: '',
     projetId: '',
     assigneIds: [] as string[],
@@ -3514,11 +3539,20 @@ export default function Taches() {
     if (filters.dateFinFrom && t.dateFinApprox && new Date(t.dateFinApprox) < new Date(filters.dateFinFrom)) return false;
     if (filters.dateFinTo && t.dateFinApprox && new Date(t.dateFinApprox) > new Date(filters.dateFinTo)) return false;
 
+    const idQ = filters.idsRecherche.trim().toLowerCase();
+    if (idQ) {
+      const matchTache = t.id.toLowerCase().includes(idQ);
+      const matchUs = t.userStory?.id?.toLowerCase().includes(idQ);
+      const matchEpic = t.userStory?.epic?.id?.toLowerCase().includes(idQ);
+      if (!matchTache && !matchUs && !matchEpic) return false;
+    }
+
     return true;
   });
 
   const taskLevelFiltersActive =
     !!filters.nom.trim() ||
+    !!filters.idsRecherche.trim() ||
     !!filters.statut ||
     !!filters.dateDebutFrom ||
     !!filters.dateDebutTo ||
@@ -3646,7 +3680,7 @@ export default function Taches() {
               className="px-3 py-2 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 font-medium"
             >
               🗑 Corbeille
-            </button>
+          </button>
           )}
           {canCreate && (
             <>
@@ -3672,8 +3706,8 @@ export default function Taches() {
                 }}
                 className="px-3 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
               >
-                + Nouvelle tâche
-              </button>
+              + Nouvelle tâche
+            </button>
             </>
           )}
         </div>
@@ -3690,6 +3724,7 @@ export default function Taches() {
             {(filters.nom.trim() ||
               filters.nomUserStory.trim() ||
               filters.nomEpic.trim() ||
+              filters.idsRecherche.trim() ||
               filters.statut ||
               filters.projetId ||
               filters.assigneIds.length > 0 ||
@@ -3706,30 +3741,30 @@ export default function Taches() {
         {showFiltres && (
           <div className="px-4 pb-4 pt-0 border-t border-gray-100">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
-              <div>
+          <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Projet</label>
                 <select
                   value={filters.projetId}
                   onChange={(e) => setFilters({ ...filters, projetId: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                 >
-                  <option value="">Tous les projets</option>
+              <option value="">Tous les projets</option>
                   {projets.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.nom}
                     </option>
                   ))}
-                </select>
-              </div>
+            </select>
+          </div>
 
-              <div>
+          <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   Assigné à{' '}
                   {filters.assigneIds.length > 0 && (
                     <span className="text-blue-600">({filters.assigneIds.length})</span>
                   )}
-                </label>
-                <div className="border border-gray-300 rounded-md max-h-28 overflow-y-auto p-1">
+            </label>
+            <div className="border border-gray-300 rounded-md max-h-28 overflow-y-auto p-1">
                   {users.map((u) => (
                     <label
                       key={u.id}
@@ -3737,7 +3772,7 @@ export default function Taches() {
                     >
                       <input
                         type="checkbox"
-                        checked={filters.assigneIds.includes(u.id)}
+                    checked={filters.assigneIds.includes(u.id)}
                         onChange={(e) =>
                           setFilters({
                             ...filters,
@@ -3748,20 +3783,20 @@ export default function Taches() {
                         }
                         className="rounded"
                       />
-                      {u.prenom} {u.nom}
-                    </label>
-                  ))}
-                </div>
-              </div>
+                  {u.prenom} {u.nom}
+                </label>
+              ))}
+            </div>
+          </div>
 
-              <div>
+          <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   Entités assignées{' '}
                   {filters.entiteIds.length > 0 && (
                     <span className="text-blue-600">({filters.entiteIds.length})</span>
                   )}
-                </label>
-                <div className="border border-gray-300 rounded-md max-h-28 overflow-y-auto p-1">
+            </label>
+            <div className="border border-gray-300 rounded-md max-h-28 overflow-y-auto p-1">
                   {entites.map((e) => (
                     <label
                       key={e.id}
@@ -3769,7 +3804,7 @@ export default function Taches() {
                     >
                       <input
                         type="checkbox"
-                        checked={filters.entiteIds.includes(e.id)}
+                    checked={filters.entiteIds.includes(e.id)}
                         onChange={(ev) =>
                           setFilters({
                             ...filters,
@@ -3780,13 +3815,13 @@ export default function Taches() {
                         }
                         className="rounded"
                       />
-                      {e.nom}
-                    </label>
-                  ))}
-                </div>
-              </div>
+                  {e.nom}
+                </label>
+              ))}
+            </div>
+          </div>
 
-              <div>
+          <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Nom de la tâche</label>
                 <input
                   type="text"
@@ -3795,9 +3830,9 @@ export default function Taches() {
                   placeholder="Rechercher…"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                 />
-              </div>
+          </div>
 
-              <div>
+          <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Nom de la User story</label>
                 <input
                   type="text"
@@ -3806,7 +3841,7 @@ export default function Taches() {
                   placeholder="Rechercher dans la description…"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                 />
-              </div>
+            </div>
 
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Nom de l&apos;Epic</label>
@@ -3817,11 +3852,22 @@ export default function Taches() {
                   placeholder="Rechercher…"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                 />
-              </div>
+          </div>
 
               <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">ID (tâche, user story ou epic)</label>
+                <input
+                  type="text"
+                  value={filters.idsRecherche}
+                  onChange={(e) => setFilters({ ...filters, idsRecherche: e.target.value })}
+                  placeholder="Sous-chaîne d’UUID…"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+                />
+              </div>
+
+          <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Date de début</label>
-                <div className="flex gap-2">
+            <div className="flex gap-2">
                   <input
                     type="date"
                     value={filters.dateDebutFrom}
@@ -3836,8 +3882,8 @@ export default function Taches() {
                     className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm"
                     title="Au"
                   />
-                </div>
-              </div>
+            </div>
+          </div>
 
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Date de fin approximative</label>
@@ -3858,8 +3904,8 @@ export default function Taches() {
                   />
                 </div>
               </div>
-            </div>
-            <div className="flex justify-end mt-3">
+        </div>
+        <div className="flex justify-end mt-3">
               <button
                 type="button"
                 onClick={() =>
@@ -3867,6 +3913,7 @@ export default function Taches() {
                     nom: '',
                     nomUserStory: '',
                     nomEpic: '',
+                    idsRecherche: '',
                     statut: '',
                     projetId: '',
                     assigneIds: [],
@@ -3879,9 +3926,9 @@ export default function Taches() {
                 }
                 className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
-                Réinitialiser
-              </button>
-            </div>
+            Réinitialiser
+          </button>
+        </div>
           </div>
         )}
       </div>
@@ -4011,7 +4058,7 @@ export default function Taches() {
             </div>
             <TachesGanttView
               taches={visibleTaches}
-              getCanEdit={canEdit}
+              getCanEdit={(t) => canEdit(t as Tache)}
               onBarClick={(t) => {
                 setEditTache(t as Tache);
                 setShowModal(true);
@@ -4022,7 +4069,7 @@ export default function Taches() {
           <TachesKanbanView
             taches={visibleTaches}
             columns={STATUT_OPTIONS}
-            getCanEdit={canEdit}
+            getCanEdit={(t) => canEdit(t as Tache)}
             onMoveTache={handleKanbanMove}
             onCardClick={(t) => {
               setEditTache(t as Tache);
@@ -4031,32 +4078,32 @@ export default function Taches() {
           />
         ) : (
           <>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-gray-500">{visibleTaches.length} tâche(s) trouvée(s)</p>
-              </div>
-              {pagedTaches.length === 0 && (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-gray-500">{visibleTaches.length} tâche(s) trouvée(s)</p>
+        </div>
+        {pagedTaches.length === 0 && (
                 <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">Aucune tâche trouvée</div>
-              )}
+        )}
               {pagedTaches.map((t) => (
-                <TacheCard
-                  key={t.id}
-                  tache={t}
+          <TacheCard
+            key={t.id}
+            tache={t}
                   onEdit={() => {
                     setEditTache(t);
                     setShowModal(true);
                   }}
-                  canEdit={canEdit(t)}
-                  users={users}
-                  currentUserRole={currentUser?.role || ''}
-                  allUsers={users}
+            canEdit={canEdit(t)}
+            users={users}
+            currentUserRole={currentUser?.role || ''}
+            allUsers={users}
                   onOpenEpic={(id) => setDetailEpicId(id)}
                   onOpenUserStory={(id) => setDetailUserStoryId(id)}
                   onSoftDelete={canSoftDeleteTache(t) ? handleSoftDeleteTache : undefined}
                   onRefreshData={loadAll}
-                />
-              ))}
-            </div>
+          />
+        ))}
+      </div>
 
             <ListSectionPagination
               page={page}
@@ -4146,7 +4193,7 @@ export default function Taches() {
         )}
         {usViewMode === 'gantt' ? (
           <div className="space-y-2">
-            <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500">
               {visibleUserStories.length} user story(s) — plage temporelle dérivée des dates des tâches liées (min début, max fin).
             </p>
             <TachesGanttView
@@ -4241,7 +4288,7 @@ export default function Taches() {
                                 className="text-xs px-2 py-1 bg-indigo-50 text-indigo-800 rounded border border-indigo-200 hover:bg-indigo-100 text-left"
                               >
                                 📗 Epic : {us.epic.nom}
-                              </button>
+            </button>
                             </div>
                           )}
                         </div>
@@ -4298,7 +4345,7 @@ export default function Taches() {
                             className="w-full px-3 py-1.5 text-xs border border-blue-300 text-blue-600 rounded hover:bg-blue-50 text-center"
                           >
                             {usExpanded ? '▲ Réduire' : '▼ Détails'}
-                          </button>
+            </button>
                         </div>
                     </div>
                   </div>

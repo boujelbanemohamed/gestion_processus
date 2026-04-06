@@ -7,6 +7,12 @@ export type KanbanTache = {
   dateFinApprox?: string;
   projet?: { id: string; nom: string };
   assignesUtilisateurs?: { id: string; nom: string; prenom: string }[];
+  /** Carte = tâche réelle : IDs user story / epic liés (si présents). */
+  userStory?: { id: string; epic?: { id: string } | null } | null;
+  /** Carte synthèse (liste US ou epics) : libellé de la ligne d’ID principale. */
+  entityType?: 'tache' | 'user_story' | 'epic';
+  /** Si `entityType === 'user_story'` : ID de l’epic parent pour affichage. */
+  epicRefId?: string;
 };
 
 export type KanbanColumn = { value: string; label: string; color: string };
@@ -150,6 +156,39 @@ export default function TachesKanbanView({
                       } ${isDragging ? 'opacity-50 ring-2 ring-blue-400' : ''} ${isMoving ? 'pointer-events-none opacity-60' : ''}`}
                     >
                       <p className="text-sm font-medium text-gray-900 line-clamp-3">{t.nom}</p>
+                      {(() => {
+                        const et = t.entityType ?? 'tache';
+                        const primaryLabel =
+                          et === 'tache' ? 'Tâche' : et === 'user_story' ? 'User story' : 'Epic';
+                        return (
+                          <div className="mt-2 space-y-0.5 text-[10px] font-mono text-gray-500 break-all">
+                            <div title={`Identifiant (${primaryLabel})`}>
+                              <span className="text-gray-400 font-sans">{primaryLabel} · </span>
+                              {t.id}
+                            </div>
+                            {et === 'user_story' && t.epicRefId && (
+                              <div title="Identifiant de l’epic">
+                                <span className="text-gray-400 font-sans">Epic · </span>
+                                {t.epicRefId}
+                              </div>
+                            )}
+                            {et === 'tache' && t.userStory && (
+                              <>
+                                <div title="Identifiant de la user story">
+                                  <span className="text-gray-400 font-sans">User story · </span>
+                                  {t.userStory.id}
+                                </div>
+                                {t.userStory.epic && (
+                                  <div title="Identifiant de l’epic">
+                                    <span className="text-gray-400 font-sans">Epic · </span>
+                                    {t.userStory.epic.id}
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {t.projet?.nom && <p className="text-xs text-purple-700 mt-1 truncate">📁 {t.projet.nom}</p>}
                       {t.dateFinApprox && (
                         <p className="text-xs text-gray-500 mt-1">Fin : {new Date(t.dateFinApprox).toLocaleDateString('fr-FR')}</p>

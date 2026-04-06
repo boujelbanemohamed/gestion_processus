@@ -8,6 +8,9 @@ export type TacheGantt = {
   dateFinApprox?: string;
   createdAt?: string;
   projet?: { id: string; nom: string };
+  userStory?: { id: string; epic?: { id: string } | null } | null;
+  entityType?: 'tache' | 'user_story' | 'epic';
+  epicRefId?: string;
 };
 
 const BAR_BG: Record<string, string> = {
@@ -162,6 +165,39 @@ export default function TachesGanttView({ taches, getCanEdit, onBarClick, rowLab
                       {tache.projet.nom}
                     </p>
                   )}
+                  {(() => {
+                    const et = tache.entityType ?? 'tache';
+                    const primaryLabel =
+                      et === 'tache' ? 'Tâche' : et === 'user_story' ? 'User story' : 'Epic';
+                    return (
+                      <div className="mt-1.5 space-y-0.5 text-[10px] font-mono text-gray-500 break-all">
+                        <div>
+                          <span className="text-gray-400 font-sans">{primaryLabel} · </span>
+                          {tache.id}
+                        </div>
+                        {et === 'user_story' && tache.epicRefId && (
+                          <div>
+                            <span className="text-gray-400 font-sans">Epic · </span>
+                            {tache.epicRefId}
+                          </div>
+                        )}
+                        {et === 'tache' && tache.userStory && (
+                          <>
+                            <div>
+                              <span className="text-gray-400 font-sans">User story · </span>
+                              {tache.userStory.id}
+                            </div>
+                            {tache.userStory.epic && (
+                              <div>
+                                <span className="text-gray-400 font-sans">Epic · </span>
+                                {tache.userStory.epic.id}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="relative flex-1 py-2" style={{ width: timelineW, minHeight: 44 }}>
                   <button
