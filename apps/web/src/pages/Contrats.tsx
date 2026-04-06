@@ -101,6 +101,8 @@ export default function Contrats() {
   const [accesLoading, setAccesLoading] = useState(false);
   const [newPermUserId, setNewPermUserId] = useState('');
   const [newPermNiveau, setNewPermNiveau] = useState('lecture');
+  /** Niveau choisi par ligne admin (section Administrateurs) avant « Limiter l'accès » */
+  const [adminLimitNiveau, setAdminLimitNiveau] = useState<Record<string, string>>({});
   const [histModalContrat, setHistModalContrat] = useState<any | null>(null);
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
@@ -237,6 +239,7 @@ export default function Contrats() {
     setAccesDetail(null);
     setNewPermUserId('');
     setNewPermNiveau('lecture');
+    setAdminLimitNiveau({});
     setAccesLoading(true);
     try {
       const { data } = await api.get(`/contrats/${c.id}/acces`);
@@ -273,6 +276,29 @@ export default function Contrats() {
     if (!accesModalContrat || !confirm('Retirer ce droit ?')) return;
     try {
       await api.delete(`/contrats/${accesModalContrat.id}/permissions/entry/${permissionEntryId}`);
+      await refreshAccesDetail(accesModalContrat.id);
+      load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const patchPermissionLevel = async (targetUserId: string, niveau: string) => {
+    if (!accesModalContrat) return;
+    try {
+      await api.post(`/contrats/${accesModalContrat.id}/permissions`, { userId: targetUserId, niveau });
+      await refreshAccesDetail(accesModalContrat.id);
+      load();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur');
+    }
+  };
+
+  const quickLimitAdminAccess = async (adminId: string) => {
+    if (!accesModalContrat) return;
+    const niveau = adminLimitNiveau[adminId] || 'lecture';
+    try {
+      await api.post(`/contrats/${accesModalContrat.id}/permissions`, { userId: adminId, niveau });
       await refreshAccesDetail(accesModalContrat.id);
       load();
     } catch (e: any) {
@@ -760,19 +786,92 @@ export default function Contrats() {
               <div className="space-y-5 text-sm">
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
-                  <ul className="space-y-1.5 text-gray-700 text-base">
+                  <p className="text-xs text-gray-500 mb-2">
+                    En tant que créateur, vous pouvez ajouter une ligne d’accès pour un administrateur (droits limités) ou
+                    modifier / retirer une ligne existante. Sans ligne, l’admin garde un accès complet sur ce contrat.
+                  </p>
+                  <ul className="space-y-3 text-gray-700 text-sm">
                     {(accesDetail.admins || []).map((a: any) => {
-                      const explicite = (accesDetail.delegations || []).some((d: any) => d.user?.id === a.id);
+                      const delegation = (accesDetail.delegations || []).find((d: any) => d.user?.id === a.id);
+                      const explicite = !!delegation;
+                      const isCreatorAdmin = accesDetail.creator?.id === a.id;
                       return (
-                        <li key={a.id}>
-                          <span className="font-medium">
-                            {a.prenom} {a.nom}
-                          </span>
-                          <span className="text-gray-400">
-                            {explicite
-                              ? ' — voir le niveau dans « Accès partagés »'
-                              : ' — accès complet (aucune ligne dédiée)'}
-                          </span>
+                        <li
+                          key={a.id}
+                          className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 border border-gray-100 rounded-lg px-3 py-2 bg-white"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <span className="font-medium text-base">
+                              {a.prenom} {a.nom}
+                            </span>
+                            <span className="text-gray-500 ml-1">({a.email})</span>
+                            {!explicite && (
+                              <span className="text-gray-400 block sm:inline sm:ml-1">
+                                — accès complet (aucune ligne dédiée)
+                              </span>
+                            )}
+                            {explicite && (
+                              <span className="text-amber-800 block sm:inline sm:ml-1 text-xs font-medium">
+                                — accès limité par une ligne « Accès partagés »
+                              </span>
+                            )}
+                          </div>
+                          {accesDetail.canManagePermissions && !isCreatorAdmin && (
+                            <div className="flex flex-wrap items-center gap-2 shrink-0">
+                              {!explicite ? (
+                                <>
+                                  <select
+                                    value={adminLimitNiveau[a.id] ?? 'lecture'}
+                                    onChange={(e) =>
+                                      setAdminLimitNiveau((prev) => ({ ...prev, [a.id]: e.target.value }))
+                                    }
+                                    className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                                  >
+                                    {NIVEAUX.map((n) => (
+                                      <option key={n.value} value={n.value}>
+                                        {n.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => quickLimitAdminAccess(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                                  >
+                                    Limiter l’accès
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <select
+                                    value={delegation.permission}
+                                    onChange={async (e) => {
+                                      const niveau = e.target.value;
+                                      if (!accesModalContrat || niveau === delegation.permission) return;
+                                      await patchPermissionLevel(a.id, niveau);
+                                    }}
+                                    className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                                  >
+                                    {NIVEAUX.map((n) => (
+                                      <option key={n.value} value={n.value}>
+                                        {n.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemovePermissionEntry(delegation.id)}
+                                    className="text-xs text-red-600 hover:underline"
+                                  >
+                                    Retirer la ligne
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                          {accesDetail.canManagePermissions && isCreatorAdmin && (
+                            <span className="text-xs text-gray-500">Créateur : accès complet, non modérable ici.</span>
+                          )}
                         </li>
                       );
                     })}
@@ -817,16 +916,7 @@ export default function Contrats() {
                                 onChange={async (e) => {
                                   const niveau = e.target.value;
                                   if (!accesModalContrat || niveau === d.permission) return;
-                                  try {
-                                    await api.post(`/contrats/${accesModalContrat.id}/permissions`, {
-                                      userId: d.user.id,
-                                      niveau,
-                                    });
-                                    await refreshAccesDetail(accesModalContrat.id);
-                                    load();
-                                  } catch (err: any) {
-                                    alert(err?.response?.data?.error || err?.message || 'Erreur');
-                                  }
+                                  await patchPermissionLevel(d.user.id, niveau);
                                 }}
                                 className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
                               >
@@ -860,11 +950,35 @@ export default function Contrats() {
                     <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3 items-end">
                       <select value={newPermUserId} onChange={(e) => setNewPermUserId(e.target.value)} className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm">
                         <option value="">— Utilisateur —</option>
-                        {users
-                          .filter((u: any) => (!u.statut || u.statut === 'actif') && u.id !== accesDetail.creator?.id)
-                          .map((u: any) => (
-                            <option key={u.id} value={u.id}>{u.prenom} {u.nom} ({u.email})</option>
-                          ))}
+                        {(() => {
+                          const actifs = users.filter(
+                            (u: any) => (!u.statut || u.statut === 'actif') && u.id !== accesDetail.creator?.id
+                          );
+                          const adminsPick = actifs.filter((u: any) => u.role === 'admin');
+                          const autresPick = actifs.filter((u: any) => u.role !== 'admin');
+                          return (
+                            <>
+                              {adminsPick.length > 0 && (
+                                <optgroup label="Administrateurs (modifiables par le créateur)">
+                                  {adminsPick.map((u: any) => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.prenom} {u.nom} — {u.email}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              {autresPick.length > 0 && (
+                                <optgroup label="Autres utilisateurs">
+                                  {autresPick.map((u: any) => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.prenom} {u.nom} — {u.email}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                            </>
+                          );
+                        })()}
                       </select>
                       <select value={newPermNiveau} onChange={(e) => setNewPermNiveau(e.target.value)} className="w-full lg:w-56 border border-gray-300 rounded-md px-3 py-2 text-sm">
                         {NIVEAUX.map((n) => <option key={n.value} value={n.value}>{n.label}</option>)}
