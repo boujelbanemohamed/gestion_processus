@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import ProjetTachesSection from '../components/ProjetTachesSection';
+import ProjetPilotageAgile from '../components/ProjetPilotageAgile';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 
@@ -1135,6 +1135,12 @@ export default function ProjetDetail() {
               </div>
 
               <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem] no-print">
+                <a
+                  href="#pilotage-agile"
+                  className="px-3 py-1.5 text-xs text-center bg-indigo-100 text-indigo-800 rounded hover:bg-indigo-200 font-medium"
+                >
+                  📊 Pilotage & agile
+                </a>
                 <button
                   type="button"
                   onClick={handlePrint}
@@ -1581,7 +1587,7 @@ export default function ProjetDetail() {
 
         {id && (
           <div className="print:hidden">
-            <ProjetTachesSection
+            <ProjetPilotageAgile
               projetId={id}
               projet={projet}
               usersForTaches={users.map((u) => ({
@@ -1590,6 +1596,7 @@ export default function ProjetDetail() {
                 prenom: u.prenom,
                 role: u.role,
               }))}
+              tachesBrutes={tachesProjet}
               onTachesRefresh={refreshTachesProjet}
             />
             {projet && (

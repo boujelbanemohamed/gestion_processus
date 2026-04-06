@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useMemo, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import TachesGanttView, { type TacheGantt } from '../components/TachesGanttView';
 import TachesKanbanView, { type KanbanTache } from '../components/TachesKanbanView';
 import TachesEnRetardBloc, { type TacheEnRetardItem } from '../components/TachesEnRetardBloc';
@@ -3755,6 +3756,14 @@ export default function Taches() {
                     </option>
                   ))}
             </select>
+                {filters.projetId && (
+                  <Link
+                    to={`/projets/${filters.projetId}`}
+                    className="mt-2 inline-flex items-center justify-center w-full px-3 py-2 text-sm font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+                  >
+                    Voir détail projet
+                  </Link>
+                )}
           </div>
 
           <div>
