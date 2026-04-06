@@ -4181,13 +4181,18 @@ export default function Taches() {
             <ul className="divide-y divide-gray-100 text-sm">
               {pagedUserStoriesEnRetard.map((us) => (
                 <li key={us.id} className="py-2 flex flex-wrap items-start justify-between gap-2">
-                  <button
-                    type="button"
-                    className="text-left text-blue-700 hover:underline font-medium"
-                    onClick={() => setDetailUserStoryId(us.id)}
-                  >
-                    {truncateUi(us.description, 120)}
-                  </button>
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      className="text-left text-blue-700 hover:underline font-medium"
+                      onClick={() => setDetailUserStoryId(us.id)}
+                    >
+                      {truncateUi(us.description, 120)}
+                    </button>
+                    <p className="text-[10px] font-mono text-gray-400 mt-1 break-all" title="ID user story">
+                      {us.id}
+                    </p>
+                  </div>
                   {us.epic && <span className="text-gray-500 text-xs shrink-0">Epic : {us.epic.nom}</span>}
                 </li>
               ))}
@@ -4270,6 +4275,10 @@ export default function Taches() {
                                 👤 {createurTache.prenom} {createurTache.nom}
                               </span>
                             )}
+                          </div>
+                          <div className="mt-2 text-[11px] font-mono text-gray-500 break-all" title="Identifiant de la user story">
+                            <span className="text-gray-400 font-sans">User story · </span>
+                            {us.id}
                           </div>
                           {assignesUs.length > 0 && (
                             <div className="flex gap-1 mt-2 flex-wrap">
@@ -4475,15 +4484,20 @@ export default function Taches() {
             </p>
             <ul className="divide-y divide-gray-100 text-sm">
               {pagedEpicsEnRetard.map((ep) => (
-                <li key={ep.id} className="py-2 flex flex-wrap items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    className="text-left text-blue-700 hover:underline font-medium"
-                    onClick={() => setDetailEpicId(ep.id)}
-                  >
-                    {ep.nom}
-                  </button>
-                  <span className="text-gray-500 text-xs">{ep.projet?.nom ?? '—'}</span>
+                <li key={ep.id} className="py-2 flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      className="text-left text-blue-700 hover:underline font-medium"
+                      onClick={() => setDetailEpicId(ep.id)}
+                    >
+                      {ep.nom}
+                    </button>
+                    <p className="text-[10px] font-mono text-gray-400 mt-1 break-all" title="ID epic">
+                      {ep.id}
+                    </p>
+                  </div>
+                  <span className="text-gray-500 text-xs shrink-0">{ep.projet?.nom ?? '—'}</span>
                 </li>
               ))}
             </ul>
@@ -4575,6 +4589,10 @@ export default function Taches() {
                               </span>
                             )}
                           </div>
+                          <div className="mt-2 text-[11px] font-mono text-gray-500 break-all" title="Identifiant de l’epic">
+                            <span className="text-gray-400 font-sans">Epic · </span>
+                            {ep.id}
+                          </div>
                           {assignesEp.length > 0 && (
                             <div className="flex gap-1 mt-2 flex-wrap">
                               {assignesEp.map((a) => (
@@ -4600,10 +4618,13 @@ export default function Taches() {
                                   key={u.id}
                                   type="button"
                                   onClick={() => setDetailUserStoryId(u.id)}
-                                  className="text-xs px-2 py-1 bg-violet-50 text-violet-800 rounded border border-violet-200 hover:bg-violet-100 text-left max-w-full line-clamp-2"
+                                  className="text-xs px-2 py-1 bg-violet-50 text-violet-800 rounded border border-violet-200 hover:bg-violet-100 text-left max-w-full"
                                   title={u.description}
                                 >
-                                  📘 {truncateUi(u.description, 80)}
+                                  <span className="line-clamp-2">📘 {truncateUi(u.description, 80)}</span>
+                                  <span className="block text-[10px] font-mono text-violet-600/90 mt-0.5 break-all">
+                                    {u.id}
+                                  </span>
                                 </button>
                               ))}
                             </div>
@@ -4680,10 +4701,11 @@ export default function Taches() {
                         {(ep.userStories?.length ?? 0) > 0 && (
                           <div>
                             <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">User stories</h4>
-                            <ul className="space-y-1 text-gray-700">
+                            <ul className="space-y-2 text-gray-700">
                               {(ep.userStories || []).map((u) => (
                                 <li key={u.id} className="text-sm">
-                                  {truncateUi(u.description, 160)}
+                                  <div>{truncateUi(u.description, 160)}</div>
+                                  <div className="text-[10px] font-mono text-gray-400 mt-0.5 break-all">{u.id}</div>
                                 </li>
                               ))}
                             </ul>
