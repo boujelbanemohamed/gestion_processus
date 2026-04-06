@@ -92,6 +92,15 @@ PMO Hub` },
 [Nom du document]
 
 PMO Hub` },
+    { id: 'commentaire_pv', icon: '💬', pages: ['PV de réunion'], titre: 'Commentaire sur un PV de réunion', description: 'Envoye lorsque un commentaire est ajoute sur un PV. Si le commentaire est assigne a un utilisateur, seul celui-ci est notifie ; sinon le createur du PV et les delegues modification.', destinataire: 'Assigne (prioritaire) ou createur + delegues', declencheur: 'Ajout commentaire sur un PV', sujet: 'Commentaire sur PV : [Titre PV]', template: `Bonjour [Prenom Nom],
+
+[Auteur] a commente le PV [Titre PV] :
+
+"[Contenu]"
+
+[Si piece jointe : mention de l annexe]
+
+PMO Hub` },
   ];
 
   return (

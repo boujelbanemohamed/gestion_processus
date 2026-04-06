@@ -25,6 +25,8 @@ import Projets from './pages/Projets';
 import Taches from './pages/Taches';           // ← NOUVEAU
 import ProjetDetail from './pages/ProjetDetail'; // ← NOUVEAU (déjà existant, maintenant complet)
 import Corbeille from './pages/Corbeille';
+import PvReunionList from './pages/PvReunionList';
+import PvReunionDetail from './pages/PvReunionDetail';
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
   const { isAuthenticated, loadFromStorage, user, refreshProfile } = useAuth();
@@ -88,6 +90,8 @@ function App() {
         <Route path="/entites/:id" element={<ProtectedRoute><EntiteDetail /></ProtectedRoute>} />
 
         <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
+        <Route path="/pv-reunion" element={<ProtectedRoute><PvReunionList /></ProtectedRoute>} />
+        <Route path="/pv-reunion/:id" element={<ProtectedRoute><PvReunionDetail /></ProtectedRoute>} />
 
         {/* NOUVEAU - Routes Projets */}
         <Route path="/projets" element={<ProtectedRoute><Projets /></ProtectedRoute>} />

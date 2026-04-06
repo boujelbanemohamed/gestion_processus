@@ -28,6 +28,7 @@ import * as notificationController from "./controllers/notification.controller";
 import * as licenceController from "./controllers/licence.controller";
 import * as typeLicenceController from "./controllers/type-licence.controller";
 import * as deviseController from "./controllers/devise.controller";
+import * as pvReunionController from "./controllers/pv-reunion.controller";
 
 const app = express();
 app.use(helmet());
@@ -133,6 +134,26 @@ app.get("/api/v1/projets/:id", projetController.getProjet);
 app.post("/api/v1/projets", projetController.createProjet);
 app.put("/api/v1/projets/:id", projetController.updateProjet);
 app.delete("/api/v1/projets/:id", projetController.deleteProjet);
+
+// PV de réunion
+app.get("/api/v1/pv-reunions", pvReunionController.getPvReunions);
+app.get("/api/v1/pv-reunions/:id", pvReunionController.getPvReunion);
+app.post(
+  "/api/v1/pv-reunions",
+  pvReunionController.uploadPvPrincipal,
+  pvReunionController.createPvReunion
+);
+app.put("/api/v1/pv-reunions/:id", pvReunionController.updatePvReunion);
+app.delete("/api/v1/pv-reunions/:id", pvReunionController.deletePvReunion);
+app.post(
+  "/api/v1/pv-reunions/:id/commentaires",
+  pvReunionController.uploadPvCommentaire,
+  pvReunionController.addPvCommentaire
+);
+app.get(
+  "/api/v1/pv-reunions/:id/commentaires/:commentId/piece",
+  pvReunionController.downloadPvCommentairePiece
+);
 
 // Documents
 app.get("/api/v1/documents", documentController.getAllDocuments);

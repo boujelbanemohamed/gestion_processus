@@ -19,6 +19,7 @@ export const UI_MODULE_LABELS: Record<UiModule, string> = {
   [UiModule.licences]: 'Licences',
   [UiModule.entites]: 'Entités',
   [UiModule.documents]: 'Documents',
+  [UiModule.pv_reunion]: 'PV de réunion',
   [UiModule.users]: 'Utilisateurs',
   [UiModule.journal]: 'Journal',
   [UiModule.configuration]: 'Configuration',

@@ -201,6 +201,26 @@ export class UserAccessSyntheseService {
         : Promise.resolve([]),
     ]);
 
+    const pvImpliques = await prisma.pvReunion.findMany({
+      where: {
+        deletedAt: null,
+        OR: [
+          { createdById: userId },
+          { modificationDelegues: { some: { userId } } },
+          { presentsUser: { some: { userId } } },
+        ],
+      },
+      select: {
+        id: true,
+        titre: true,
+        createdAt: true,
+        createdById: true,
+        modificationDelegues: { where: { userId }, select: { id: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 80,
+    });
+
     const projetMap = new Map(projetsMeta.map((p) => [p.id, p]));
     const processusMap = new Map(processusMeta.map((p) => [p.id, p]));
     const entiteMap = new Map(entitesMeta.map((e) => [e.id, e]));
@@ -304,6 +324,12 @@ export class UserAccessSyntheseService {
         niveau: lp.niveau,
         licence: lp.licence,
       })),
+      pvReunions: pvImpliques.map((pv) => {
+        let lien = 'présent';
+        if (pv.createdById === userId) lien = 'créateur';
+        else if (pv.modificationDelegues.length > 0) lien = 'délégué modification';
+        return { id: pv.id, titre: pv.titre, createdAt: pv.createdAt, lien };
+      }),
     };
   }
 }

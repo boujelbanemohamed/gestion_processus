@@ -1088,6 +1088,38 @@ export default function UserDetail() {
                 <p className="text-gray-400 text-xs">Aucun accès licence.</p>
               )}
             </section>
+
+            <section>
+              <h3 className="text-md font-medium text-gray-700 mb-2">PV de réunion</h3>
+              {synthese.pvReunions?.length ? (
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="min-w-full">
+                    <thead className="bg-gray-50 text-left text-xs text-gray-600 uppercase">
+                      <tr>
+                        <th className="p-2">PV</th>
+                        <th className="p-2">Rôle</th>
+                        <th className="p-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {synthese.pvReunions.map((row: any) => (
+                        <tr key={row.id} className="border-t border-gray-100">
+                          <td className="p-2">{row.titre}</td>
+                          <td className="p-2 text-gray-600">{row.lien}</td>
+                          <td className="p-2">
+                            <Link to={`/pv-reunion/${row.id}`} className="text-blue-600 hover:underline text-xs">
+                              Ouvrir
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-400 text-xs">Aucun PV impliquant cet utilisateur.</p>
+              )}
+            </section>
           </div>
         ) : (
           <p className="text-gray-400 text-sm">Synthèse non disponible.</p>

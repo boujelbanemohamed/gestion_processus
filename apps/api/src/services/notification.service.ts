@@ -422,6 +422,57 @@ export class NotificationService {
   }
 
   // ── Document uploadé ──────────────────────────────────────────────────────
+  async notifierCommentairePvReunion(data: {
+    pvId: string;
+    pvTitre: string;
+    commentaire: string;
+    destinataires: { id: string; email: string; nom: string }[];
+    auteurNom: string;
+    appUrl: string;
+    pieceJointeNom?: string;
+  }) {
+    const lien = `${data.appUrl}/pv-reunion/${data.pvId}`;
+    const pieceHtml = data.pieceJointeNom
+      ? `<p style="margin:12px 0">📎 Pièce jointe : <strong>${data.pieceJointeNom}</strong></p>`
+      : '';
+    for (const dest of data.destinataires) {
+      try {
+        await this.createNotification({
+          userId: dest.id,
+          type: 'commentaire_pv',
+          titre: `Commentaire sur « ${data.pvTitre} »`,
+          contenu: `${data.auteurNom} : ${data.commentaire.substring(0, 100)}${data.commentaire.length > 100 ? '...' : ''}`,
+          lienType: 'pvReunion',
+          lienId: data.pvId,
+        });
+      } catch {
+        /* silencieux */
+      }
+      try {
+        const smtp = await this.getActiveSMTP();
+        if (!smtp) continue;
+        await smtp.transporter.sendMail({
+          from: `"${smtp.smtp.fromName || 'PMO Hub'}" <${smtp.smtp.fromEmail}>`,
+          to: dest.email,
+          subject: `💬 Commentaire sur PV : ${data.pvTitre}`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+            <div style="background:#0369a1;color:white;padding:20px;border-radius:8px 8px 0 0"><h2 style="margin:0">💬 PV de réunion</h2></div>
+            <div style="background:#f9fafb;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
+              <p>Bonjour <strong>${dest.nom}</strong>,</p>
+              <p><strong>${data.auteurNom}</strong> a commenté le procès-verbal <strong>${data.pvTitre}</strong> :</p>
+              <div style="background:white;border-left:4px solid #0369a1;padding:12px;margin:16px 0;border-radius:4px;font-style:italic">
+                "${data.commentaire.substring(0, 400)}${data.commentaire.length > 400 ? '...' : ''}"
+              </div>
+              ${pieceHtml}
+              <a href="${lien}" style="display:inline-block;background:#0369a1;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Ouvrir le PV →</a>
+            </div></div>`,
+        });
+      } catch (err) {
+        console.error('[NOTIF] Erreur commentaire PV:', err);
+      }
+    }
+  }
+
   async notifierDocumentUploade(data: {
     tacheId: string; tacheNom: string; documentNom: string;
     destinataires: { id: string; email: string; nom: string }[];

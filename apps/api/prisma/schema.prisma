@@ -53,6 +53,7 @@ enum DocType {
   tache
   licence
   autre
+  pv_reunion
 }
 
 enum RefType {
@@ -61,6 +62,7 @@ enum RefType {
   entite
   clientFournisseur
   licence
+  pvReunion
 }
 
 enum DocStatut {
@@ -93,6 +95,7 @@ enum ResourceType {
   tache
   epic
   userStory
+  pvReunion
 }
 
 enum PermissionResource {
@@ -122,6 +125,7 @@ enum UiModule {
   licences
   entites
   documents
+  pv_reunion
   users
   journal
   configuration
@@ -196,6 +200,12 @@ model User {
   entitesCreees                  Entite[]                         @relation("EntiteCreatedBy")
 
   userUiModuleAccesses          UserUiModuleAccess[]
+
+  pvReunionsCrees               PvReunion[]              @relation("PvReunionCreatedBy")
+  pvReunionPresents             PvReunionPresentUser[]
+  pvReunionModificationDelegues PvReunionModificationDelegue[]
+  pvReunionCommentairesAuteur   PvReunionCommentaire[]   @relation("PvReunionCommentaireAuteur")
+  pvReunionCommentairesAssignes PvReunionCommentaire[]   @relation("PvReunionCommentaireAssigne")
 }
 
 model UserUiModuleAccess {
@@ -293,6 +303,7 @@ model Processus {
   categories             ProcessusCategorie[]
   favoris                FavorisProcessus[]
   licenceLiens LicenceProcessus[]
+  pvReunions             PvReunionProcessus[]
 
   @@index([statut])
   @@index([codeProcessus])
@@ -389,6 +400,7 @@ model Projet {
   contrats              ContratProjet[]
   taches                Tache[]
   epics                 Epic[]
+  pvReunions            PvReunionProjet[]
 }
 
 model ProjetEntite {
@@ -494,6 +506,8 @@ model Document {
   favoris             FavorisDocument[]
   tacheDocuments      TacheDocument[]    @relation("DocumentTache")
   epicDocuments       EpicDocument[]
+  pvReunionsPrincipal     PvReunion[]            @relation("PvReunionDocumentPrincipal")
+  pvReunionCommentPieces  PvReunionCommentaire[] @relation("PvReunionCommentairePiece")
 
   @@index([referenceId, referenceType])
   @@index([typeDocument])
@@ -669,6 +683,7 @@ model ClientFournisseur {
   projets          ClientFournisseurProjet[]
   licenceLiens     LicenceClientFournisseur[]
   historique       ClientFournisseurHistorique[]
+  pvReunionPresents PvReunionPresentClientFournisseur[]
 }
 
 model ClientFournisseurHistorique {
@@ -728,6 +743,7 @@ model Contrat {
   permissions       ContratPermission[]
   licenceLiens      LicenceContrat[]
   historique        ContratHistorique[]
+  pvReunions        PvReunionContrat[]
 }
 
 model ContratHistorique {
@@ -819,6 +835,7 @@ model Epic {
   documents        EpicDocument[]
   assignesEntites  EpicEntite[]
   commentaires     EpicCommentaire[]
+  pvReunions       PvReunionEpic[]
 
   @@index([projetId])
   @@index([deletedAt])
@@ -849,6 +866,7 @@ model UserStory {
 
   taches       Tache[]
   commentaires UserStoryCommentaire[]
+  pvReunions   PvReunionUserStory[]
 
   @@index([epicId])
   @@index([deletedAt])
@@ -923,6 +941,7 @@ model Tache {
   liaisonsVersMoi      TacheLiaison[] @relation("TacheLiaisonCible")
   commentaires         TacheCommentaire[]
   documents            TacheDocument[]
+  pvReunions           PvReunionTache[]
 
   @@index([statut])
   @@index([projetId])
@@ -1156,4 +1175,156 @@ model LicenceNotification {
   createdAt       DateTime @default(now())
 
   @@index([licenceId])
+}
+
+// ── PV DE RÉUNION ────────────────────────────────────────────────────────────
+
+model PvReunion {
+  id               String    @id @default(uuid())
+  titre            String
+  documentId       String
+  document         Document  @relation("PvReunionDocumentPrincipal", fields: [documentId], references: [id], onDelete: Restrict)
+  dateReunion      DateTime?
+  createdById      String
+  createdBy        User      @relation("PvReunionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  /// Sélection utilisateur (formulaire) : epicIds, userStoryIds, tacheIds, projetIds, contratIds, processusIds
+  liensExplicites  Json      @default("{}")
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  presentsUser             PvReunionPresentUser[]
+  presentsClientFournisseur PvReunionPresentClientFournisseur[]
+  projets                  PvReunionProjet[]
+  taches                   PvReunionTache[]
+  userStories              PvReunionUserStory[]
+  epics                    PvReunionEpic[]
+  contrats                 PvReunionContrat[]
+  processus                PvReunionProcessus[]
+  modificationDelegues     PvReunionModificationDelegue[]
+  commentaires             PvReunionCommentaire[]
+
+  @@index([createdById])
+  @@index([documentId])
+  @@index([deletedAt])
+}
+
+model PvReunionPresentUser {
+  id          String    @id @default(uuid())
+  pvReunionId String
+  pvReunion   PvReunion @relation(fields: [pvReunionId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([pvReunionId, userId])
+  @@index([userId])
+}
+
+model PvReunionPresentClientFournisseur {
+  id                  String            @id @default(uuid())
+  pvReunionId         String
+  pvReunion           PvReunion         @relation(fields: [pvReunionId], references: [id], onDelete: Cascade)
+  clientFournisseurId String
+  clientFournisseur   ClientFournisseur @relation(fields: [clientFournisseurId], references: [id], onDelete: Cascade)
+  createdAt           DateTime          @default(now())
+
+  @@unique([pvReunionId, clientFournisseurId])
+  @@index([clientFournisseurId])
+}
+
+model PvReunionProjet {
+  pvReunionId String
+  projetId    String
+  pvReunion   PvReunion @relation(fields: [pvReunionId], references: [id], onDelete: Cascade)
+  projet      Projet    @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@id([pvReunionId, projetId])
+  @@index([projetId])
+}
+
+model PvReunionTache {
+  pvReunionId String
+  tacheId     String
+  pvReunion   PvReunion @relation(fields: [pvReunionId], references: [id], onDelete: Cascade)
+  tache       Tache     @relation(fields: [tacheId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@id([pvReunionId, tacheId])
+  @@index([tacheId])
+}
+
+model PvReunionUserStory {
+  pvReunionId  String
+  userStoryId  String
+  pvReunion    PvReunion @relation(fields: [pvReunionId], references: [id], onDelete: Cascade)
+  userStory    UserStory @relation(fields: [userStoryId], references: [id], onDelete: Cascade)
+  createdAt    DateTime  @default(now())
+
+  @@id([pvReunionId, userStoryId])
+  @@index([userStoryId])
+}
+
+model PvReunionEpic {
+  pvReunionId String
+  epicId      String
+  pvReunion   PvReunion @relation(fields: [pvReunionId], references: [id], onDelete: Cascade)
+  epic        Epic      @relation(fields: [epicId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@id([pvReunionId, epicId])
+  @@index([epicId])
+}
+
+model PvReunionContrat {
+  pvReunionId String
+  contratId   String
+  pvReunion   PvReunion @relation(fields: [pvReunionId], references: [id], onDelete: Cascade)
+  contrat     Contrat   @relation(fields: [contratId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@id([pvReunionId, contratId])
+  @@index([contratId])
+}
+
+model PvReunionProcessus {
+  pvReunionId String
+  processusId String
+  pvReunion   PvReunion @relation(fields: [pvReunionId], references: [id], onDelete: Cascade)
+  processus   Processus @relation(fields: [processusId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@id([pvReunionId, processusId])
+  @@index([processusId])
+}
+
+model PvReunionModificationDelegue {
+  id          String    @id @default(uuid())
+  pvReunionId String
+  pvReunion   PvReunion @relation(fields: [pvReunionId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([pvReunionId, userId])
+  @@index([userId])
+}
+
+model PvReunionCommentaire {
+  id          String    @id @default(uuid())
+  pvReunionId String
+  pvReunion   PvReunion @relation(fields: [pvReunionId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation("PvReunionCommentaireAuteur", fields: [userId], references: [id], onDelete: Cascade)
+  contenu     String    @db.Text
+  assigneAId  String?
+  assigneUser User?     @relation("PvReunionCommentaireAssigne", fields: [assigneAId], references: [id], onDelete: SetNull)
+  documentId  String?
+  pieceJointe Document? @relation("PvReunionCommentairePiece", fields: [documentId], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+
+  @@index([pvReunionId])
+  @@index([userId])
+  @@index([assigneAId])
 }

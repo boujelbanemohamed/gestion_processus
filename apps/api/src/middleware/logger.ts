@@ -56,6 +56,7 @@ export const logger = async (req: AuthRequest, res: Response, next: NextFunction
     else if (urlParts.includes('taches')) ressourceType = 'tache';
     else if (urlParts.includes('epics')) ressourceType = 'epic';
     else if (urlParts.includes('user-stories')) ressourceType = 'userStory';
+    else if (urlParts.includes('pv-reunions')) ressourceType = 'pvReunion';
 
     const ressourceId = req.params.id;
     

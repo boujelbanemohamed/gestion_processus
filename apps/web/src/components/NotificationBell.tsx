@@ -73,6 +73,8 @@ export default function NotificationBell() {
     // Naviguer vers la tâche
     if (notif.lienType === 'tache') {
       navigate('/taches');
+    } else if (notif.lienType === 'pvReunion' && notif.lienId) {
+      navigate(`/pv-reunion/${notif.lienId}`);
     }
     setOpen(false);
   };
