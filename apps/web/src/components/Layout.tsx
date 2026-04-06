@@ -22,11 +22,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { path: '/taches', label: 'Epics / User story / Tâches' },
     { path: '/clients-fournisseurs', label: 'Clients / Fournisseurs' },
     { path: '/contrats', label: 'Contrats' },
+    { path: '/pv-reunion', label: 'PV de réunion' },
     { path: '/ocr', label: 'OCR' },
     { path: '/licences', label: 'Licences' },
     { path: '/entites', label: 'Entités' },
     { path: '/documents', label: 'Documents' },
-    { path: '/pv-reunion', label: 'PV de réunion' },
     ...(isAdmin ? [
       { path: '/users', label: 'Utilisateurs' },
       { path: '/journal', label: 'Journal' },

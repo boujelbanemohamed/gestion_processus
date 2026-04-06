@@ -5,11 +5,11 @@ const PREFIXES: [string, string][] = [
   ['/taches', 'taches'],
   ['/clients-fournisseurs', 'clients_fournisseurs'],
   ['/contrats', 'contrats'],
+  ['/pv-reunion', 'pv_reunion'],
   ['/ocr', 'ocr'],
   ['/licences', 'licences'],
   ['/entites', 'entites'],
   ['/documents', 'documents'],
-  ['/pv-reunion', 'pv_reunion'],
   ['/users', 'users'],
   ['/journal', 'journal'],
   ['/configuration', 'configuration'],
@@ -33,11 +33,11 @@ const NAV_PATH_TO_MODULE: Record<string, string> = {
   '/taches': 'taches',
   '/clients-fournisseurs': 'clients_fournisseurs',
   '/contrats': 'contrats',
+  '/pv-reunion': 'pv_reunion',
   '/ocr': 'ocr',
   '/licences': 'licences',
   '/entites': 'entites',
   '/documents': 'documents',
-  '/pv-reunion': 'pv_reunion',
   '/users': 'users',
   '/journal': 'journal',
   '/configuration': 'configuration',
@@ -55,7 +55,9 @@ export function isUiModuleAllowed(
   if (!module) return true;
   if (!uiModules || Object.keys(uiModules).length === 0) return true;
   const level = uiModules[module];
-  return level != null && level !== 'none';
+  // Clé absente (profil / JWT chargé avant ajout du module) : afficher l’entrée de menu
+  if (level === undefined) return true;
+  return level !== 'none';
 }
 
 export function canModifyModule(
@@ -64,5 +66,7 @@ export function canModifyModule(
 ): boolean {
   if (!module) return true;
   if (!uiModules || Object.keys(uiModules).length === 0) return true;
-  return uiModules[module] === 'modification';
+  const level = uiModules[module];
+  if (level === undefined) return true;
+  return level === 'modification';
 }
