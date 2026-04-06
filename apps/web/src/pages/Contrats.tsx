@@ -272,10 +272,42 @@ export default function Contrats() {
     }
   };
 
-  const handleRemovePermissionEntry = async (permissionEntryId: string) => {
-    if (!accesModalContrat || !confirm('Retirer ce droit ?')) return;
+  const handleRemovePermissionEntry = async (permissionEntryId: string, targetIsAdmin?: boolean) => {
+    const msg = targetIsAdmin
+      ? "Révoquer cet accès ? L'administrateur n'aura plus aucun droit sur ce contrat. Vous pourrez lui accorder à nouveau un accès via « Accorder un accès » ci-dessous."
+      : 'Retirer ce droit ?';
+    if (!accesModalContrat || !window.confirm(msg)) return;
     try {
       await api.delete(`/contrats/${accesModalContrat.id}/permissions/entry/${permissionEntryId}`);
+      await refreshAccesDetail(accesModalContrat.id);
+      load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleRevokeAdminImplicitAccess = async (userId: string) => {
+    if (!accesModalContrat) return;
+    if (
+      !window.confirm(
+        "Retirer tout accès à cet administrateur ? Il ne verra plus le contrat tant que vous ne lui aurez pas accordé un accès via la liste ci-dessous."
+      )
+    )
+      return;
+    try {
+      await api.post(`/contrats/${accesModalContrat.id}/admin-sans-acces`, { userId });
+      await refreshAccesDetail(accesModalContrat.id);
+      load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleRestoreAdminDefaultAccess = async (userId: string) => {
+    if (!accesModalContrat) return;
+    if (!window.confirm("Rétablir l'accès administrateur par défaut (complet) pour cet utilisateur ?")) return;
+    try {
+      await api.delete(`/contrats/${accesModalContrat.id}/admin-sans-acces/${userId}`);
       await refreshAccesDetail(accesModalContrat.id);
       load();
     } catch (e: any) {
@@ -769,10 +801,11 @@ export default function Contrats() {
           <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
             <h3 className="text-xl font-semibold mb-2">Accès — {accesModalContrat.nom}</h3>
             <p className="text-sm text-gray-600 mb-5 leading-relaxed">
-              <span className="font-medium">Seul le créateur du contrat</span> peut ajouter, modifier le niveau ou retirer les
-              accès partagés (y compris pour des administrateurs). Les administrateurs sans ligne dans « Accès partagés »
-              conservent un accès complet sur ce contrat ; une ligne dédiée limite leurs droits au niveau choisi. Retirer
-              leur ligne rétablit l’accès complet.
+              <span className="font-medium">Seul le créateur du contrat</span> peut gérer les accès. Pour un administrateur :
+              sans ligne dans « Accès partagés » et sans exclusion, il a un accès complet ; une ligne dans « Accès partagés »
+              limite ses droits ; « Retirer l&apos;accès » le prive totalement du contrat jusqu&apos;à ce qu&apos;un accès lui
+              soit accordé via « Accorder un accès ». « Rétablir l&apos;accès admin par défaut » annule une exclusion et
+              restaure l&apos;accès complet implicite (sans ligne).
             </p>
             {accesDetail && !accesDetail.canManagePermissions && (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2 mb-4">
@@ -787,14 +820,15 @@ export default function Contrats() {
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
                   <p className="text-xs text-gray-500 mb-2">
-                    En tant que créateur, vous pouvez ajouter une ligne d’accès pour un administrateur (droits limités) ou
-                    modifier / retirer une ligne existante. Sans ligne, l’admin garde un accès complet sur ce contrat.
+                    Limitez un admin avec « Limiter l&apos;accès », retirez-le entièrement avec « Retirer l&apos;accès », ou
+                    rétablissez l&apos;accès complet implicite s&apos;il était exclu.
                   </p>
                   <ul className="space-y-3 text-gray-700 text-sm">
                     {(accesDetail.admins || []).map((a: any) => {
                       const delegation = (accesDetail.delegations || []).find((d: any) => d.user?.id === a.id);
                       const explicite = !!delegation;
                       const isCreatorAdmin = accesDetail.creator?.id === a.id;
+                      const refuse = (accesDetail.adminSansAccesUserIds || []).includes(a.id);
                       return (
                         <li
                           key={a.id}
@@ -805,20 +839,33 @@ export default function Contrats() {
                               {a.prenom} {a.nom}
                             </span>
                             <span className="text-gray-500 ml-1">({a.email})</span>
-                            {!explicite && (
+                            {refuse && !explicite && (
+                              <span className="text-red-700 block sm:inline sm:ml-1 text-xs font-medium">
+                                — aucun accès (exclu ; accorder un accès via la liste ci-dessous pour le réintégrer)
+                              </span>
+                            )}
+                            {!refuse && !explicite && (
                               <span className="text-gray-400 block sm:inline sm:ml-1">
-                                — accès complet (aucune ligne dédiée)
+                                — accès complet (défaut administrateur)
                               </span>
                             )}
                             {explicite && (
                               <span className="text-amber-800 block sm:inline sm:ml-1 text-xs font-medium">
-                                — accès limité par une ligne « Accès partagés »
+                                — accès limité (ligne « Accès partagés »)
                               </span>
                             )}
                           </div>
                           {accesDetail.canManagePermissions && !isCreatorAdmin && (
                             <div className="flex flex-wrap items-center gap-2 shrink-0">
-                              {!explicite ? (
+                              {refuse && !explicite ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestoreAdminDefaultAccess(a.id)}
+                                  className="text-xs px-3 py-1.5 bg-green-100 text-green-800 rounded-md hover:bg-green-200"
+                                >
+                                  Rétablir l&apos;accès admin par défaut
+                                </button>
+                              ) : !explicite ? (
                                 <>
                                   <select
                                     value={adminLimitNiveau[a.id] ?? 'lecture'}
@@ -840,6 +887,13 @@ export default function Contrats() {
                                   >
                                     Limiter l’accès
                                   </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRevokeAdminImplicitAccess(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                  >
+                                    Retirer l&apos;accès
+                                  </button>
                                 </>
                               ) : (
                                 <>
@@ -860,10 +914,10 @@ export default function Contrats() {
                                   </select>
                                   <button
                                     type="button"
-                                    onClick={() => handleRemovePermissionEntry(delegation.id)}
-                                    className="text-xs text-red-600 hover:underline"
+                                    onClick={() => handleRemovePermissionEntry(delegation.id, true)}
+                                    className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
                                   >
-                                    Retirer la ligne
+                                    Révoquer l&apos;accès
                                   </button>
                                 </>
                               )}
@@ -928,10 +982,10 @@ export default function Contrats() {
                               </select>
                               <button
                                 type="button"
-                                onClick={() => handleRemovePermissionEntry(d.id)}
+                                onClick={() => handleRemovePermissionEntry(d.id, d.user?.role === 'admin')}
                                 className="text-xs text-red-600 hover:underline ml-auto"
                               >
-                                Retirer
+                                {d.user?.role === 'admin' ? 'Révoquer' : 'Retirer'}
                               </button>
                             </>
                           ) : (

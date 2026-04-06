@@ -181,6 +181,7 @@ model User {
   @@index([email])
   contratsCreated       Contrat[]              @relation("ContratCreatedBy")
   contratPermissions    ContratPermission[]    @relation("ContratPermission")
+  contratsAdminSansAcces ContratAdminSansAcces[] @relation("ContratAdminSansAcces")
   tachesCreees          Tache[]                @relation("TacheCreateur")
   tachesAssignees       TacheUser[]            @relation("TacheAssigneUser")
   epicsCrees            Epic[]                 @relation("EpicCreatedBy")
@@ -741,9 +742,23 @@ model Contrat {
   projets           ContratProjet[]
   documents         ContratDocument[]
   permissions       ContratPermission[]
+  adminSansAcces    ContratAdminSansAcces[]
   licenceLiens      LicenceContrat[]
   historique        ContratHistorique[]
   pvReunions        PvReunionContrat[]
+}
+
+model ContratAdminSansAcces {
+  id         String   @id @default(uuid())
+  contratId  String
+  contrat    Contrat  @relation(fields: [contratId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation("ContratAdminSansAcces", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([contratId, userId])
+  @@index([contratId])
+  @@index([userId])
 }
 
 model ContratHistorique {

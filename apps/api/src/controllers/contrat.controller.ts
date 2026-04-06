@@ -24,6 +24,7 @@ function handleContratErr(res: Response, e: any) {
   if (
     msg.startsWith('Les administrateurs') ||
     msg.startsWith('Le créateur') ||
+    msg.startsWith('Seuls les comptes administrateur') ||
     msg === 'Utilisateur introuvable'
   ) {
     return res.status(400).json({ error: msg });
@@ -169,6 +170,28 @@ export const removePermissionEntry = async (req: Request, res: Response) => {
       user.role
     );
     res.json({ success: true });
+  } catch (e: any) {
+    return handleContratErr(res, e);
+  }
+};
+
+export const blockAdminImplicitAccess = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { userId } = req.body || {};
+    if (!userId) return res.status(400).json({ error: 'userId requis' });
+    await contratService.blockAdminImplicitAccess(req.params.id, userId, user.userId);
+    res.status(204).send();
+  } catch (e: any) {
+    return handleContratErr(res, e);
+  }
+};
+
+export const restoreAdminImplicitAccess = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    await contratService.restoreAdminImplicitAccess(req.params.id, req.params.userId, user.userId);
+    res.status(204).send();
   } catch (e: any) {
     return handleContratErr(res, e);
   }

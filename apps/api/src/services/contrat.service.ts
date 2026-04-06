@@ -6,24 +6,35 @@ const contratInclude = {
   projets: { include: { projet: { select: { id: true, nom: true, codeProjet: true } } } },
   documents: { include: { document: { select: { id: true, nom: true, fichierUrl: true, estConfidentiel: true } } } },
   permissions: { include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } } },
+  adminSansAcces: { select: { userId: true } },
 } as const;
 
 type ContratAcl = {
   id: string;
   createdById: string;
   permissions: { userId: string; niveau: string }[];
+  adminSansAcces?: { userId: string }[];
 };
 
+function adminImplicitAccessRefused(c: ContratAcl, userId: string): boolean {
+  return (c.adminSansAcces || []).some((x) => x.userId === userId);
+}
+
 function canViewContrat(c: ContratAcl, userId: string, userRole: string) {
-  if (userRole === 'admin') return true;
   if (c.createdById === userId) return true;
-  return c.permissions.some((p) => p.userId === userId);
+  const hasPerm = c.permissions.some((p) => p.userId === userId);
+  if (userRole === 'admin') {
+    if (adminImplicitAccessRefused(c, userId)) return hasPerm;
+    return true;
+  }
+  return hasPerm;
 }
 
 export function capabilitiesContrat(c: ContratAcl, userId: string, userRole: string) {
   const isAdmin = userRole === 'admin';
   const isCreator = c.createdById === userId;
   const perm = c.permissions.find((p) => p.userId === userId);
+  const adminRefused = isAdmin && adminImplicitAccessRefused(c, userId);
 
   if (isCreator) {
     return {
@@ -41,7 +52,7 @@ export function capabilitiesContrat(c: ContratAcl, userId: string, userRole: str
     return { canView, canModify, canDelete, canManagePermissions: false };
   }
 
-  if (isAdmin) {
+  if (isAdmin && !adminRefused) {
     return {
       canView: true,
       canModify: true,
@@ -51,6 +62,21 @@ export function capabilitiesContrat(c: ContratAcl, userId: string, userRole: str
   }
 
   return { canView: false, canModify: false, canDelete: false, canManagePermissions: false };
+}
+
+async function maybeExcludeAdminAfterPermissionRemoved(
+  contratId: string,
+  contratCreatedById: string,
+  targetUserId: string
+) {
+  if (targetUserId === contratCreatedById) return;
+  const u = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
+  if (u?.role !== 'admin') return;
+  await prisma.contratAdminSansAcces.upsert({
+    where: { contratId_userId: { contratId, userId: targetUserId } },
+    create: { contratId, userId: targetUserId },
+    update: {},
+  });
 }
 
 export async function logContratHistorique(
@@ -139,13 +165,19 @@ export const contratService = {
       creator,
       delegations,
       canManagePermissions: contrat.createdById === userId,
+      adminSansAccesUserIds: contrat.adminSansAcces.map((x) => x.userId),
     };
   },
 
   async getHistorique(contratId: string, userId: string, userRole: string) {
     const contrat = await prisma.contrat.findFirst({
       where: { id: contratId, deletedAt: null },
-      select: { id: true, createdById: true, permissions: { select: { userId: true } } },
+      select: {
+        id: true,
+        createdById: true,
+        permissions: { select: { userId: true } },
+        adminSansAcces: { select: { userId: true } },
+      },
     });
     if (!contrat) throw new Error('NOT_FOUND');
     if (!canViewContrat(contrat as any, userId, userRole)) throw new Error('FORBIDDEN');
@@ -266,6 +298,8 @@ export const contratService = {
     if (!target) throw new Error('Utilisateur introuvable');
     if (c.createdById === targetUserId) throw new Error('Le créateur du contrat a déjà tous les droits');
 
+    await prisma.contratAdminSansAcces.deleteMany({ where: { contratId, userId: targetUserId } });
+
     const row = await prisma.contratPermission.upsert({
       where: { contratId_userId: { contratId, userId: targetUserId } },
       create: { contratId, userId: targetUserId, niveau },
@@ -292,6 +326,7 @@ export const contratService = {
     await logContratHistorique(contratId, actorUserId, 'droit_retire', `Accès retiré à ${perm.user.prenom} ${perm.user.nom}`, {
       cibleUserId: targetUserId,
     });
+    await maybeExcludeAdminAfterPermissionRemoved(contratId, c.createdById, targetUserId);
   },
 
   async removePermissionByEntryId(contratId: string, permissionEntryId: string, actorUserId: string, actorRole: string) {
@@ -310,6 +345,60 @@ export const contratService = {
     await logContratHistorique(contratId, actorUserId, 'droit_retire', `Accès retiré à ${perm.user.prenom} ${perm.user.nom}`, {
       cibleUserId: perm.userId,
     });
+    await maybeExcludeAdminAfterPermissionRemoved(contratId, c.createdById, perm.userId);
+  },
+
+  async blockAdminImplicitAccess(contratId: string, targetUserId: string, actorUserId: string) {
+    const c = await prisma.contrat.findFirst({
+      where: { id: contratId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!c) throw new Error('NOT_FOUND');
+    if (c.createdById !== actorUserId) throw new Error('FORBIDDEN');
+    if (c.createdById === targetUserId) throw new Error('Le créateur du contrat ne peut pas être exclu');
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { role: true, nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    if (target.role !== 'admin') {
+      throw new Error("Seuls les comptes administrateur peuvent être privés de l'accès implicite au contrat");
+    }
+    await prisma.contratPermission.deleteMany({ where: { contratId, userId: targetUserId } });
+    await prisma.contratAdminSansAcces.upsert({
+      where: { contratId_userId: { contratId, userId: targetUserId } },
+      create: { contratId, userId: targetUserId },
+      update: {},
+    });
+    await logContratHistorique(
+      contratId,
+      actorUserId,
+      'admin_acces_bloque',
+      `Accès administrateur retiré (aucun droit) : ${target.prenom} ${target.nom}`,
+      { cibleUserId: targetUserId }
+    );
+  },
+
+  async restoreAdminImplicitAccess(contratId: string, targetUserId: string, actorUserId: string) {
+    const c = await prisma.contrat.findFirst({
+      where: { id: contratId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!c) throw new Error('NOT_FOUND');
+    if (c.createdById !== actorUserId) throw new Error('FORBIDDEN');
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    await prisma.contratAdminSansAcces.deleteMany({ where: { contratId, userId: targetUserId } });
+    await logContratHistorique(
+      contratId,
+      actorUserId,
+      'admin_acces_retabli',
+      `Accès administrateur par défaut rétabli : ${target.prenom} ${target.nom}`,
+      { cibleUserId: targetUserId }
+    );
   },
 
   async addDocument(contratId: string, documentId: string, actorUserId: string, actorRole: string) {

@@ -278,6 +278,11 @@ app.delete("/api/v1/clients-fournisseurs/:id/projets/:projetId", clientFournisse
 app.get("/api/v1/contrats", contratController.getContrats);
 app.get("/api/v1/contrats/:id/acces", contratController.getContratAcces);
 app.get("/api/v1/contrats/:id/historique", contratController.getContratHistorique);
+app.post("/api/v1/contrats/:id/admin-sans-acces", contratController.blockAdminImplicitAccess);
+app.delete(
+  "/api/v1/contrats/:id/admin-sans-acces/:userId",
+  contratController.restoreAdminImplicitAccess
+);
 app.delete(
   "/api/v1/contrats/:id/permissions/entry/:permissionEntryId",
   contratController.removePermissionEntry
