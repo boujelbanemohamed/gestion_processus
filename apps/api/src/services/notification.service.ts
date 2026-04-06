@@ -191,13 +191,17 @@ export class NotificationService {
 
   // ── Assignation à une tâche ───────────────────────────────────────────────
   async notifierAssignation(data: {
-    tacheId: string; tacheNom: string;
-    assigneEmail: string; assigneNom: string;
-    auteurNom: string; appUrl: string;
+    tacheId: string;
+    tacheNom: string;
+    assigneUserId: string;
+    assigneEmail: string;
+    assigneNom: string;
+    auteurNom: string;
+    appUrl: string;
   }) {
     try {
       await this.createNotification({
-        userId: data.assigneEmail,
+        userId: data.assigneUserId,
         type: 'assignation',
         titre: `Vous avez été assigné à "${data.tacheNom}"`,
         contenu: `${data.auteurNom} vous a assigné à cette tâche.`,

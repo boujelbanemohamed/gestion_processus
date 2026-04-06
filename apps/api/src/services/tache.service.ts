@@ -289,9 +289,13 @@ export class TacheService {
       const assignes = await prisma.user.findMany({ where: { id: { in: assignesUtilisateurIds } }, select: { id: true, email: true, nom: true, prenom: true } });
       for (const u of assignes) {
         this.notificationService.notifierAssignation({
-          tacheId: tache.id, tacheNom: nom,
-          assigneEmail: u.email, assigneNom: `${u.prenom} ${u.nom}`,
-          auteurNom, appUrl,
+          tacheId: tache.id,
+          tacheNom: nom,
+          assigneUserId: u.id,
+          assigneEmail: u.email,
+          assigneNom: `${u.prenom} ${u.nom}`,
+          auteurNom,
+          appUrl,
         }).catch(() => {});
       }
     }
@@ -425,9 +429,13 @@ export class TacheService {
         const assignes = await prisma.user.findMany({ where: { id: { in: nouveauxIds } }, select: { id: true, email: true, nom: true, prenom: true } });
         for (const u of assignes) {
           this.notificationService.notifierAssignation({
-            tacheId: id, tacheNom: tacheUpdated.nom,
-            assigneEmail: u.email, assigneNom: `${u.prenom} ${u.nom}`,
-            auteurNom: 'Un utilisateur', appUrl,
+            tacheId: id,
+            tacheNom: tacheUpdated.nom,
+            assigneUserId: u.id,
+            assigneEmail: u.email,
+            assigneNom: `${u.prenom} ${u.nom}`,
+            auteurNom: 'Un utilisateur',
+            appUrl,
           }).catch(() => {});
         }
       }

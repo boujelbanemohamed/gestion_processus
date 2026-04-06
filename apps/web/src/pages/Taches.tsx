@@ -706,14 +706,12 @@ function UserStoryCreateModalInner({
   projets,
   taches,
   epics,
-  reloadEpics,
 }: {
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => void | Promise<void>;
   projets: ProjetOption[];
   taches: Tache[];
   epics: EpicRow[];
-  reloadEpics: () => Promise<void>;
 }) {
   const [description, setDescription] = useState('');
   const [epicId, setEpicId] = useState('');
@@ -812,7 +810,6 @@ function UserStoryCreateModalInner({
         });
       }
       await onSaved();
-      await reloadEpics();
       onClose();
     } catch (ex: any) {
       setErr(ex?.response?.data?.error || ex?.message || 'Erreur');
@@ -930,7 +927,6 @@ function UserStoryCreateModalInner({
           onClose={() => setShowTacheModal(false)}
           onSave={async () => {
             await onSaved();
-            await reloadEpics();
             setShowTacheModal(false);
           }}
           projets={projets}
@@ -3405,8 +3401,10 @@ export default function Taches() {
     }
   };
 
-  const loadAll = async () => {
-    setLoading(true);
+  /** `silent: true` : met à jour les données sans écran « Chargement… » (évite de démonter les modales ouvertes). */
+  const loadAll = async (opts?: { silent?: boolean }) => {
+    const silent = !!opts?.silent;
+    if (!silent) setLoading(true);
     try {
       const [tRes, pRes, uRes, eRes, epicRes, usRes, retardRes] = await Promise.all([
         api.get('/taches'),
@@ -3427,7 +3425,7 @@ export default function Taches() {
     } catch (err) {
       console.error('Erreur chargement:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -4802,11 +4800,10 @@ export default function Taches() {
       {showUsCreateModal && (
         <UserStoryCreateModalInner
           onClose={() => setShowUsCreateModal(false)}
-          onSaved={loadAll}
+          onSaved={() => loadAll({ silent: true })}
           projets={projets}
           taches={taches}
           epics={epics}
-          reloadEpics={loadEpics}
         />
       )}
 
