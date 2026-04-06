@@ -466,8 +466,21 @@ export function TacheModal({
     let cancel = false;
     api
       .get('/user-stories', { params: { projetId: pid } })
-      .then((r) => {
-        if (!cancel) setUserStoryOptions(Array.isArray(r.data) ? r.data : []);
+      .then(async (r) => {
+        if (cancel) return;
+        let list = Array.isArray(r.data) ? r.data : [];
+        if (lockUserStoryId && !list.some((us: { id: string }) => us.id === lockUserStoryId)) {
+          try {
+            const one = await api.get(`/user-stories/${lockUserStoryId}`);
+            const row = one.data as { id?: string; description?: string } | undefined;
+            if (row?.id) {
+              list = [...list, { id: row.id, description: row.description || '(User Storie)' }];
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        if (!cancel) setUserStoryOptions(list);
       })
       .catch(() => {
         if (!cancel) setUserStoryOptions([]);
@@ -475,7 +488,7 @@ export function TacheModal({
     return () => {
       cancel = true;
     };
-  }, [form.projetId, lockProjetId]);
+  }, [form.projetId, lockProjetId, lockUserStoryId]);
 
   const toggleUser = (id: string) =>
     setSelectedUsers(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -560,7 +573,7 @@ export function TacheModal({
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">User story</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">User Storie</label>
               <select
                 value={userStoryId}
                 onChange={(e) => setUserStoryId(e.target.value)}
@@ -577,7 +590,9 @@ export function TacheModal({
               </select>
               <p className="text-xs text-gray-500 mt-1">Liste filtrée sur le projet de la tâche.</p>
               {lockUserStoryId && (
-                <p className="text-xs text-amber-700 mt-1">Rattachement imposé par le contexte (nouvelle tâche depuis une user story).</p>
+                <p className="text-xs text-amber-700 mt-1">
+                  Rattachement imposé : cette tâche est liée à la User Storie en cours de création.
+                </p>
               )}
             </div>
 
@@ -729,14 +744,22 @@ function UserStoryCreateModalInner({
 
   const filteredEpics = projetFilter ? epics.filter((e) => e.projetId === projetFilter) : epics;
 
+  /** Même logique que « Tâches liées » à l’édition : projet de l’epic, tâches libres ou déjà liées à ce brouillon d’US. */
   const tachesPourLier = taches.filter((t) => {
     if (lockProjetId && t.projetId !== lockProjetId) return false;
-    if (t.userStory?.id) return false;
+    if (t.userStory?.id && t.userStory.id !== draftUserStoryId) return false;
     return true;
   });
 
   const toggleTache = (id: string) =>
     setSelectedTacheIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  useEffect(() => {
+    if (!draftUserStoryId) return;
+    const linked = taches.filter((t) => t.userStory?.id === draftUserStoryId).map((t) => t.id);
+    if (linked.length === 0) return;
+    setSelectedTacheIds((prev) => [...new Set([...prev, ...linked])]);
+  }, [taches, draftUserStoryId]);
 
   const ensureDraftUserStory = async (): Promise<string | null> => {
     if (!epicId) {
@@ -746,7 +769,11 @@ function UserStoryCreateModalInner({
     if (draftUserStoryId) return draftUserStoryId;
     const desc = description.trim() || '(Brouillon — complétez la description puis enregistrez)';
     try {
-      const { data } = await api.post('/user-stories', { description: desc, epicId, tacheIds: [] });
+      const { data } = await api.post('/user-stories', {
+        description: desc,
+        epicId,
+        tacheIds: selectedTacheIds,
+      });
       if (data?.id) {
         setDraftUserStoryId(data.id);
         return data.id as string;
@@ -773,12 +800,9 @@ function UserStoryCreateModalInner({
     setSaving(true);
     try {
       if (draftUserStoryId) {
-        const { data: usCur } = await api.get(`/user-stories/${draftUserStoryId}`);
-        const fromServer = ((usCur?.taches || []) as { id: string }[]).map((t) => t.id);
-        const merged = [...new Set([...fromServer, ...selectedTacheIds])];
         await api.put(`/user-stories/${draftUserStoryId}`, {
           description: description.trim(),
-          tacheIds: merged,
+          tacheIds: selectedTacheIds,
         });
       } else {
         await api.post('/user-stories', {
@@ -802,7 +826,7 @@ function UserStoryCreateModalInner({
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70] p-4">
         <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
           <div className="sticky top-0 bg-white border-b px-5 py-3 flex justify-between items-center">
-            <h2 className="text-lg font-semibold">Nouvelle User Story</h2>
+            <h2 className="text-lg font-semibold">Nouvelle User Storie</h2>
             <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">
               ×
             </button>
@@ -834,6 +858,7 @@ function UserStoryCreateModalInner({
                 onChange={(e) => {
                   setEpicId(e.target.value);
                   setDraftUserStoryId(null);
+                  setSelectedTacheIds([]);
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 required
@@ -858,15 +883,23 @@ function UserStoryCreateModalInner({
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Tâches existantes à rattacher</label>
+              <p className="text-xs text-gray-500 mb-1">
+                Tâches du projet sans autre User Storie, ou déjà liées à celle-ci (y compris après « Nouvelle tâche »).
+              </p>
               <div className="border rounded-md max-h-44 overflow-y-auto p-2 space-y-1">
                 {tachesPourLier.map((t) => (
                   <label key={t.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
                     <input type="checkbox" checked={selectedTacheIds.includes(t.id)} onChange={() => toggleTache(t.id)} />
-                    <span>{t.nom}</span>
+                    <span>
+                      {t.nom}
+                      {draftUserStoryId && t.userStory?.id === draftUserStoryId && (
+                        <span className="text-violet-600 font-medium"> · liée à cette Storie</span>
+                      )}
+                    </span>
                   </label>
                 ))}
                 {tachesPourLier.length === 0 && epicId && (
-                  <p className="text-xs text-gray-400">Aucune tâche libre pour ce projet — créez-en une ci-dessous.</p>
+                  <p className="text-xs text-gray-400">Aucune tâche éligible pour ce projet — créez-en une ci-dessous.</p>
                 )}
               </div>
             </div>
@@ -877,7 +910,7 @@ function UserStoryCreateModalInner({
                 disabled={!epicId}
                 className="text-sm px-3 py-2 border border-dashed border-blue-400 text-blue-700 rounded-md hover:bg-blue-50 disabled:opacity-50"
               >
-                + Nouvelle tâche (rattachée automatiquement à cette user story)
+                + Nouvelle tâche (rattachée à cette User Storie)
               </button>
               {!epicId && <p className="text-xs text-amber-700 mt-1">Sélectionnez un epic d&apos;abord.</p>}
             </div>
@@ -886,7 +919,7 @@ function UserStoryCreateModalInner({
                 Annuler
               </button>
               <button type="submit" disabled={saving} className="px-4 py-2 bg-violet-600 text-white rounded-md disabled:opacity-50">
-                {saving ? 'Création…' : 'Enregistrer la User Story'}
+                {saving ? 'Création…' : 'Enregistrer la User Storie'}
               </button>
             </div>
           </form>
@@ -3631,7 +3664,7 @@ export default function Taches() {
                 onClick={() => setShowUsCreateModal(true)}
                 className="px-3 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
               >
-                + Nouvelle User Story
+                + Nouvelle User Storie
               </button>
               <button
                 type="button"
@@ -4079,7 +4112,7 @@ export default function Taches() {
               onClick={() => setShowUsCreateModal(true)}
               className="px-3 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
             >
-              + Nouvelle user story
+              + Nouvelle User Storie
             </button>
           )}
         </div>
