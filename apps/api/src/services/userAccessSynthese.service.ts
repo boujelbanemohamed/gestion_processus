@@ -128,7 +128,7 @@ export class UserAccessSyntheseService {
       }),
       prisma.contratPermission.findMany({
         where: { userId, contrat: { deletedAt: null } },
-        include: { contrat: { select: { id: true, nom: true } } },
+        include: { contrat: { select: { id: true, nom: true, createdById: true } } },
         take: 100,
       }),
       prisma.licencePermission.findMany({
@@ -296,6 +296,7 @@ export class UserAccessSyntheseService {
         contratId: cp.contratId,
         niveau: cp.niveau,
         contrat: cp.contrat,
+        contratCreatedById: cp.contrat?.createdById ?? null,
       })),
       licences: licencePerms.map((lp) => ({
         id: lp.id,

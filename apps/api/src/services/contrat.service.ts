@@ -24,11 +24,33 @@ export function capabilitiesContrat(c: ContratAcl, userId: string, userRole: str
   const isAdmin = userRole === 'admin';
   const isCreator = c.createdById === userId;
   const perm = c.permissions.find((p) => p.userId === userId);
-  const canView = isAdmin || isCreator || !!perm;
-  const canModify = isAdmin || isCreator || perm?.niveau === 'modification' || perm?.niveau === 'suppression';
-  const canDelete = isAdmin || isCreator || perm?.niveau === 'suppression';
-  const canManagePermissions = isAdmin || isCreator;
-  return { canView, canModify, canDelete, canManagePermissions };
+
+  if (isCreator) {
+    return {
+      canView: true,
+      canModify: true,
+      canDelete: true,
+      canManagePermissions: true,
+    };
+  }
+
+  if (perm) {
+    const canView = true;
+    const canModify = perm.niveau === 'modification' || perm.niveau === 'suppression';
+    const canDelete = perm.niveau === 'suppression';
+    return { canView, canModify, canDelete, canManagePermissions: false };
+  }
+
+  if (isAdmin) {
+    return {
+      canView: true,
+      canModify: true,
+      canDelete: true,
+      canManagePermissions: false,
+    };
+  }
+
+  return { canView: false, canModify: false, canDelete: false, canManagePermissions: false };
 }
 
 export async function logContratHistorique(
@@ -116,7 +138,7 @@ export const contratService = {
       admins,
       creator,
       delegations,
-      canManagePermissions: capabilitiesContrat(contrat, userId, userRole).canManagePermissions,
+      canManagePermissions: contrat.createdById === userId,
     };
   },
 
@@ -236,13 +258,12 @@ export const contratService = {
       include: { permissions: true },
     });
     if (!c) throw new Error('NOT_FOUND');
-    if (!capabilitiesContrat(c, actorUserId, actorRole).canManagePermissions) throw new Error('FORBIDDEN');
+    if (c.createdById !== actorUserId) throw new Error('FORBIDDEN');
     const target = await prisma.user.findUnique({
       where: { id: targetUserId },
       select: { id: true, role: true, nom: true, prenom: true },
     });
     if (!target) throw new Error('Utilisateur introuvable');
-    if (target.role === 'admin') throw new Error('Les administrateurs ont déjà tous les droits sur les contrats');
     if (c.createdById === targetUserId) throw new Error('Le créateur du contrat a déjà tous les droits');
 
     const row = await prisma.contratPermission.upsert({
@@ -264,7 +285,7 @@ export const contratService = {
       include: { permissions: { include: { user: true } } },
     });
     if (!c) throw new Error('NOT_FOUND');
-    if (!capabilitiesContrat(c, actorUserId, actorRole).canManagePermissions) throw new Error('FORBIDDEN');
+    if (c.createdById !== actorUserId) throw new Error('FORBIDDEN');
     const perm = c.permissions.find((p) => p.userId === targetUserId);
     if (!perm) throw new Error('NOT_FOUND');
     await prisma.contratPermission.deleteMany({ where: { contratId, userId: targetUserId } });
@@ -279,7 +300,7 @@ export const contratService = {
       include: { permissions: true },
     });
     if (!c) throw new Error('NOT_FOUND');
-    if (!capabilitiesContrat(c, actorUserId, actorRole).canManagePermissions) throw new Error('FORBIDDEN');
+    if (c.createdById !== actorUserId) throw new Error('FORBIDDEN');
     const perm = await prisma.contratPermission.findFirst({
       where: { id: permissionEntryId, contratId },
       include: { user: { select: { nom: true, prenom: true } } },

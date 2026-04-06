@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
+import { useAuth } from '../store/auth';
 
 export default function UserDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user: currentAdmin } = useAuth();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
@@ -996,6 +998,11 @@ export default function UserDetail() {
 
             <section>
               <h3 className="text-md font-medium text-gray-700 mb-2">Contrats</h3>
+              <p className="text-xs text-gray-500 mb-2">
+                Les droits sur un contrat sont gérés par le <span className="font-medium">créateur du contrat</span> depuis
+                la page Contrats (modal Accès). Un administrateur applicatif n&apos;y peut pas supprimer un partage à la
+                place du créateur.
+              </p>
               {synthese.contrats?.length ? (
                 <div className="overflow-x-auto border rounded-lg">
                   <table className="min-w-full">
@@ -1007,33 +1014,38 @@ export default function UserDetail() {
                       </tr>
                     </thead>
                     <tbody>
-                      {synthese.contrats.map((row: any) => (
-                        <tr key={row.id} className="border-t border-gray-100">
-                          <td className="p-2">
-                            <Link
-                              to={`/contrats`}
-                              className="text-blue-600 hover:underline"
-                            >
-                              {row.contrat?.nom ?? row.contratId}
-                            </Link>
-                          </td>
-                          <td className="p-2">{row.niveau}</td>
-                          <td className="p-2">
-                            <button
-                              type="button"
-                              onClick={() => removeContratPermission(row.contratId, row.id)}
-                              className="text-red-600 hover:underline text-xs"
-                            >
-                              Retirer
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {synthese.contrats.map((row: any) => {
+                        const canRetirerIci =
+                          row.contratCreatedById && currentAdmin?.id === row.contratCreatedById;
+                        return (
+                          <tr key={row.id} className="border-t border-gray-100">
+                            <td className="p-2">
+                              <Link to={`/contrats`} className="text-blue-600 hover:underline">
+                                {row.contrat?.nom ?? row.contratId}
+                              </Link>
+                            </td>
+                            <td className="p-2">{row.niveau}</td>
+                            <td className="p-2">
+                              {canRetirerIci ? (
+                                <button
+                                  type="button"
+                                  onClick={() => removeContratPermission(row.contratId, row.id)}
+                                  className="text-red-600 hover:underline text-xs"
+                                >
+                                  Retirer
+                                </button>
+                              ) : (
+                                <span className="text-gray-400 text-xs">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               ) : (
-                <p className="text-gray-400 text-xs">Aucun accès contrat.</p>
+                <p className="text-gray-400 text-xs">Aucun accès contrat explicite (hors créations).</p>
               )}
             </section>
 

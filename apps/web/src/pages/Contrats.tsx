@@ -101,7 +101,6 @@ export default function Contrats() {
   const [accesLoading, setAccesLoading] = useState(false);
   const [newPermUserId, setNewPermUserId] = useState('');
   const [newPermNiveau, setNewPermNiveau] = useState('lecture');
-  const [noAccesModalOpen, setNoAccesModalOpen] = useState(false);
   const [histModalContrat, setHistModalContrat] = useState<any | null>(null);
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
@@ -148,7 +147,7 @@ export default function Contrats() {
     (user?.role === 'admin' || c.createdById === user?.id || c.permissions?.some((p: any) => p.userId === user?.id && p.niveau === 'suppression'));
   const capManagePermissions = (c: any) => {
     if (c.capabilities?.canManagePermissions != null) return !!c.capabilities.canManagePermissions;
-    return user?.role === 'admin' || c.createdById === user?.id;
+    return c.createdById === user?.id;
   };
 
   const openNew = () => {
@@ -230,10 +229,6 @@ export default function Contrats() {
   };
 
   const onAccesButtonClick = (c: any) => {
-    if (!capManagePermissions(c)) {
-      setNoAccesModalOpen(true);
-      return;
-    }
     void openAccesModal(c);
   };
 
@@ -336,7 +331,7 @@ export default function Contrats() {
 
   const alertes = contrats.filter((c) => c.dateExpiration && joursRestants(c.dateExpiration) <= 30 && joursRestants(c.dateExpiration) > 0);
 
-  const droitsAdminLigne = 'modification statut + accès + lecture';
+  const droitsAdminLigne = 'droits étendus — gestion des accès partagés réservée au créateur du contrat';
 
   return (
     <div className="p-6">
@@ -748,9 +743,17 @@ export default function Contrats() {
           <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
             <h3 className="text-xl font-semibold mb-2">Accès — {accesModalContrat.nom}</h3>
             <p className="text-sm text-gray-600 mb-5 leading-relaxed">
-              Les comptes <span className="font-medium">administrateur</span> ont tous les droits sur tous les contrats. Le{' '}
-              <span className="font-medium">créateur</span> du contrat peut modifier, supprimer (mettre en corbeille) et gérer les accès.
+              <span className="font-medium">Seul le créateur du contrat</span> peut ajouter, modifier le niveau ou retirer les
+              accès partagés (y compris pour des administrateurs). Les administrateurs sans ligne dans « Accès partagés »
+              conservent un accès complet sur ce contrat ; une ligne dédiée limite leurs droits au niveau choisi. Retirer
+              leur ligne rétablit l’accès complet.
             </p>
+            {accesDetail && !accesDetail.canManagePermissions && (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2 mb-4">
+                Vous consultez la liste en lecture seule. Pour modifier les droits, connectez-vous en tant que créateur du
+                contrat.
+              </p>
+            )}
             {accesLoading ? (
               <p className="text-sm text-gray-500">Chargement…</p>
             ) : accesDetail ? (
@@ -758,12 +761,21 @@ export default function Contrats() {
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
                   <ul className="space-y-1.5 text-gray-700 text-base">
-                    {(accesDetail.admins || []).map((a: any) => (
-                      <li key={a.id}>
-                        <span className="font-medium">{a.prenom} {a.nom}</span>
-                        <span className="text-gray-400"> (accès complet)</span>
-                      </li>
-                    ))}
+                    {(accesDetail.admins || []).map((a: any) => {
+                      const explicite = (accesDetail.delegations || []).some((d: any) => d.user?.id === a.id);
+                      return (
+                        <li key={a.id}>
+                          <span className="font-medium">
+                            {a.prenom} {a.nom}
+                          </span>
+                          <span className="text-gray-400">
+                            {explicite
+                              ? ' — voir le niveau dans « Accès partagés »'
+                              : ' — accès complet (aucune ligne dédiée)'}
+                          </span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
                 <div>
@@ -771,7 +783,11 @@ export default function Contrats() {
                   {accesDetail.creator ? (
                     <p>
                       <span className="font-medium">{accesDetail.creator.prenom} {accesDetail.creator.nom}</span>
-                      <span className="text-gray-400"> — modification, mise en corbeille, gestion des accès</span>
+                      <span className="text-gray-400">
+                        {' '}
+                        — seul habilité à gérer les accès partagés ; modification et mise en corbeille selon ses autres
+                        droits sur le contrat
+                      </span>
                     </p>
                   ) : (
                     <p className="text-amber-800 text-sm">Créateur non résolu.</p>
@@ -784,11 +800,54 @@ export default function Contrats() {
                   ) : (
                     <ul className="space-y-2">
                       {(accesDetail.delegations || []).map((d: any) => (
-                        <li key={d.id} className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50">
-                          <span className="font-medium">{d.user.prenom} {d.user.nom}</span>
-                          <span className="text-gray-500">— {LABEL_PERM_MODAL[d.permission] || d.permission}</span>
-                          {accesDetail.canManagePermissions && (
-                            <button type="button" onClick={() => handleRemovePermissionEntry(d.id)} className="text-xs text-red-600 hover:underline ml-auto">Retirer</button>
+                        <li
+                          key={d.id}
+                          className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50"
+                        >
+                          <span className="font-medium">
+                            {d.user.prenom} {d.user.nom}
+                            {d.user.role === 'admin' && (
+                              <span className="text-xs font-normal text-gray-500 ml-1">(admin)</span>
+                            )}
+                          </span>
+                          {accesDetail.canManagePermissions ? (
+                            <>
+                              <select
+                                value={d.permission}
+                                onChange={async (e) => {
+                                  const niveau = e.target.value;
+                                  if (!accesModalContrat || niveau === d.permission) return;
+                                  try {
+                                    await api.post(`/contrats/${accesModalContrat.id}/permissions`, {
+                                      userId: d.user.id,
+                                      niveau,
+                                    });
+                                    await refreshAccesDetail(accesModalContrat.id);
+                                    load();
+                                  } catch (err: any) {
+                                    alert(err?.response?.data?.error || err?.message || 'Erreur');
+                                  }
+                                }}
+                                className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                              >
+                                {NIVEAUX.map((n) => (
+                                  <option key={n.value} value={n.value}>
+                                    {n.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => handleRemovePermissionEntry(d.id)}
+                                className="text-xs text-red-600 hover:underline ml-auto"
+                              >
+                                Retirer
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-gray-500">
+                              — {LABEL_PERM_MODAL[d.permission] || d.permission}
+                            </span>
                           )}
                         </li>
                       ))}
@@ -802,7 +861,7 @@ export default function Contrats() {
                       <select value={newPermUserId} onChange={(e) => setNewPermUserId(e.target.value)} className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm">
                         <option value="">— Utilisateur —</option>
                         {users
-                          .filter((u: any) => (!u.statut || u.statut === 'actif') && u.role !== 'admin' && u.id !== accesDetail.creator?.id)
+                          .filter((u: any) => (!u.statut || u.statut === 'actif') && u.id !== accesDetail.creator?.id)
                           .map((u: any) => (
                             <option key={u.id} value={u.id}>{u.prenom} {u.nom} ({u.email})</option>
                           ))}
@@ -855,20 +914,6 @@ export default function Contrats() {
         </div>
       )}
 
-      {noAccesModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4" role="dialog" aria-modal="true" aria-labelledby="no-acces-contrat-title" onClick={() => setNoAccesModalOpen(false)}>
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-            <h3 id="no-acces-contrat-title" className="text-lg font-semibold text-gray-900 mb-2">Accès au bouton « Accès »</h3>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              Vous n&apos;avez pas les droits nécessaires pour gérer les accès de ce contrat. Seuls les{' '}
-              <span className="font-medium">administrateurs</span> et le <span className="font-medium">créateur</span> du contrat peuvent utiliser ce bouton.
-            </p>
-            <div className="flex justify-end mt-5">
-              <button type="button" onClick={() => setNoAccesModalOpen(false)} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">Fermer</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
