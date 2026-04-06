@@ -432,6 +432,7 @@ function ProjetCollapsibleSection({
   title,
   children,
   className = '',
+  id,
 }: {
   open: boolean;
   onToggle: () => void;
@@ -439,9 +440,11 @@ function ProjetCollapsibleSection({
   children: ReactNode;
   /** Classes sur le conteneur externe (ex. print:hidden) */
   className?: string;
+  /** Ancre pour navigation / scroll (ex. pilotage-agile) */
+  id?: string;
 }) {
   return (
-    <div className={`bg-white rounded-lg shadow overflow-hidden ${className}`.trim()}>
+    <div id={id} className={`bg-white rounded-lg shadow overflow-hidden ${className}`.trim()}>
       <button
         type="button"
         onClick={onToggle}
@@ -554,6 +557,16 @@ export default function ProjetDetail() {
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, location.pathname, navigate]);
+
+  /** Ouvre la section Pilotage & agile et fait défiler jusqu’à elle (#pilotage-agile). */
+  useEffect(() => {
+    if (location.hash !== '#pilotage-agile' || loading) return;
+    setSecPilotage(true);
+    const t = window.setTimeout(() => {
+      document.getElementById('pilotage-agile')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 280);
+    return () => window.clearTimeout(t);
+  }, [location.hash, loading, id]);
 
   const loadProjet = async () => {
     try {
@@ -1180,12 +1193,18 @@ export default function ProjetDetail() {
               </div>
 
               <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem] no-print">
-                <a
-                  href="#pilotage-agile"
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigate(
+                      { pathname: location.pathname, search: location.search, hash: 'pilotage-agile' },
+                      { replace: true }
+                    );
+                  }}
                   className="px-3 py-1.5 text-xs text-center bg-indigo-100 text-indigo-800 rounded hover:bg-indigo-200 font-medium"
                 >
                   📊 Pilotage & agile
-                </a>
+                </button>
                 <button
                   type="button"
                   onClick={handlePrint}
@@ -1676,6 +1695,8 @@ export default function ProjetDetail() {
         {id && (
           <div className="print:hidden space-y-4">
             <ProjetCollapsibleSection
+              id="pilotage-agile"
+              className="scroll-mt-24"
               open={secPilotage}
               onToggle={() => setSecPilotage((v) => !v)}
               title={<span className="text-gray-900">📊 Pilotage du projet</span>}

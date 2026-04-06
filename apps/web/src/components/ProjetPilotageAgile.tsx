@@ -247,7 +247,7 @@ export default function ProjetPilotageAgile({
   const projetNom = projet?.nom || 'Projet';
 
   return (
-    <div id="pilotage-agile" className={`space-y-8 scroll-mt-24 ${hideIntro ? '' : 'mb-8'}`}>
+    <div className={`space-y-8 ${hideIntro ? '' : 'mb-8'}`}>
       {!hideIntro && (
         <div className="border-b border-gray-200 pb-2">
           <h2 className="text-xl font-semibold text-gray-900">Pilotage agile & données</h2>
