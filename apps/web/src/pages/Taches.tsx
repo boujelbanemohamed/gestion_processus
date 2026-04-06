@@ -34,6 +34,31 @@ const LIAISON_TYPES = [
   { value: 'simple', label: 'Liaison simple (informative)' },
 ];
 
+const LABEL_LOG_ACTION: Record<string, string> = {
+  connexion: 'Connexion',
+  deconnexion: 'Déconnexion',
+  lecture: 'Consultation',
+  creation: 'Création',
+  modification: 'Modification',
+  suppression: 'Suppression',
+  telechargement: 'Téléchargement',
+  export: 'Export',
+};
+
+const LABEL_RESSOURCE: Record<string, string> = {
+  processus: 'Processus',
+  document: 'Document',
+  projet: 'Projet',
+  entite: 'Entité',
+  utilisateur: 'Utilisateur',
+  licence: 'Licence',
+  clientFournisseur: 'Client / fournisseur',
+  contrat: 'Contrat',
+  tache: 'Tâche',
+  epic: 'Epic',
+  userStory: 'User story',
+};
+
 export type Tache = {
   id: string;
   nom: string;
@@ -1834,18 +1859,79 @@ export function TacheCard({
   onRefreshData?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const historiqueAccesRef = useRef<HTMLDivElement>(null);
+  const [showAccesModal, setShowAccesModal] = useState(false);
+  const [accesDetail, setAccesDetail] = useState<any | null>(null);
+  const [accesLoading, setAccesLoading] = useState(false);
+  const [newAssignUserId, setNewAssignUserId] = useState('');
+  const [showHistModal, setShowHistModal] = useState(false);
+  const [histoList, setHistoList] = useState<any[]>([]);
+  const [histoLoading, setHistoLoading] = useState(false);
   const now = new Date();
   const isLate = tache.dateFinApprox && new Date(tache.dateFinApprox) < now && tache.statut !== 'termine' && tache.statut !== 'archive';
 
-  const goHistoriqueAcces = () => {
-    setExpanded(true);
-    window.setTimeout(() => {
-      historiqueAccesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, 80);
+  const openAccesModal = async () => {
+    setShowAccesModal(true);
+    setAccesDetail(null);
+    setNewAssignUserId('');
+    setAccesLoading(true);
+    try {
+      const { data } = await api.get(`/taches/${tache.id}/acces`);
+      setAccesDetail(data);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur chargement accès');
+      setShowAccesModal(false);
+    } finally {
+      setAccesLoading(false);
+    }
   };
 
+  const refreshAcces = async () => {
+    const { data } = await api.get(`/taches/${tache.id}/acces`);
+    setAccesDetail(data);
+  };
+
+  const handleAddAssigne = async () => {
+    if (!newAssignUserId) return;
+    try {
+      await api.post(`/taches/${tache.id}/assignes`, { userId: newAssignUserId });
+      setNewAssignUserId('');
+      await refreshAcces();
+      onRefreshData?.();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleRemoveAssigne = async (assignId: string) => {
+    if (!window.confirm('Retirer cette personne de la tâche ?')) return;
+    try {
+      await api.delete(`/taches/${tache.id}/assignes/${assignId}`);
+      await refreshAcces();
+      onRefreshData?.();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const openHistModal = async () => {
+    setShowHistModal(true);
+    setHistoList([]);
+    setHistoLoading(true);
+    try {
+      const { data } = await api.get(`/taches/${tache.id}/history`, { params: { page: 1, limit: 80 } });
+      setHistoList(Array.isArray(data?.data) ? data.data : []);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur chargement historique');
+      setShowHistModal(false);
+    } finally {
+      setHistoLoading(false);
+    }
+  };
+
+  const assignedIds = new Set((accesDetail?.delegations || []).map((d: any) => d.user?.id).filter(Boolean));
+
   return (
+    <>
     <div className={`bg-white border rounded-lg shadow-sm overflow-hidden ${isLate ? 'border-red-300' : 'border-gray-200'}`}>
       <div className="p-4">
         <div className="flex items-start justify-between gap-2">
@@ -1948,10 +2034,17 @@ export function TacheCard({
             )}
             <button
               type="button"
-              onClick={goHistoriqueAcces}
+              onClick={() => void openAccesModal()}
               className="w-full px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200 text-center"
             >
-              Historique et accès
+              🔐 Accès
+            </button>
+            <button
+              type="button"
+              onClick={() => void openHistModal()}
+              className="w-full px-3 py-1.5 text-xs bg-amber-50 text-amber-900 rounded hover:bg-amber-100 text-center border border-amber-200"
+            >
+              📜 Historique
             </button>
             <button
               type="button"
@@ -1988,14 +2081,14 @@ export function TacheCard({
           {/* Section Documents */}
           <DocumentsTache tacheId={tache.id} documents={tache.documents || []} canEdit={canEdit} />
 
-          <div ref={historiqueAccesRef} className="scroll-mt-4 border-t border-gray-200 pt-4 space-y-2">
-            <h4 className="text-xs font-semibold text-gray-500 uppercase">Historique et accès</h4>
+          <div className="scroll-mt-4 border-t border-gray-200 pt-4 space-y-2">
+            <h4 className="text-xs font-semibold text-gray-500 uppercase">Personnes habilitées (aperçu)</h4>
             {tache.createdAt && (
               <p className="text-xs text-gray-600">
                 Création : {new Date(tache.createdAt).toLocaleString('fr-FR')}
               </p>
             )}
-            <p className="text-xs text-gray-500">Personnes habilitées (agrégation depuis la tâche et les liaisons).</p>
+            <p className="text-xs text-gray-500">Agrégation depuis la tâche et les liaisons. Utilisez « Accès » pour gérer les assignations.</p>
             <AccesPersonnesBlock personnes={getAccesPersonnes(tache, allUsers)} />
           </div>
 
@@ -2005,6 +2098,189 @@ export function TacheCard({
         </div>
       )}
     </div>
+
+      {showAccesModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-6">
+          <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
+            <h3 className="text-xl font-semibold mb-2">Accès — {tache.nom}</h3>
+            <p className="text-sm text-gray-600 mb-5 leading-relaxed">
+              Les comptes <span className="font-medium">administrateur</span> ont tous les droits. Le{' '}
+              <span className="font-medium">créateur</span> de la tâche dispose de droits étendus. Les personnes{' '}
+              <span className="font-medium">assignées</span> peuvent consulter et intervenir selon leur rôle applicatif.
+            </p>
+            {accesLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : accesDetail ? (
+              <div className="space-y-5 text-sm">
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
+                  <ul className="space-y-1.5 text-gray-700">
+                    {(accesDetail.admins || []).map((a: any) => (
+                      <li key={a.id}>
+                        <span className="font-medium">
+                          {a.prenom} {a.nom}
+                        </span>
+                        <span className="text-gray-400"> (accès complet)</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Créateur</p>
+                  {accesDetail.creator ? (
+                    <p>
+                      <span className="font-medium">
+                        {accesDetail.creator.prenom} {accesDetail.creator.nom}
+                      </span>
+                      <span className="text-gray-400"> — création de la tâche</span>
+                    </p>
+                  ) : (
+                    <p className="text-amber-800 text-sm">Créateur non renseigné.</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Assignations</p>
+                  {(accesDetail.delegations || []).length === 0 ? (
+                    <p className="text-gray-400 text-xs italic">Aucune personne assignée directement</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {(accesDetail.delegations || []).map((d: any) => (
+                        <li
+                          key={d.id}
+                          className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50"
+                        >
+                          <span className="font-medium">
+                            {d.user.prenom} {d.user.nom}
+                          </span>
+                          <span className="text-gray-500">— {d.permissionLabel || 'Assigné'}</span>
+                          {accesDetail.canManagePermissions && (
+                            <button
+                              type="button"
+                              onClick={() => void handleRemoveAssigne(d.id)}
+                              className="text-xs text-red-600 hover:underline ml-auto"
+                            >
+                              Retirer
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {(accesDetail.entites || []).length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Entités</p>
+                    <ul className="space-y-1 text-gray-700">
+                      {(accesDetail.entites || []).map((row: any) => (
+                        <li key={row.id}>
+                          🏢 {row.entite?.nom || '—'}
+                        </li>
+                      ))}
+                    </ul>
+                    {accesDetail.noteEntites && (
+                      <p className="text-xs text-gray-500 mt-2">{accesDetail.noteEntites}</p>
+                    )}
+                  </div>
+                )}
+                {accesDetail.canManagePermissions && (
+                  <div className="border-t border-gray-200 pt-4 space-y-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Assigner un utilisateur</p>
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3 items-end">
+                      <select
+                        value={newAssignUserId}
+                        onChange={(e) => setNewAssignUserId(e.target.value)}
+                        className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        <option value="">— Utilisateur —</option>
+                        {allUsers
+                          .filter(
+                            (u) =>
+                              u.role !== 'admin' &&
+                              !assignedIds.has(u.id) &&
+                              u.id !== accesDetail.creator?.id
+                          )
+                          .map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.prenom} {u.nom}
+                            </option>
+                          ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => void handleAddAssigne()}
+                        disabled={!newAssignUserId}
+                        className="w-full lg:w-auto px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shrink-0"
+                      >
+                        Ajouter
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
+            <div className="flex justify-end mt-4">
+              <button
+                type="button"
+                onClick={() => setShowAccesModal(false)}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showHistModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">Historique — {tache.nom}</h3>
+            {histoLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : histoList.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">Aucun événement enregistré</p>
+            ) : (
+              <ul className="space-y-3 text-sm">
+                {histoList.map((h: any) => (
+                  <li key={h.id} className="border-b border-gray-100 pb-2">
+                    <div className="flex flex-wrap justify-between gap-1 text-xs text-gray-500">
+                      <span>{new Date(h.timestamp).toLocaleString('fr-FR')}</span>
+                      <span>
+                        {h.user?.prenom} {h.user?.nom}
+                      </span>
+                    </div>
+                    <p className="font-medium text-gray-800">
+                      {LABEL_LOG_ACTION[h.action] || h.action}
+                      {h.ressourceType && (
+                        <span className="text-gray-500 font-normal">
+                          {' '}
+                          · {LABEL_RESSOURCE[h.ressourceType] || h.ressourceType}
+                        </span>
+                      )}
+                    </p>
+                    {h.ressourceNom && <p className="text-gray-600 text-xs mt-0.5">{h.ressourceNom}</p>}
+                    {h.details != null && (
+                      <pre className="text-xs bg-gray-50 rounded p-2 mt-1 overflow-x-auto max-h-32">
+                        {typeof h.details === 'string' ? h.details : JSON.stringify(h.details, null, 2)}
+                      </pre>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex justify-end mt-4">
+              <button
+                type="button"
+                onClick={() => setShowHistModal(false)}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -2877,6 +3153,14 @@ export default function Taches() {
   const [editEpicId, setEditEpicId] = useState<string | null>(null);
   const [expandedUsListId, setExpandedUsListId] = useState<string | null>(null);
   const [expandedEpicListId, setExpandedEpicListId] = useState<string | null>(null);
+  const [journalModal, setJournalModal] = useState<{ path: string; title: string } | null>(null);
+  const [journalRows, setJournalRows] = useState<any[]>([]);
+  const [journalLoading, setJournalLoading] = useState(false);
+  const [agileAccesModal, setAgileAccesModal] = useState<
+    | { kind: 'epic'; epic: EpicRow }
+    | { kind: 'us'; us: UserStoryRow }
+    | null
+  >(null);
   const [showAgileCorbeilleModal, setShowAgileCorbeilleModal] = useState(false);
   const [corbTaches, setCorbTaches] = useState<
     { id: string; nom: string; deletedAt?: string; projet?: { nom: string } }[]
@@ -3039,6 +3323,21 @@ export default function Taches() {
       console.error('Erreur chargement:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openAgileJournal = async (path: string, title: string) => {
+    setJournalModal({ path, title });
+    setJournalRows([]);
+    setJournalLoading(true);
+    try {
+      const { data } = await api.get(path, { params: { page: 1, limit: 80 } });
+      setJournalRows(Array.isArray(data?.data) ? data.data : []);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur chargement historique');
+      setJournalModal(null);
+    } finally {
+      setJournalLoading(false);
     }
   };
 
@@ -3856,18 +4155,22 @@ export default function Taches() {
                           )}
                           <button
                             type="button"
-                            onClick={() => {
-                              if (!usExpanded) setExpandedUsListId(us.id);
-                              window.setTimeout(() => {
-                                document.getElementById(`us-hist-acces-${us.id}`)?.scrollIntoView({
-                                  behavior: 'smooth',
-                                  block: 'nearest',
-                                });
-                              }, usExpanded ? 0 : 120);
-                            }}
+                            onClick={() => setAgileAccesModal({ kind: 'us', us })}
                             className="w-full px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200 text-center"
                           >
-                            Historique et accès
+                            🔐 Accès
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void openAgileJournal(
+                                `/user-stories/${us.id}/history`,
+                                truncateUi(us.description, 100)
+                              )
+                            }
+                            className="w-full px-3 py-1.5 text-xs bg-amber-50 text-amber-900 rounded hover:bg-amber-100 text-center border border-amber-200"
+                          >
+                            📜 Historique
                           </button>
                           <button
                             type="button"
@@ -3905,10 +4208,10 @@ export default function Taches() {
                             </ul>
                           </div>
                         )}
-                        <div id={`us-hist-acces-${us.id}`} className="scroll-mt-4 border-t border-gray-200 pt-4 space-y-2">
-                          <h4 className="text-xs font-semibold text-gray-500 uppercase">Historique et accès</h4>
+                        <div className="scroll-mt-4 border-t border-gray-200 pt-4 space-y-2">
+                          <h4 className="text-xs font-semibold text-gray-500 uppercase">Personnes habilitées (aperçu)</h4>
                           <p className="text-xs text-gray-500">
-                            L&apos;activité récente apparaît dans les commentaires ci-dessous. Personnes habilitées :
+                            Synthèse depuis les tâches liées. Le journal détaillé est disponible via le bouton « Historique ».
                           </p>
                           <AccesPersonnesBlock personnes={getAccesPersonnesUserStory(us.id, taches, users)} />
                         </div>
@@ -4160,18 +4463,17 @@ export default function Taches() {
                           )}
                           <button
                             type="button"
-                            onClick={() => {
-                              if (!epExpanded) setExpandedEpicListId(ep.id);
-                              window.setTimeout(() => {
-                                document.getElementById(`ep-hist-acces-${ep.id}`)?.scrollIntoView({
-                                  behavior: 'smooth',
-                                  block: 'nearest',
-                                });
-                              }, epExpanded ? 0 : 120);
-                            }}
+                            onClick={() => setAgileAccesModal({ kind: 'epic', epic: ep })}
                             className="w-full px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200 text-center"
                           >
-                            Historique et accès
+                            🔐 Accès
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void openAgileJournal(`/epics/${ep.id}/history`, ep.nom)}
+                            className="w-full px-3 py-1.5 text-xs bg-amber-50 text-amber-900 rounded hover:bg-amber-100 text-center border border-amber-200"
+                          >
+                            📜 Historique
                           </button>
                           <button
                             type="button"
@@ -4217,15 +4519,15 @@ export default function Taches() {
                           canEdit={!!canEditUsEpic}
                           onDocumentsChange={loadAll}
                         />
-                        <div id={`ep-hist-acces-${ep.id}`} className="scroll-mt-4 border-t border-gray-200 pt-4 space-y-2">
-                          <h4 className="text-xs font-semibold text-gray-500 uppercase">Historique et accès</h4>
+                        <div className="scroll-mt-4 border-t border-gray-200 pt-4 space-y-2">
+                          <h4 className="text-xs font-semibold text-gray-500 uppercase">Personnes habilitées (aperçu)</h4>
                           {ep.createdBy && (
                             <p className="text-xs text-gray-600">
                               Créé par {ep.createdBy.prenom} {ep.createdBy.nom}
                             </p>
                           )}
                           <p className="text-xs text-gray-500">
-                            L&apos;activité récente apparaît dans les commentaires ci-dessous. Personnes habilitées :
+                            Entités de l&apos;epic et personnes issues des tâches. Le journal détaillé : bouton « Historique ».
                           </p>
                           <AccesPersonnesBlock personnes={getAccesPersonnesEpic(ep, taches, users)} />
                         </div>
@@ -4420,6 +4722,151 @@ export default function Taches() {
             setDetailEpicId(eid);
           }}
         />
+      )}
+
+      {journalModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">Historique — {journalModal.title}</h3>
+            {journalLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : journalRows.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">Aucun événement enregistré</p>
+            ) : (
+              <ul className="space-y-3 text-sm">
+                {journalRows.map((h: any) => (
+                  <li key={h.id} className="border-b border-gray-100 pb-2">
+                    <div className="flex flex-wrap justify-between gap-1 text-xs text-gray-500">
+                      <span>{new Date(h.timestamp).toLocaleString('fr-FR')}</span>
+                      <span>
+                        {h.user?.prenom} {h.user?.nom}
+                      </span>
+                    </div>
+                    <p className="font-medium text-gray-800">
+                      {LABEL_LOG_ACTION[h.action] || h.action}
+                      {h.ressourceType && (
+                        <span className="text-gray-500 font-normal">
+                          {' '}
+                          · {LABEL_RESSOURCE[h.ressourceType] || h.ressourceType}
+                        </span>
+                      )}
+                    </p>
+                    {h.ressourceNom && <p className="text-gray-600 text-xs mt-0.5">{h.ressourceNom}</p>}
+                    {h.details != null && (
+                      <pre className="text-xs bg-gray-50 rounded p-2 mt-1 overflow-x-auto max-h-32">
+                        {typeof h.details === 'string' ? h.details : JSON.stringify(h.details, null, 2)}
+                      </pre>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex justify-end mt-4">
+              <button
+                type="button"
+                onClick={() => setJournalModal(null)}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {agileAccesModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-6">
+          <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-3xl max-h-[min(92vh,880px)] overflow-y-auto">
+            {agileAccesModal.kind === 'epic' ? (
+              <>
+                <h3 className="text-xl font-semibold mb-2">Accès — {agileAccesModal.epic.nom}</h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Vue des habilitations liées à l&apos;epic (entités, créateur, agrégat des tâches). Pour modifier les entités
+                  rattachées, utilisez « Modifier » sur la carte epic.
+                </p>
+                <div className="space-y-4 text-sm">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Administrateurs</p>
+                    <ul className="space-y-1 text-gray-700">
+                      {users
+                        .filter((u) => u.role === 'admin')
+                        .map((a) => (
+                          <li key={a.id}>
+                            <span className="font-medium">
+                              {a.prenom} {a.nom}
+                            </span>
+                            <span className="text-gray-400"> (accès complet)</span>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                  {agileAccesModal.epic.createdBy && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Créateur de l&apos;epic</p>
+                      <p>
+                        <span className="font-medium">
+                          {agileAccesModal.epic.createdBy.prenom} {agileAccesModal.epic.createdBy.nom}
+                        </span>
+                      </p>
+                    </div>
+                  )}
+                  {(agileAccesModal.epic.assignesEntites?.length ?? 0) > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Entités rattachées</p>
+                      <ul className="space-y-1">
+                        {(agileAccesModal.epic.assignesEntites || []).map((ae: any) => (
+                          <li key={ae.id}>🏢 {ae.entite?.nom ?? '—'}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Personnes (synthèse tâches)</p>
+                    <AccesPersonnesBlock personnes={getAccesPersonnesEpic(agileAccesModal.epic, taches, users)} />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="text-xl font-semibold mb-2">Accès — User story</h3>
+                <p className="text-sm text-gray-700 mb-4 whitespace-pre-wrap">{agileAccesModal.us.description}</p>
+                <p className="text-sm text-gray-600 mb-4">
+                  Les assignations utilisateur se gèrent au niveau des <strong>tâches</strong> liées à cette user story.
+                </p>
+                <div className="space-y-4 text-sm">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Administrateurs</p>
+                    <ul className="space-y-1 text-gray-700">
+                      {users
+                        .filter((u) => u.role === 'admin')
+                        .map((a) => (
+                          <li key={a.id}>
+                            <span className="font-medium">
+                              {a.prenom} {a.nom}
+                            </span>
+                            <span className="text-gray-400"> (accès complet)</span>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Personnes (synthèse tâches)</p>
+                    <AccesPersonnesBlock personnes={getAccesPersonnesUserStory(agileAccesModal.us.id, taches, users)} />
+                  </div>
+                </div>
+              </>
+            )}
+            <div className="flex justify-end mt-6">
+              <button
+                type="button"
+                onClick={() => setAgileAccesModal(null)}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

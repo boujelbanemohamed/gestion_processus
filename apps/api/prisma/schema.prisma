@@ -90,6 +90,9 @@ enum ResourceType {
   licence
   clientFournisseur
   contrat
+  tache
+  epic
+  userStory
 }
 
 enum PermissionResource {

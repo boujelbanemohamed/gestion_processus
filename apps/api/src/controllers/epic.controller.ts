@@ -2,6 +2,7 @@ import { Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { ResourceType } from '../generated/prisma/enums';
 import { EpicService } from '../services/epic.service';
 import { AuthRequest } from '../middleware/auth';
 import { logAccess } from '../middleware/logger';
@@ -86,7 +87,7 @@ export const updateEpic = async (req: AuthRequest, res: Response) => {
       ...(projetId !== undefined && { projetId }),
       ...(eIds !== undefined && { entiteIds: eIds }),
     });
-    await logAccess(req, res, 'modification', 'projet', row!.id, row!.nom, { type: 'epic' });
+    await logAccess(req, res, 'modification', ResourceType.epic, row!.id, row!.nom);
     res.json(row);
   } catch (e: any) {
     res.status(400).json({ error: e.message });
@@ -117,7 +118,7 @@ export const createEpic = async (req: AuthRequest, res: Response) => {
       documentIds: docIds,
       userStoryIdsToAttach: usIds,
     });
-    await logAccess(req, res, 'creation', 'projet', epic!.id, epic!.nom, { type: 'epic' });
+    await logAccess(req, res, 'creation', ResourceType.epic, epic!.id, epic!.nom);
     res.status(201).json(epic);
   } catch (e: any) {
     res.status(400).json({ error: e.message });
@@ -191,7 +192,9 @@ export const createUserStory = async (req: AuthRequest, res: Response) => {
     if (!epicId) return res.status(400).json({ error: 'epicId requis' });
     const ids = Array.isArray(tacheIds) ? tacheIds : tacheIds ? [tacheIds] : [];
     const us = await epicService.createUserStory({ description, epicId, tacheIds: ids });
-    await logAccess(req, res, 'creation', 'projet', us!.id, 'User story', { type: 'user_story' });
+    const usLabel =
+      us!.description.length > 120 ? `${us!.description.slice(0, 117)}…` : us!.description;
+    await logAccess(req, res, 'creation', ResourceType.userStory, us!.id, usLabel);
     res.status(201).json(us);
   } catch (e: any) {
     res.status(400).json({ error: e.message });
@@ -209,6 +212,10 @@ export const updateUserStory = async (req: AuthRequest, res: Response) => {
         tacheIds: Array.isArray(tacheIds) ? tacheIds : tacheIds ? [tacheIds] : [],
       }),
     });
+    if (!us) return res.status(404).json({ error: 'User story introuvable' });
+    const usLabel =
+      us.description.length > 120 ? `${us.description.slice(0, 117)}…` : us.description;
+    await logAccess(req, res, 'modification', ResourceType.userStory, us.id, usLabel);
     res.json(us);
   } catch (e: any) {
     res.status(400).json({ error: e.message });
@@ -307,7 +314,9 @@ export const softDeleteEpic = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
     await epicService.softDeleteEpic(req.params.id, req.user.userId, req.user.role);
-    await logAccess(req, res, 'suppression', 'projet', req.params.id, undefined, { action: 'corbeille_epic' });
+    await logAccess(req, res, 'suppression', ResourceType.epic, req.params.id, undefined, {
+      action: 'corbeille_epic',
+    });
     res.status(204).end();
   } catch (e: any) {
     const code = e.message === 'Accès refusé' ? 403 : e.message === 'Epic introuvable' ? 404 : 400;
@@ -319,6 +328,9 @@ export const restoreEpic = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
     const row = await epicService.restoreEpic(req.params.id, req.user.userId, req.user.role);
+    await logAccess(req, res, 'modification', ResourceType.epic, row!.id, row!.nom, {
+      action: 'restauration',
+    });
     res.json(row);
   } catch (e: any) {
     const code =
@@ -341,7 +353,9 @@ export const softDeleteUserStory = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
     await epicService.softDeleteUserStory(req.params.id, req.user.userId, req.user.role);
-    await logAccess(req, res, 'suppression', 'projet', req.params.id, undefined, { action: 'corbeille_user_story' });
+    await logAccess(req, res, 'suppression', ResourceType.userStory, req.params.id, undefined, {
+      action: 'corbeille_user_story',
+    });
     res.status(204).end();
   } catch (e: any) {
     const code = e.message === 'Accès refusé' ? 403 : e.message === 'User story introuvable' ? 404 : 400;
@@ -353,10 +367,43 @@ export const restoreUserStory = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
     const row = await epicService.restoreUserStory(req.params.id, req.user.userId, req.user.role);
+    const label =
+      row!.description.length > 120 ? `${row!.description.slice(0, 117)}…` : row!.description;
+    await logAccess(req, res, 'modification', ResourceType.userStory, row!.id, label, {
+      action: 'restauration',
+    });
     res.json(row);
   } catch (e: any) {
     const code =
       e.message === 'Accès refusé' ? 403 : e.message?.includes('introuvable') ? 404 : 400;
     res.status(code).json({ error: e.message });
+  }
+};
+
+export const getEpicHistory = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const row = await epicService.getEpic(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Epic introuvable' });
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = Math.min(parseInt(req.query.limit as string) || 80, 200);
+    const out = await epicService.getEpicJournalHistory(req.params.id, page, limit);
+    res.json(out);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const getUserStoryHistory = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const row = await epicService.getUserStory(req.params.id);
+    if (!row) return res.status(404).json({ error: 'User story introuvable' });
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = Math.min(parseInt(req.query.limit as string) || 80, 200);
+    const out = await epicService.getUserStoryJournalHistory(req.params.id, page, limit);
+    res.json(out);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 };

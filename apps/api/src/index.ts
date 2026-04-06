@@ -263,6 +263,10 @@ app.get("/api/v1/taches", tacheController.getAllTaches);
 app.get("/api/v1/taches/corbeille", tacheController.getTachesCorbeille);
 // Documents de tâches
 app.get("/api/v1/taches/documents-liables", tacheController.getDocumentsLiables);
+app.get("/api/v1/taches/:id/acces", tacheController.getTacheAcces);
+app.post("/api/v1/taches/:id/assignes", tacheController.postTacheAssigne);
+app.delete("/api/v1/taches/:id/assignes/:assignId", tacheController.deleteTacheAssigne);
+app.get("/api/v1/taches/:id/history", tacheController.getTacheHistory);
 app.post("/api/v1/taches/:id/restaurer", tacheController.restoreTache);
 app.get("/api/v1/taches/:id", tacheController.getTache);
 app.post("/api/v1/taches", tacheController.createTache);
@@ -293,6 +297,7 @@ app.get(
   epicController.downloadEpicCommentaireFichier,
 );
 app.post("/api/v1/epics/:id/restaurer", epicController.restoreEpic);
+app.get("/api/v1/epics/:id/history", epicController.getEpicHistory);
 app.delete("/api/v1/epics/:id", epicController.softDeleteEpic);
 app.get("/api/v1/epics/:id", epicController.getEpic);
 app.put("/api/v1/epics/:id", epicController.updateEpic);
@@ -310,6 +315,7 @@ app.get(
   epicController.downloadUserStoryCommentaireFichier,
 );
 app.post("/api/v1/user-stories/:id/restaurer", epicController.restoreUserStory);
+app.get("/api/v1/user-stories/:id/history", epicController.getUserStoryHistory);
 app.delete("/api/v1/user-stories/:id", epicController.softDeleteUserStory);
 app.get("/api/v1/user-stories/:id", epicController.getUserStory);
 app.put("/api/v1/user-stories/:id", epicController.updateUserStory);

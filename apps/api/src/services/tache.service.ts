@@ -1,3 +1,4 @@
+import { ResourceType } from '../generated/prisma/enums';
 import { NotificationService } from './notification.service';
 import { prisma } from '../utils/prisma';
 
@@ -540,5 +541,96 @@ export class TacheService {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
+  }
+
+  async canUserViewTache(tacheId: string, userId: string, role: string): Promise<boolean> {
+    if (role === 'admin' || role === 'contributeur') return true;
+    const t = await prisma.tache.findFirst({
+      where: { id: tacheId, deletedAt: null },
+      include: { assignesUtilisateurs: { select: { userId: true } } },
+    });
+    if (!t) return false;
+    if (role === 'lecteur') {
+      return t.createurId === userId || t.assignesUtilisateurs.some((a) => a.userId === userId);
+    }
+    return false;
+  }
+
+  async getAccesDetail(tacheId: string, role: string) {
+    const t = await prisma.tache.findFirst({
+      where: { id: tacheId, deletedAt: null },
+      include: {
+        createur: { select: { id: true, nom: true, prenom: true, email: true } },
+        assignesUtilisateurs: {
+          include: { user: { select: { id: true, nom: true, prenom: true, email: true } } },
+        },
+        assignesEntites: {
+          include: { entite: { select: { id: true, nom: true } } },
+        },
+      },
+    });
+    if (!t) return null;
+    const admins = await prisma.user.findMany({
+      where: { role: 'admin', statut: 'actif' },
+      select: { id: true, nom: true, prenom: true, email: true },
+    });
+    const canManage = role === 'admin' || role === 'contributeur';
+    return {
+      admins,
+      creator: t.createur,
+      delegations: t.assignesUtilisateurs.map((tu) => ({
+        id: tu.id,
+        user: tu.user,
+        permissionLabel: 'Assigné à la tâche',
+      })),
+      entites: t.assignesEntites.map((te) => ({
+        id: te.id,
+        entite: te.entite,
+      })),
+      canManagePermissions: canManage,
+      noteEntites:
+        'Les entités liées à la tâche sont modifiables depuis le formulaire « Modifier la tâche ».',
+    };
+  }
+
+  async addTacheAssigne(tacheId: string, userIdToAdd: string, role: string) {
+    if (role !== 'admin' && role !== 'contributeur') throw new Error('Accès refusé');
+    const t = await prisma.tache.findFirst({ where: { id: tacheId, deletedAt: null } });
+    if (!t) throw new Error('Tâche non trouvée');
+    await prisma.tacheUser.upsert({
+      where: { tacheId_userId: { tacheId, userId: userIdToAdd } },
+      create: { tacheId, userId: userIdToAdd },
+      update: {},
+    });
+    return this.getAccesDetail(tacheId, role);
+  }
+
+  async removeTacheAssigne(tacheId: string, tacheUserId: string, role: string) {
+    if (role !== 'admin' && role !== 'contributeur') throw new Error('Accès refusé');
+    const row = await prisma.tacheUser.findFirst({
+      where: { id: tacheUserId, tacheId },
+    });
+    if (!row) throw new Error('Assignation introuvable');
+    await prisma.tacheUser.delete({ where: { id: tacheUserId } });
+    return this.getAccesDetail(tacheId, role);
+  }
+
+  async getJournalHistory(tacheId: string, page: number, limit: number) {
+    const skip = (page - 1) * limit;
+    const where = { ressourceType: ResourceType.tache, ressourceId: tacheId };
+    const [total, data] = await Promise.all([
+      prisma.journalAcces.count({ where }),
+      prisma.journalAcces.findMany({
+        where,
+        include: { user: { select: { id: true, nom: true, prenom: true, email: true } } },
+        orderBy: { timestamp: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+    return {
+      data,
+      pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    };
   }
 }

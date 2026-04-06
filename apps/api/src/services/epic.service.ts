@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prisma';
+import { ResourceType } from '../generated/prisma/enums';
 import { NotificationService } from './notification.service';
 
 const epicInclude = {
@@ -635,5 +636,61 @@ export class EpicService {
     const us = await prisma.userStory.findUnique({ where: { id } });
     if (!us || !us.deletedAt) throw new Error('User story introuvable ou non en corbeille');
     await prisma.userStory.delete({ where: { id } });
+  }
+
+  async getEpicJournalHistory(epicId: string, page: number, limit: number) {
+    const skip = (page - 1) * limit;
+    const where = {
+      OR: [
+        { ressourceType: ResourceType.epic, ressourceId: epicId },
+        {
+          ressourceType: ResourceType.projet,
+          ressourceId: epicId,
+          details: { path: ['type'], equals: 'epic' },
+        },
+      ],
+    };
+    const [total, data] = await Promise.all([
+      prisma.journalAcces.count({ where }),
+      prisma.journalAcces.findMany({
+        where,
+        include: { user: { select: { id: true, nom: true, prenom: true, email: true } } },
+        orderBy: { timestamp: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+    return {
+      data,
+      pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    };
+  }
+
+  async getUserStoryJournalHistory(userStoryId: string, page: number, limit: number) {
+    const skip = (page - 1) * limit;
+    const where = {
+      OR: [
+        { ressourceType: ResourceType.userStory, ressourceId: userStoryId },
+        {
+          ressourceType: ResourceType.projet,
+          ressourceId: userStoryId,
+          details: { path: ['type'], equals: 'user_story' },
+        },
+      ],
+    };
+    const [total, data] = await Promise.all([
+      prisma.journalAcces.count({ where }),
+      prisma.journalAcces.findMany({
+        where,
+        include: { user: { select: { id: true, nom: true, prenom: true, email: true } } },
+        orderBy: { timestamp: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+    return {
+      data,
+      pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    };
   }
 }

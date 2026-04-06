@@ -2,6 +2,7 @@ import { Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { ResourceType } from '../generated/prisma/enums';
 import { TacheService } from '../services/tache.service';
 import { AuthRequest } from '../middleware/auth';
 import { logAccess } from '../middleware/logger';
@@ -51,7 +52,7 @@ export const createTache = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
     const tache = await tacheService.create(req.body, req.user.userId);
-    await logAccess(req, res, 'creation', 'projet', tache.id, tache.nom);
+    await logAccess(req, res, 'creation', ResourceType.tache, tache.id, tache.nom);
     res.status(201).json(tache);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -70,7 +71,7 @@ export const updateTache = async (req: AuthRequest, res: Response) => {
 
     const tache = await tacheService.update(req.params.id, req.body);
     if (!tache) return res.status(404).json({ error: 'Tâche non trouvée' });
-    await logAccess(req, res, 'modification', 'projet', tache.id, tache.nom);
+    await logAccess(req, res, 'modification', ResourceType.tache, tache.id, tache.nom);
     res.json(tache);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -81,7 +82,7 @@ export const deleteTache = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
     await tacheService.softDelete(req.params.id, req.user.userId, req.user.role);
-    await logAccess(req, res, 'suppression', 'projet', req.params.id, undefined, { action: 'corbeille_tache' });
+    await logAccess(req, res, 'suppression', ResourceType.tache, req.params.id, undefined, { action: 'corbeille_tache' });
     res.status(204).end();
   } catch (error: any) {
     const code =
@@ -100,10 +101,71 @@ export const getTachesCorbeille = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const getTacheAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const ok = await tacheService.canUserViewTache(req.params.id, req.user.userId, req.user.role);
+    if (!ok) return res.status(403).json({ error: 'Accès refusé' });
+    const data = await tacheService.getAccesDetail(req.params.id, req.user.role);
+    if (!data) return res.status(404).json({ error: 'Tâche non trouvée' });
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const postTacheAssigne = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId requis' });
+    const ok = await tacheService.canUserViewTache(req.params.id, req.user.userId, req.user.role);
+    if (!ok) return res.status(403).json({ error: 'Accès refusé' });
+    const data = await tacheService.addTacheAssigne(req.params.id, userId, req.user.role);
+    res.json(data);
+  } catch (error: any) {
+    const code = error.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: error.message });
+  }
+};
+
+export const deleteTacheAssigne = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const ok = await tacheService.canUserViewTache(req.params.id, req.user.userId, req.user.role);
+    if (!ok) return res.status(403).json({ error: 'Accès refusé' });
+    const data = await tacheService.removeTacheAssigne(req.params.id, req.params.assignId, req.user.role);
+    res.json(data);
+  } catch (error: any) {
+    const code =
+      error.message === 'Accès refusé'
+        ? 403
+        : error.message === 'Assignation introuvable'
+          ? 404
+          : 400;
+    res.status(code).json({ error: error.message });
+  }
+};
+
+export const getTacheHistory = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const ok = await tacheService.canUserViewTache(req.params.id, req.user.userId, req.user.role);
+    if (!ok) return res.status(403).json({ error: 'Accès refusé' });
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = Math.min(parseInt(req.query.limit as string) || 80, 200);
+    const out = await tacheService.getJournalHistory(req.params.id, page, limit);
+    res.json(out);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 export const restoreTache = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
     const t = await tacheService.restore(req.params.id, req.user.userId, req.user.role);
+    await logAccess(req, res, 'modification', ResourceType.tache, t!.id, t!.nom, { action: 'restauration' });
     res.json(t);
   } catch (error: any) {
     const code =

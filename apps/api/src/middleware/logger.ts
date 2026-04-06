@@ -53,6 +53,9 @@ export const logger = async (req: AuthRequest, res: Response, next: NextFunction
     else if (urlParts.includes('licences')) ressourceType = 'licence';
     else if (urlParts.includes('clients-fournisseurs')) ressourceType = 'clientFournisseur';
     else if (urlParts.includes('contrats')) ressourceType = 'contrat';
+    else if (urlParts.includes('taches')) ressourceType = 'tache';
+    else if (urlParts.includes('epics')) ressourceType = 'epic';
+    else if (urlParts.includes('user-stories')) ressourceType = 'userStory';
 
     const ressourceId = req.params.id;
     
