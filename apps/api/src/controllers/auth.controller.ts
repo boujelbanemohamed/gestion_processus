@@ -3,6 +3,8 @@ import { AuthService } from '../services/auth.service';
 import { PasswordResetService } from '../services/password-reset.service';
 import { verifyRefreshToken, generateAccessToken } from '../utils/jwt';
 import { prisma } from '../utils/prisma';
+import { getEffectiveUiModules } from '../services/userUiModule.service';
+import { AuthRequest } from '../middleware/auth';
 
 const authService = new AuthService();
 const passwordResetService = new PasswordResetService();
@@ -73,6 +75,34 @@ export const register = async (req: Request, res: Response) => {
     res.status(201).json(user);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
+  }
+};
+
+export const me = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      select: { id: true, email: true, nom: true, prenom: true, role: true, statut: true },
+    });
+    if (!user || user.statut !== 'actif') {
+      return res.status(401).json({ error: 'Utilisateur introuvable ou inactif' });
+    }
+    const uiModules = await getEffectiveUiModules(user.id, user.role);
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        nom: user.nom,
+        prenom: user.prenom,
+        role: user.role,
+        uiModules,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 };
 

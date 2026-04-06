@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
 
 export default function UserDetail() {
@@ -18,6 +18,9 @@ export default function UserDetail() {
   });
   const [changingPassword, setChangingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState('');
+  const [synthese, setSynthese] = useState<any>(null);
+  const [synLoading, setSynLoading] = useState(false);
+  const [synError, setSynError] = useState('');
   const [editData, setEditData] = useState({
     nom: '',
     prenom: '',
@@ -32,6 +35,24 @@ export default function UserDetail() {
       loadUser();
       loadEntites();
     }
+  }, [id]);
+
+  const loadSynthese = async () => {
+    if (!id) return;
+    setSynLoading(true);
+    setSynError('');
+    try {
+      const res = await api.get(`/users/${id}/acces-synthese`);
+      setSynthese(res.data);
+    } catch (e: any) {
+      setSynError(e.response?.data?.error || 'Impossible de charger la synthèse des accès');
+    } finally {
+      setSynLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (id) loadSynthese();
   }, [id]);
 
   useEffect(() => {
@@ -123,6 +144,90 @@ export default function UserDetail() {
       setError(err.response?.data?.error || 'Erreur lors de la modification');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const permLabel = (p: string) =>
+    (
+      {
+        lecture: 'Lecture',
+        modification: 'Modification',
+        suppression: 'Suppression',
+        gestion: 'Gestion',
+      } as Record<string, string>
+    )[p] ?? p;
+
+  const uiLevelLabel = (l: string) =>
+    ({ none: 'Aucun', lecture: 'Lecture', modification: 'Modification' } as Record<string, string>)[l] ?? l;
+
+  const handleUiModuleSelect = async (module: string, value: string) => {
+    if (!id) return;
+    try {
+      setSynError('');
+      const level = value === '__inherit__' ? null : value;
+      await api.patch(`/users/${id}/ui-module`, { module, level });
+      await loadSynthese();
+    } catch (e: any) {
+      setSynError(e.response?.data?.error || 'Erreur lors de la mise à jour du module');
+    }
+  };
+
+  const removeDelegation = async (permId: string) => {
+    if (!id || !window.confirm('Retirer cette délégation de permission ?')) return;
+    try {
+      await api.delete(`/users/${id}/permissions-deleguees/${permId}`);
+      await loadSynthese();
+    } catch (e: any) {
+      setSynError(e.response?.data?.error || 'Erreur lors du retrait');
+    }
+  };
+
+  const removeDocConfidentiel = async (permId: string) => {
+    if (!id || !window.confirm("Retirer l'accès à ce document confidentiel ?")) return;
+    try {
+      await api.delete(`/users/${id}/document-permissions/${permId}`);
+      await loadSynthese();
+    } catch (e: any) {
+      setSynError(e.response?.data?.error || 'Erreur lors du retrait');
+    }
+  };
+
+  const removeTacheAssignation = async (tacheId: string, tacheUserId: string) => {
+    if (!window.confirm("Retirer l'affectation à cette tâche ?")) return;
+    try {
+      await api.delete(`/taches/${tacheId}/assignes/${tacheUserId}`);
+      await loadSynthese();
+    } catch (e: any) {
+      setSynError(e.response?.data?.error || 'Erreur lors du retrait');
+    }
+  };
+
+  const setTacheAssignPermission = async (tacheId: string, tacheUserId: string, permission: string) => {
+    try {
+      await api.patch(`/taches/${tacheId}/assignes/${tacheUserId}`, { permission });
+      await loadSynthese();
+    } catch (e: any) {
+      setSynError(e.response?.data?.error || 'Erreur lors de la mise à jour du droit');
+    }
+  };
+
+  const removeContratPermission = async (contratId: string, entryId: string) => {
+    if (!window.confirm("Retirer l'accès à ce contrat ?")) return;
+    try {
+      await api.delete(`/contrats/${contratId}/permissions/entry/${entryId}`);
+      await loadSynthese();
+    } catch (e: any) {
+      setSynError(e.response?.data?.error || 'Erreur lors du retrait');
+    }
+  };
+
+  const removeLicencePermission = async (licenceId: string, targetUserId: string) => {
+    if (!window.confirm("Retirer l'accès à cette licence ?")) return;
+    try {
+      await api.delete(`/licences/${licenceId}/permissions/${targetUserId}`);
+      await loadSynthese();
+    } catch (e: any) {
+      setSynError(e.response?.data?.error || 'Erreur lors du retrait');
     }
   };
 
@@ -463,6 +568,517 @@ export default function UserDetail() {
               </div>
             )}
           </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-6 mt-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-semibold text-gray-800">
+            Accès par page et ressources
+          </h2>
+          <button
+            type="button"
+            onClick={() => loadSynthese()}
+            className="text-sm text-blue-600 hover:text-blue-800"
+          >
+            Actualiser
+          </button>
+        </div>
+        {synError && (
+          <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+            {synError}
+          </div>
+        )}
+        {synLoading && !synthese ? (
+          <p className="text-gray-500 text-sm">Chargement de la synthèse…</p>
+        ) : synthese ? (
+          <div className="space-y-8 text-sm">
+            <section>
+              <h3 className="text-md font-medium text-gray-700 mb-1">Pages / modules</h3>
+              <p className="text-xs text-gray-500 mb-3">
+                Contrôle la navigation et le niveau (aucun, lecture, modification). « Hériter du rôle » retire la
+                surcharge.
+              </p>
+              <div className="overflow-x-auto border rounded-lg">
+                <table className="min-w-full">
+                  <thead className="bg-gray-50 text-left text-xs text-gray-600 uppercase">
+                    <tr>
+                      <th className="p-2">Module</th>
+                      <th className="p-2">Défaut (rôle)</th>
+                      <th className="p-2">Effectif</th>
+                      <th className="p-2">Régler</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {synthese.uiModules?.map((row: any) => (
+                      <tr key={row.module} className="border-t border-gray-100">
+                        <td className="p-2">{row.label}</td>
+                        <td className="p-2">{uiLevelLabel(row.defaultLevel)}</td>
+                        <td className="p-2">
+                          <span className={row.isOverride ? 'font-medium text-blue-700' : ''}>
+                            {uiLevelLabel(row.effectiveLevel)}
+                          </span>
+                          {row.isOverride && (
+                            <span className="ml-1 text-xs text-gray-400">(surcharge)</span>
+                          )}
+                        </td>
+                        <td className="p-2">
+                          <select
+                            className="border rounded px-2 py-1 text-sm max-w-[220px]"
+                            value={row.isOverride ? row.effectiveLevel : '__inherit__'}
+                            onChange={(e) => handleUiModuleSelect(row.module, e.target.value)}
+                          >
+                            <option value="__inherit__">
+                              Hériter ({uiLevelLabel(row.defaultLevel)})
+                            </option>
+                            <option value="none">Aucun accès</option>
+                            <option value="lecture">Lecture seule</option>
+                            <option value="modification">Modification</option>
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section>
+              <h3 className="text-md font-medium text-gray-700 mb-2">Projets — gouvernance</h3>
+              <p className="text-xs text-gray-500 mb-2">
+                Rôles sur le projet (hors table des délégations). Retirer un rôle se fait depuis la fiche projet.
+              </p>
+              {synthese.projets?.gouvernance?.length ? (
+                <ul className="space-y-2 border rounded-lg divide-y">
+                  {synthese.projets.gouvernance.map((p: any) => (
+                    <li key={p.id} className="p-3 flex flex-wrap justify-between gap-2">
+                      <div>
+                        <Link to={`/projets/${p.id}`} className="font-medium text-blue-600 hover:underline">
+                          {p.nom}
+                        </Link>
+                        <span className="text-gray-500 text-xs ml-2">{p.codeProjet}</span>
+                      </div>
+                      <span className="text-xs text-gray-600">{p.roles?.join(', ')}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-gray-400 text-xs">Aucune gouvernance directe.</p>
+              )}
+            </section>
+
+            <section>
+              <h3 className="text-md font-medium text-gray-700 mb-2">Projets — délégations (permissions)</h3>
+              {synthese.projets?.delegations?.length ? (
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="min-w-full">
+                    <thead className="bg-gray-50 text-left text-xs text-gray-600 uppercase">
+                      <tr>
+                        <th className="p-2">Projet</th>
+                        <th className="p-2">Droit</th>
+                        <th className="p-2">Accordée par</th>
+                        <th className="p-2 w-28"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {synthese.projets.delegations.map((row: any) => (
+                        <tr key={row.id} className="border-t border-gray-100">
+                          <td className="p-2">
+                            <Link
+                              to={`/projets/${row.ressourceId}`}
+                              className="text-blue-600 hover:underline"
+                            >
+                              {row.ressourceLabel}
+                            </Link>
+                          </td>
+                          <td className="p-2">{permLabel(row.permission)}</td>
+                          <td className="p-2 text-gray-600">
+                            {row.grantedBy?.prenom} {row.grantedBy?.nom}
+                          </td>
+                          <td className="p-2">
+                            <button
+                              type="button"
+                              onClick={() => removeDelegation(row.id)}
+                              className="text-red-600 hover:underline text-xs"
+                            >
+                              Retirer
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-400 text-xs">Aucune délégation projet.</p>
+              )}
+            </section>
+
+            <section>
+              <h3 className="text-md font-medium text-gray-700 mb-2">Processus</h3>
+              {synthese.processus?.proprietaire?.length ? (
+                <p className="text-xs text-gray-600 mb-2">
+                  Propriétaire de {synthese.processus.proprietaire.length} processus (voir aussi le profil ci-dessus).
+                </p>
+              ) : null}
+              {synthese.processus?.delegations?.length ? (
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="min-w-full">
+                    <thead className="bg-gray-50 text-left text-xs text-gray-600 uppercase">
+                      <tr>
+                        <th className="p-2">Processus</th>
+                        <th className="p-2">Droit</th>
+                        <th className="p-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {synthese.processus.delegations.map((row: any) => (
+                        <tr key={row.id} className="border-t border-gray-100">
+                          <td className="p-2">
+                            <Link
+                              to={`/processus/${row.ressourceId}`}
+                              className="text-blue-600 hover:underline"
+                            >
+                              {row.ressourceLabel}
+                            </Link>
+                          </td>
+                          <td className="p-2">{permLabel(row.permission)}</td>
+                          <td className="p-2">
+                            <button
+                              type="button"
+                              onClick={() => removeDelegation(row.id)}
+                              className="text-red-600 hover:underline text-xs"
+                            >
+                              Retirer
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                !synthese.processus?.proprietaire?.length && (
+                  <p className="text-gray-400 text-xs">Aucune délégation processus.</p>
+                )
+              )}
+            </section>
+
+            <section>
+              <h3 className="text-md font-medium text-gray-700 mb-2">Entités</h3>
+              {synthese.entites?.membres?.length ? (
+                <ul className="mb-3 text-xs text-gray-700 list-disc list-inside">
+                  {synthese.entites.membres.map((m: any) => (
+                    <li key={m.id}>
+                      {m.entite?.nom} ({m.entite?.code})
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {synthese.entites?.delegations?.length ? (
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="min-w-full">
+                    <thead className="bg-gray-50 text-left text-xs text-gray-600 uppercase">
+                      <tr>
+                        <th className="p-2">Entité</th>
+                        <th className="p-2">Droit</th>
+                        <th className="p-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {synthese.entites.delegations.map((row: any) => (
+                        <tr key={row.id} className="border-t border-gray-100">
+                          <td className="p-2">
+                            <Link
+                              to={`/entites/${row.ressourceId}`}
+                              className="text-blue-600 hover:underline"
+                            >
+                              {row.ressourceLabel}
+                            </Link>
+                          </td>
+                          <td className="p-2">{permLabel(row.permission)}</td>
+                          <td className="p-2">
+                            <button
+                              type="button"
+                              onClick={() => removeDelegation(row.id)}
+                              className="text-red-600 hover:underline text-xs"
+                            >
+                              Retirer
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                !synthese.entites?.membres?.length && (
+                  <p className="text-gray-400 text-xs">Aucune entité ni délégation.</p>
+                )
+              )}
+            </section>
+
+            <section>
+              <h3 className="text-md font-medium text-gray-700 mb-2">Documents confidentiels</h3>
+              {synthese.documents?.accesConfidentiel?.length ? (
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="min-w-full">
+                    <thead className="bg-gray-50 text-left text-xs text-gray-600 uppercase">
+                      <tr>
+                        <th className="p-2">Document</th>
+                        <th className="p-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {synthese.documents.accesConfidentiel.map((row: any) => (
+                        <tr key={row.id} className="border-t border-gray-100">
+                          <td className="p-2">{row.documentNom}</td>
+                          <td className="p-2">
+                            <button
+                              type="button"
+                              onClick={() => removeDocConfidentiel(row.id)}
+                              className="text-red-600 hover:underline text-xs"
+                            >
+                              Retirer l&apos;accès
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-400 text-xs">Aucun accès document confidentiel explicite.</p>
+              )}
+              {synthese.documents?.delegations?.length ? (
+                <>
+                  <h4 className="text-sm font-medium text-gray-600 mt-4 mb-2">
+                    Délégations table Permission (document)
+                  </h4>
+                  <div className="overflow-x-auto border rounded-lg">
+                    <table className="min-w-full">
+                      <thead className="bg-gray-50 text-left text-xs text-gray-600 uppercase">
+                        <tr>
+                          <th className="p-2">Document</th>
+                          <th className="p-2">Droit</th>
+                          <th className="p-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {synthese.documents.delegations.map((row: any) => (
+                          <tr key={row.id} className="border-t border-gray-100">
+                            <td className="p-2">{row.ressourceLabel}</td>
+                            <td className="p-2">{permLabel(row.permission)}</td>
+                            <td className="p-2">
+                              <button
+                                type="button"
+                                onClick={() => removeDelegation(row.id)}
+                                className="text-red-600 hover:underline text-xs"
+                              >
+                                Retirer
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : null}
+            </section>
+
+            <section>
+              <h3 className="text-md font-medium text-gray-700 mb-2">Clients / fournisseurs (délégations)</h3>
+              {synthese.clientsFournisseurs?.delegations?.length ? (
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="min-w-full">
+                    <thead className="bg-gray-50 text-left text-xs text-gray-600 uppercase">
+                      <tr>
+                        <th className="p-2">Fiche</th>
+                        <th className="p-2">Droit</th>
+                        <th className="p-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {synthese.clientsFournisseurs.delegations.map((row: any) => (
+                        <tr key={row.id} className="border-t border-gray-100">
+                          <td className="p-2">
+                            <Link
+                              to={`/clients-fournisseurs/${row.ressourceId}`}
+                              className="text-blue-600 hover:underline"
+                            >
+                              {row.ressourceLabel}
+                            </Link>
+                          </td>
+                          <td className="p-2">{permLabel(row.permission)}</td>
+                          <td className="p-2">
+                            <button
+                              type="button"
+                              onClick={() => removeDelegation(row.id)}
+                              className="text-red-600 hover:underline text-xs"
+                            >
+                              Retirer
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-400 text-xs">Aucune délégation.</p>
+              )}
+            </section>
+
+            <section>
+              <h3 className="text-md font-medium text-gray-700 mb-2">Tâches assignées</h3>
+              {synthese.tachesAssignees?.length ? (
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="min-w-full">
+                    <thead className="bg-gray-50 text-left text-xs text-gray-600 uppercase">
+                      <tr>
+                        <th className="p-2">Tâche</th>
+                        <th className="p-2">Projet</th>
+                        <th className="p-2">Droit</th>
+                        <th className="p-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {synthese.tachesAssignees.map((row: any) => (
+                        <tr key={row.tacheUserId} className="border-t border-gray-100">
+                          <td className="p-2">
+                            <span className="font-medium">{row.tacheNom}</span>
+                          </td>
+                          <td className="p-2 text-gray-600">
+                            {row.projet ? (
+                              <Link
+                                to={`/projets/${row.projet.id}`}
+                                className="text-blue-600 hover:underline text-xs"
+                              >
+                                {row.projet.nom}
+                              </Link>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="p-2">
+                            <select
+                              className="border rounded px-1 py-0.5 text-xs"
+                              value={row.permission}
+                              onChange={(e) =>
+                                setTacheAssignPermission(row.tacheId, row.tacheUserId, e.target.value)
+                              }
+                            >
+                              <option value="lecture">Lecture</option>
+                              <option value="modification">Modification</option>
+                              <option value="suppression">Suppression</option>
+                              <option value="gestion">Gestion</option>
+                            </select>
+                          </td>
+                          <td className="p-2">
+                            <button
+                              type="button"
+                              onClick={() => removeTacheAssignation(row.tacheId, row.tacheUserId)}
+                              className="text-red-600 hover:underline text-xs"
+                            >
+                              Retirer
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-400 text-xs">Aucune tâche assignée.</p>
+              )}
+            </section>
+
+            <section>
+              <h3 className="text-md font-medium text-gray-700 mb-2">Contrats</h3>
+              {synthese.contrats?.length ? (
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="min-w-full">
+                    <thead className="bg-gray-50 text-left text-xs text-gray-600 uppercase">
+                      <tr>
+                        <th className="p-2">Contrat</th>
+                        <th className="p-2">Niveau</th>
+                        <th className="p-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {synthese.contrats.map((row: any) => (
+                        <tr key={row.id} className="border-t border-gray-100">
+                          <td className="p-2">
+                            <Link
+                              to={`/contrats`}
+                              className="text-blue-600 hover:underline"
+                            >
+                              {row.contrat?.nom ?? row.contratId}
+                            </Link>
+                          </td>
+                          <td className="p-2">{row.niveau}</td>
+                          <td className="p-2">
+                            <button
+                              type="button"
+                              onClick={() => removeContratPermission(row.contratId, row.id)}
+                              className="text-red-600 hover:underline text-xs"
+                            >
+                              Retirer
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-400 text-xs">Aucun accès contrat.</p>
+              )}
+            </section>
+
+            <section>
+              <h3 className="text-md font-medium text-gray-700 mb-2">Licences</h3>
+              {synthese.licences?.length ? (
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="min-w-full">
+                    <thead className="bg-gray-50 text-left text-xs text-gray-600 uppercase">
+                      <tr>
+                        <th className="p-2">Licence</th>
+                        <th className="p-2">Niveau</th>
+                        <th className="p-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {synthese.licences.map((row: any) => (
+                        <tr key={row.id} className="border-t border-gray-100">
+                          <td className="p-2">
+                            <Link to="/licences" className="text-blue-600 hover:underline">
+                              {row.licence?.nom ?? row.licenceId}
+                            </Link>
+                          </td>
+                          <td className="p-2">{row.niveau}</td>
+                          <td className="p-2">
+                            <button
+                              type="button"
+                              onClick={() => removeLicencePermission(row.licenceId, id!)}
+                              className="text-red-600 hover:underline text-xs"
+                            >
+                              Retirer
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-400 text-xs">Aucun accès licence.</p>
+              )}
+            </section>
+          </div>
+        ) : (
+          <p className="text-gray-400 text-sm">Synthèse non disponible.</p>
         )}
       </div>
 

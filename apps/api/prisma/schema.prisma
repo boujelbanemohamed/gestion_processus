@@ -110,6 +110,30 @@ enum PermissionType {
   gestion
 }
 
+/// Modules de navigation / écrans principaux (override par utilisateur)
+enum UiModule {
+  dashboard
+  processus
+  projets
+  taches
+  clients_fournisseurs
+  contrats
+  ocr
+  licences
+  entites
+  documents
+  users
+  journal
+  configuration
+  corbeille
+}
+
+enum UiModuleLevel {
+  none
+  lecture
+  modification
+}
+
 model User {
   id               String      @id @default(uuid())
   email            String      @unique
@@ -170,6 +194,21 @@ model User {
   clientFournisseurHistorique    ClientFournisseurHistorique[]
   contratHistorique              ContratHistorique[]
   entitesCreees                  Entite[]                         @relation("EntiteCreatedBy")
+
+  userUiModuleAccesses          UserUiModuleAccess[]
+}
+
+model UserUiModuleAccess {
+  id        String         @id @default(uuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module    UiModule
+  level     UiModuleLevel
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([userId, module])
+  @@index([userId])
 }
 
 model Entite {

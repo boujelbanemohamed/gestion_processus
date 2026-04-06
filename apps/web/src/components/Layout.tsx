@@ -1,6 +1,7 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
 import { useAuth } from '../store/auth';
+import { navPathToUiModule, isUiModuleAllowed } from '../utils/uiModuleRoute';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
@@ -14,7 +15,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const isAdmin = user?.role === 'admin';
 
-  const navItems = [
+  const allNavItems = [
     { path: '/dashboard', label: 'Dashboard' },
     { path: '/processus', label: 'Processus' },
     { path: '/projets', label: 'Projets' },
@@ -32,6 +33,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       { path: '/corbeille', label: 'Corbeille' },
     ] : []),
   ];
+
+  const navItems = allNavItems.filter((item) => {
+    const mod = navPathToUiModule(item.path);
+    return isUiModuleAllowed(user?.uiModules, mod);
+  });
 
   return (
     <div className="min-h-screen bg-gray-50">

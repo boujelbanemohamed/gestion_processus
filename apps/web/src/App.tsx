@@ -1,6 +1,7 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
 import { useAuth } from './store/auth';
+import { pathnameToUiModule, isUiModuleAllowed } from './utils/uiModuleRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
@@ -26,17 +27,30 @@ import ProjetDetail from './pages/ProjetDetail'; // ← NOUVEAU (déjà existant
 import Corbeille from './pages/Corbeille';
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
-  const { isAuthenticated, loadFromStorage, user } = useAuth();
+  const { isAuthenticated, loadFromStorage, user, refreshProfile } = useAuth();
+  const location = useLocation();
 
   useEffect(() => {
     loadFromStorage();
   }, [loadFromStorage]);
+
+  useEffect(() => {
+    if (!isAuthenticated() || !user) return;
+    if (!user.uiModules || Object.keys(user.uiModules).length === 0) {
+      refreshProfile();
+    }
+  }, [isAuthenticated, user, refreshProfile]);
 
   if (!isAuthenticated()) {
     return <Navigate to="/login" replace />;
   }
 
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  const mod = pathnameToUiModule(location.pathname);
+  if (user && !isUiModuleAllowed(user.uiModules, mod)) {
     return <Navigate to="/dashboard" replace />;
   }
 

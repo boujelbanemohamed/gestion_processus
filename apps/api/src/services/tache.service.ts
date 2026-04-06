@@ -144,6 +144,7 @@ export class TacheService {
   }
 
   async canUserManageTacheAcces(tacheId: string, userId: string, appRole: string): Promise<boolean> {
+    if (appRole === 'admin') return true;
     const t = await this.getTachePermSlice(tacheId);
     if (!t) return false;
     const eff = this.effectiveDeleguePermission(userId, appRole, t);

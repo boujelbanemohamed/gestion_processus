@@ -1,6 +1,7 @@
 import { prisma } from '../utils/prisma';
 import { hashPassword, comparePassword } from '../utils/hash';
 import { generateAccessToken, generateRefreshToken } from '../utils/jwt';
+import { getEffectiveUiModules } from './userUiModule.service';
 export class AuthService {
   async login(email: string, password: string, ip?: string, userAgent?: string) {
     const user = await prisma.user.findUnique({ where: { email } });
@@ -44,6 +45,8 @@ export class AuthService {
       role: user.role,
     };
 
+    const uiModules = await getEffectiveUiModules(user.id, user.role);
+
     return {
       token: generateAccessToken(payload),
       refreshToken: generateRefreshToken(payload),
@@ -53,6 +56,7 @@ export class AuthService {
         nom: user.nom,
         prenom: user.prenom,
         role: user.role,
+        uiModules,
       },
     };
   }

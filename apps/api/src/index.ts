@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import "dotenv/config";
-import { authenticate } from "./middleware/auth";
+import { authenticate, requireRole } from "./middleware/auth";
 import { logger as loggerMiddleware } from "./middleware/logger";
 
 // Controllers
@@ -88,6 +88,8 @@ app.post("/api/v1/auth/reset-password", authController.resetPassword);
 app.use(authenticate);
 app.use(loggerMiddleware);
 
+app.get("/api/v1/auth/me", authController.me);
+
 // Dashboard
 app.get("/api/v1/dashboard", dashboardController.getKPIs);
 app.get("/api/v1/dashboard/taches-en-retard", dashboardController.getTachesEnRetard);
@@ -149,6 +151,22 @@ app.get("/api/v1/comments/:commentId/attachment", documentCommentController.down
 
 // Utilisateurs
 app.get("/api/v1/users", userController.getAllUsers);
+app.get(
+  "/api/v1/users/:id/acces-synthese",
+  requireRole("admin"),
+  userController.getUserAccessSynthese
+);
+app.patch("/api/v1/users/:id/ui-module", requireRole("admin"), userController.patchUserUiModule);
+app.delete(
+  "/api/v1/users/:id/permissions-deleguees/:permId",
+  requireRole("admin"),
+  userController.deleteUserPermissionDelegation
+);
+app.delete(
+  "/api/v1/users/:id/document-permissions/:permId",
+  requireRole("admin"),
+  userController.deleteUserDocumentPermission
+);
 app.get("/api/v1/users/:id", userController.getUser);
 app.post("/api/v1/users", userController.createUser);
 app.put("/api/v1/users/:id", userController.updateUser);

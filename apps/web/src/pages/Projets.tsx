@@ -4,6 +4,7 @@ import ClientFournisseurQuickCreateModal from '../components/ClientFournisseurQu
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 import { getPaginationPageNumbers } from '../utils/pagination';
+import { canModifyModule } from '../utils/uiModuleRoute';
 
 const PAGE_SIZE = 15;
 
@@ -105,6 +106,7 @@ const droitsAdminLigne = 'modification + suppression + gestion des accès + lect
 export default function Projets() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
+  const canCreateProjet = canModifyModule(currentUser?.uiModules, 'projets');
   const canEditClients = currentUser?.role === 'admin' || currentUser?.role === 'contributeur';
 
   const [projets, setProjets] = useState<any[]>([]);
@@ -463,13 +465,15 @@ export default function Projets() {
           >
             📊 Dashboard
           </button>
-          <button
-            type="button"
-            onClick={openCreateModal}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
-          >
-            + Nouveau projet
-          </button>
+          {canCreateProjet && (
+            <button
+              type="button"
+              onClick={openCreateModal}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
+            >
+              + Nouveau projet
+            </button>
+          )}
         </div>
       </div>
 

@@ -8,6 +8,8 @@ interface User {
   prenom: string;
   role: string;
   entiteId?: string;
+  /** Niveaux par module (clés alignées API) : none | lecture | modification */
+  uiModules?: Record<string, string>;
 }
 
 interface AuthState {
@@ -17,6 +19,8 @@ interface AuthState {
   logout: () => void;
   isAuthenticated: () => boolean;
   loadFromStorage: () => void;
+  /** Recharge profil + uiModules (ex. après modif admin ou session ancienne). */
+  refreshProfile: () => Promise<void>;
 }
 
 export const useAuth = create<AuthState>((set, get) => ({
@@ -52,6 +56,20 @@ export const useAuth = create<AuthState>((set, get) => ({
     if (token && userStr) {
       api.defaults.headers.common.Authorization = `Bearer ${token}`;
       set({ token, user: JSON.parse(userStr) });
+    }
+  },
+  refreshProfile: async () => {
+    const token = get().token;
+    if (!token) return;
+    try {
+      const response = await api.get('/auth/me');
+      const u = response.data?.user;
+      if (u) {
+        localStorage.setItem('user', JSON.stringify(u));
+        set({ user: u });
+      }
+    } catch {
+      // session invalide : ne pas forcer logout ici (intercepteur gère 401)
     }
   },
 }));
