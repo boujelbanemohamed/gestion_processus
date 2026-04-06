@@ -1,4 +1,6 @@
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { clampListPage, ListSectionPagination, LIST_SECTION_PAGE_SIZE } from './ListSectionPagination';
 
 export type TacheEnRetardItem = {
   id: string;
@@ -20,14 +22,23 @@ type Props = {
 
 export default function TachesEnRetardBloc({ items, hideFooterLink, onTacheClick }: Props) {
   const navigate = useNavigate();
+  const [page, setPage] = useState(1);
+  const itemsSig = useMemo(() => items.map((i) => i.id).join(','), [items]);
+  useEffect(() => {
+    setPage(1);
+  }, [itemsSig]);
 
   if (!items.length) return null;
+
+  const pageEff = clampListPage(page, items.length, LIST_SECTION_PAGE_SIZE);
+  const pagedItems = items.slice((pageEff - 1) * LIST_SECTION_PAGE_SIZE, pageEff * LIST_SECTION_PAGE_SIZE);
 
   return (
     <div className="bg-white p-4 rounded-lg shadow mb-6 border-l-4 border-amber-500">
       <h2 className="text-lg font-semibold mb-1">Tâches en retard</h2>
       <p className="text-xs text-gray-500 mb-4">
-        Jusqu&apos;à 10 tâches non finalisées (hors terminé / archivé) dont la date de fin prévue est dépassée, triées par échéance la plus ancienne.
+        Tâches non finalisées (hors terminé / archivé) dont la date de fin prévue est dépassée, triées par échéance la plus
+        ancienne. Affichage de {LIST_SECTION_PAGE_SIZE} lignes par page.
       </p>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
@@ -41,7 +52,7 @@ export default function TachesEnRetardBloc({ items, hideFooterLink, onTacheClick
             </tr>
           </thead>
           <tbody>
-            {items.map((t) => {
+            {pagedItems.map((t) => {
               const projet = t.projet;
               return (
                 <tr key={t.id} className="border-t border-gray-100 hover:bg-amber-50/40">
@@ -94,6 +105,12 @@ export default function TachesEnRetardBloc({ items, hideFooterLink, onTacheClick
           </tbody>
         </table>
       </div>
+      <ListSectionPagination
+        page={page}
+        pageSize={LIST_SECTION_PAGE_SIZE}
+        totalItems={items.length}
+        onPageChange={setPage}
+      />
       {!hideFooterLink && (
         <p className="text-xs text-gray-500 mt-3">
           <button type="button" onClick={() => navigate('/taches')} className="text-blue-600 hover:underline">

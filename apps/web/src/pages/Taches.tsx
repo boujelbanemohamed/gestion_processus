@@ -3,6 +3,11 @@ import TachesGanttView, { type TacheGantt } from '../components/TachesGanttView'
 import TachesKanbanView, { type KanbanTache } from '../components/TachesKanbanView';
 import TachesEnRetardBloc, { type TacheEnRetardItem } from '../components/TachesEnRetardBloc';
 import {
+  clampListPage,
+  ListSectionPagination,
+  LIST_SECTION_PAGE_SIZE,
+} from '../components/ListSectionPagination';
+import {
   EpicCreateModal,
   EpicDetailModal,
   EpicEditModal,
@@ -2874,7 +2879,11 @@ export default function Taches() {
   });
   const [showFiltres, setShowFiltres] = useState(false);
   const [page, setPage] = useState(1);
-  const pageSize = 10;
+  const [usPage, setUsPage] = useState(1);
+  const [epicPage, setEpicPage] = useState(1);
+  const [usRetardPage, setUsRetardPage] = useState(1);
+  const [epicRetardPage, setEpicRetardPage] = useState(1);
+  const pageSize = LIST_SECTION_PAGE_SIZE;
 
   const isAdmin = currentUser?.role === 'admin';
   const isContributeur = currentUser?.role === 'contributeur';
@@ -2886,6 +2895,10 @@ export default function Taches() {
 
   useEffect(() => {
     setPage(1);
+    setUsPage(1);
+    setEpicPage(1);
+    setUsRetardPage(1);
+    setEpicRetardPage(1);
   }, [filters]);
 
   const loadEpics = async () => {
@@ -3137,8 +3150,25 @@ export default function Taches() {
     [visibleEpics, taches, userStories]
   );
 
-  const totalPages = Math.max(1, Math.ceil(visibleTaches.length / pageSize));
-  const pagedTaches = visibleTaches.slice((page - 1) * pageSize, page * pageSize);
+  const pageTasksEff = clampListPage(page, visibleTaches.length, pageSize);
+  const pagedTaches = visibleTaches.slice((pageTasksEff - 1) * pageSize, pageTasksEff * pageSize);
+
+  const pageUsEff = clampListPage(usPage, visibleUserStories.length, pageSize);
+  const pagedUserStories = visibleUserStories.slice((pageUsEff - 1) * pageSize, pageUsEff * pageSize);
+
+  const pageEpicEff = clampListPage(epicPage, visibleEpics.length, pageSize);
+  const pagedEpics = visibleEpics.slice((pageEpicEff - 1) * pageSize, pageEpicEff * pageSize);
+
+  const pageUsRetardEff = clampListPage(usRetardPage, userStoriesEnRetardList.length, pageSize);
+  const pagedUserStoriesEnRetard = userStoriesEnRetardList.slice(
+    (pageUsRetardEff - 1) * pageSize,
+    pageUsRetardEff * pageSize
+  );
+  const pageEpicRetardEff = clampListPage(epicRetardPage, epicsEnRetardList.length, pageSize);
+  const pagedEpicsEnRetard = epicsEnRetardList.slice(
+    (pageEpicRetardEff - 1) * pageSize,
+    pageEpicRetardEff * pageSize
+  );
 
   const sectionViewSelectedCount =
     (sectionViews.taches ? 1 : 0) + (sectionViews.userStories ? 1 : 0) + (sectionViews.epics ? 1 : 0);
@@ -3168,7 +3198,7 @@ export default function Taches() {
                 await loadAgileCorbeille();
                 setShowAgileCorbeilleModal(true);
               }}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
+              className="px-3 py-2 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 font-medium"
             >
               🗑 Corbeille
             </button>
@@ -3178,14 +3208,14 @@ export default function Taches() {
               <button
                 type="button"
                 onClick={() => setShowEpicCreateModal(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
+                className="px-3 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
               >
                 + Nouvel Epic
               </button>
               <button
                 type="button"
                 onClick={() => setShowUsCreateModal(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
+                className="px-3 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
               >
                 + Nouvelle User Story
               </button>
@@ -3195,7 +3225,7 @@ export default function Taches() {
                   setEditTache(undefined);
                   setShowModal(true);
                 }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
+                className="px-3 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
               >
                 + Nouvelle tâche
               </button>
@@ -3470,35 +3500,33 @@ export default function Taches() {
           Tâches
         </h2>
         <div className="flex flex-wrap gap-2 items-center mb-4">
-          <div className="flex rounded-lg border border-gray-300 overflow-hidden shadow-sm">
-            <button
-              type="button"
-              onClick={() => setViewMode('list')}
-              className={`px-3 py-2 text-sm font-medium ${viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-            >
-              Liste
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('kanban')}
-              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${viewMode === 'kanban' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-            >
-              Kanban
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('gantt')}
-              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${viewMode === 'gantt' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-            >
-              Gantt
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setViewMode('list')}
+            className={`px-3 py-2 rounded border text-sm font-medium ${viewMode === 'list' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Liste
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('kanban')}
+            className={`px-3 py-2 rounded border text-sm font-medium ${viewMode === 'kanban' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Kanban
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('gantt')}
+            className={`px-3 py-2 rounded border text-sm font-medium ${viewMode === 'gantt' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Gantt
+          </button>
           <button
             type="button"
             onClick={() => setShowDashboard(!showDashboard)}
-            className={`px-4 py-2 rounded border text-sm font-medium transition-colors ${showDashboard ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+            className={`px-3 py-2 rounded border text-sm font-medium ${showDashboard ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
           >
-            {showDashboard ? '📊 Masquer dashboard' : '📊 Dashboard'}
+            {showDashboard ? 'Masquer le tableau de bord' : 'Tableau de bord'}
           </button>
         </div>
         {showDashboard && <TachesDashboard taches={visibleTaches} />}
@@ -3573,31 +3601,12 @@ export default function Taches() {
               ))}
             </div>
 
-            {visibleTaches.length > pageSize && (
-              <div className="mt-6 flex items-center justify-between">
-                <p className="text-sm text-gray-500">
-                  {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, visibleTaches.length)} sur {visibleTaches.length}
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className={`px-4 py-2 rounded text-sm font-medium ${page === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-                  >
-                    Précédent
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
-                    className={`px-4 py-2 rounded text-sm font-medium ${page === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
-                  >
-                    Suivant
-                  </button>
-                </div>
-              </div>
-            )}
+            <ListSectionPagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={visibleTaches.length}
+              onPageChange={setPage}
+            />
           </>
         )}
       </section>
@@ -3610,35 +3619,33 @@ export default function Taches() {
           User stories
         </h2>
         <div className="flex flex-wrap gap-2 items-center mb-4">
-          <div className="flex rounded-lg border border-gray-300 overflow-hidden shadow-sm">
-            <button
-              type="button"
-              onClick={() => setUsViewMode('list')}
-              className={`px-3 py-2 text-sm font-medium ${usViewMode === 'list' ? 'bg-violet-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-            >
-              Liste
-            </button>
-            <button
-              type="button"
-              onClick={() => setUsViewMode('kanban')}
-              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${usViewMode === 'kanban' ? 'bg-violet-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-            >
-              Kanban
-            </button>
-            <button
-              type="button"
-              onClick={() => setUsViewMode('gantt')}
-              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${usViewMode === 'gantt' ? 'bg-violet-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-            >
-              Gantt
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setUsViewMode('list')}
+            className={`px-3 py-2 rounded border text-sm font-medium ${usViewMode === 'list' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Liste
+          </button>
+          <button
+            type="button"
+            onClick={() => setUsViewMode('kanban')}
+            className={`px-3 py-2 rounded border text-sm font-medium ${usViewMode === 'kanban' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Kanban
+          </button>
+          <button
+            type="button"
+            onClick={() => setUsViewMode('gantt')}
+            className={`px-3 py-2 rounded border text-sm font-medium ${usViewMode === 'gantt' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Gantt
+          </button>
           <button
             type="button"
             onClick={() => setShowUsDashboard(!showUsDashboard)}
-            className={`px-4 py-2 rounded border text-sm font-medium transition-colors ${showUsDashboard ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+            className={`px-3 py-2 rounded border text-sm font-medium ${showUsDashboard ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
           >
-            {showUsDashboard ? '📊 Masquer dashboard' : '📊 Dashboard'}
+            {showUsDashboard ? 'Masquer le tableau de bord' : 'Tableau de bord'}
           </button>
         </div>
         {showUsDashboard && <UserStoriesAgileDashboard userStories={visibleUserStories} taches={taches} />}
@@ -3649,8 +3656,8 @@ export default function Taches() {
               User stories pour lesquelles au moins une tâche liée est en retard, bloquée ou dépasse son échéance (hors terminé /
               archivé).
             </p>
-            <ul className="divide-y divide-gray-100 max-h-52 overflow-y-auto text-sm">
-              {userStoriesEnRetardList.map((us) => (
+            <ul className="divide-y divide-gray-100 text-sm">
+              {pagedUserStoriesEnRetard.map((us) => (
                 <li key={us.id} className="py-2 flex flex-wrap items-start justify-between gap-2">
                   <button
                     type="button"
@@ -3663,6 +3670,12 @@ export default function Taches() {
                 </li>
               ))}
             </ul>
+            <ListSectionPagination
+              page={usRetardPage}
+              pageSize={pageSize}
+              totalItems={userStoriesEnRetardList.length}
+              onPageChange={setUsRetardPage}
+            />
           </div>
         )}
         {usViewMode === 'gantt' ? (
@@ -3688,11 +3701,11 @@ export default function Taches() {
         ) : (
           <>
             <p className="text-sm text-gray-500 mb-2">{visibleUserStories.length} user story(s)</p>
-            <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
+            <div className="space-y-3">
               {visibleUserStories.length === 0 && (
                 <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">Aucune user story à afficher</div>
               )}
-              {visibleUserStories.map((us) => {
+              {pagedUserStories.map((us) => {
                 const usExpanded = expandedUsListId === us.id;
                 const tasksUs = getTachesLieesUserStory(us.id, taches);
                 const assignesUs = getAssignesDepuisTaches(tasksUs);
@@ -3849,6 +3862,12 @@ export default function Taches() {
                   </div>
                 );
               })}
+              <ListSectionPagination
+                page={usPage}
+                pageSize={pageSize}
+                totalItems={visibleUserStories.length}
+                onPageChange={setUsPage}
+              />
             </div>
           </>
         )}
@@ -3862,35 +3881,33 @@ export default function Taches() {
           Epics
         </h2>
         <div className="flex flex-wrap gap-2 items-center mb-4">
-          <div className="flex rounded-lg border border-gray-300 overflow-hidden shadow-sm">
-            <button
-              type="button"
-              onClick={() => setEpicViewMode('list')}
-              className={`px-3 py-2 text-sm font-medium ${epicViewMode === 'list' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-            >
-              Liste
-            </button>
-            <button
-              type="button"
-              onClick={() => setEpicViewMode('kanban')}
-              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${epicViewMode === 'kanban' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-            >
-              Kanban
-            </button>
-            <button
-              type="button"
-              onClick={() => setEpicViewMode('gantt')}
-              className={`px-3 py-2 text-sm font-medium border-l border-gray-300 ${epicViewMode === 'gantt' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-            >
-              Gantt
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setEpicViewMode('list')}
+            className={`px-3 py-2 rounded border text-sm font-medium ${epicViewMode === 'list' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Liste
+          </button>
+          <button
+            type="button"
+            onClick={() => setEpicViewMode('kanban')}
+            className={`px-3 py-2 rounded border text-sm font-medium ${epicViewMode === 'kanban' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Kanban
+          </button>
+          <button
+            type="button"
+            onClick={() => setEpicViewMode('gantt')}
+            className={`px-3 py-2 rounded border text-sm font-medium ${epicViewMode === 'gantt' ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Gantt
+          </button>
           <button
             type="button"
             onClick={() => setShowEpicDashboard(!showEpicDashboard)}
-            className={`px-4 py-2 rounded border text-sm font-medium transition-colors ${showEpicDashboard ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+            className={`px-3 py-2 rounded border text-sm font-medium ${showEpicDashboard ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
           >
-            {showEpicDashboard ? '📊 Masquer dashboard' : '📊 Dashboard'}
+            {showEpicDashboard ? 'Masquer le tableau de bord' : 'Tableau de bord'}
           </button>
         </div>
         {showEpicDashboard && (
@@ -3903,8 +3920,8 @@ export default function Taches() {
               Epics contenant au moins une tâche (via une user story) en retard, bloquée ou après l&apos;échéance (hors terminé /
               archivé).
             </p>
-            <ul className="divide-y divide-gray-100 max-h-52 overflow-y-auto text-sm">
-              {epicsEnRetardList.map((ep) => (
+            <ul className="divide-y divide-gray-100 text-sm">
+              {pagedEpicsEnRetard.map((ep) => (
                 <li key={ep.id} className="py-2 flex flex-wrap items-center justify-between gap-2">
                   <button
                     type="button"
@@ -3917,6 +3934,12 @@ export default function Taches() {
                 </li>
               ))}
             </ul>
+            <ListSectionPagination
+              page={epicRetardPage}
+              pageSize={pageSize}
+              totalItems={epicsEnRetardList.length}
+              onPageChange={setEpicRetardPage}
+            />
           </div>
         )}
         {epicViewMode === 'gantt' ? (
@@ -3942,11 +3965,11 @@ export default function Taches() {
         ) : (
           <>
             <p className="text-sm text-gray-500 mb-2">{visibleEpics.length} epic(s)</p>
-            <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
+            <div className="space-y-3">
               {visibleEpics.length === 0 && (
                 <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">Aucun epic à afficher</div>
               )}
-              {visibleEpics.map((ep) => {
+              {pagedEpics.map((ep) => {
                 const epExpanded = expandedEpicListId === ep.id;
                 const tasksEp = getTachesLieesEpic(ep, taches);
                 const assignesEp = getAssignesDepuisTaches(tasksEp);
@@ -4124,6 +4147,12 @@ export default function Taches() {
                   </div>
                 );
               })}
+              <ListSectionPagination
+                page={epicPage}
+                pageSize={pageSize}
+                totalItems={visibleEpics.length}
+                onPageChange={setEpicPage}
+              />
             </div>
           </>
         )}
