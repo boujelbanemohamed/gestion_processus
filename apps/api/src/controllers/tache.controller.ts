@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { ResourceType } from '../generated/prisma/enums';
-import { TacheService } from '../services/tache.service';
+import { parseTacheAssignPermission, TacheService } from '../services/tache.service';
 import { AuthRequest } from '../middleware/auth';
 import { logAccess } from '../middleware/logger';
 
@@ -63,11 +63,8 @@ export const updateTache = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
 
-    // Vérif rôle : admin / contributeur peuvent tout modifier
-    const role = req.user.role;
-    if (role !== 'admin' && role !== 'contributeur') {
-      return res.status(403).json({ error: 'Accès refusé' });
-    }
+    const ok = await tacheService.canUserModifyTache(req.params.id, req.user.userId, req.user.role);
+    if (!ok) return res.status(403).json({ error: 'Accès refusé' });
 
     const tache = await tacheService.update(req.params.id, req.body);
     if (!tache) return res.status(404).json({ error: 'Tâche non trouvée' });
@@ -106,7 +103,7 @@ export const getTacheAcces = async (req: AuthRequest, res: Response) => {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
     const ok = await tacheService.canUserViewTache(req.params.id, req.user.userId, req.user.role);
     if (!ok) return res.status(403).json({ error: 'Accès refusé' });
-    const data = await tacheService.getAccesDetail(req.params.id, req.user.role);
+    const data = await tacheService.getAccesDetail(req.params.id, req.user.role, req.user.userId);
     if (!data) return res.status(404).json({ error: 'Tâche non trouvée' });
     res.json(data);
   } catch (error: any) {
@@ -121,10 +118,42 @@ export const postTacheAssigne = async (req: AuthRequest, res: Response) => {
     if (!userId) return res.status(400).json({ error: 'userId requis' });
     const ok = await tacheService.canUserViewTache(req.params.id, req.user.userId, req.user.role);
     if (!ok) return res.status(403).json({ error: 'Accès refusé' });
-    const data = await tacheService.addTacheAssigne(req.params.id, userId, req.user.role);
+    const permission = parseTacheAssignPermission(req.body.permission);
+    const data = await tacheService.addTacheAssigne(
+      req.params.id,
+      userId,
+      permission,
+      req.user.userId,
+      req.user.role
+    );
     res.json(data);
   } catch (error: any) {
     const code = error.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: error.message });
+  }
+};
+
+export const patchTacheAssignePermission = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const ok = await tacheService.canUserViewTache(req.params.id, req.user.userId, req.user.role);
+    if (!ok) return res.status(403).json({ error: 'Accès refusé' });
+    const permission = parseTacheAssignPermission(req.body.permission);
+    const data = await tacheService.updateTacheAssignePermission(
+      req.params.id,
+      req.params.assignId,
+      permission,
+      req.user.userId,
+      req.user.role
+    );
+    res.json(data);
+  } catch (error: any) {
+    const code =
+      error.message === 'Accès refusé'
+        ? 403
+        : error.message === 'Assignation introuvable'
+          ? 404
+          : 400;
     res.status(code).json({ error: error.message });
   }
 };
@@ -134,7 +163,12 @@ export const deleteTacheAssigne = async (req: AuthRequest, res: Response) => {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
     const ok = await tacheService.canUserViewTache(req.params.id, req.user.userId, req.user.role);
     if (!ok) return res.status(403).json({ error: 'Accès refusé' });
-    const data = await tacheService.removeTacheAssigne(req.params.id, req.params.assignId, req.user.role);
+    const data = await tacheService.removeTacheAssigne(
+      req.params.id,
+      req.params.assignId,
+      req.user.userId,
+      req.user.role
+    );
     res.json(data);
   } catch (error: any) {
     const code =
@@ -222,6 +256,8 @@ export const downloadCommentaireFichier = async (req: AuthRequest, res: Response
 export const uploadDocument = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const mod = await tacheService.canUserModifyTache(req.params.id, req.user.userId, req.user.role);
+    if (!mod) return res.status(403).json({ error: 'Accès refusé' });
     if (!req.file) return res.status(400).json({ error: 'Fichier requis' });
     const { nom, description } = req.body;
     const document = await tacheService.uploadDocument(
@@ -240,6 +276,8 @@ export const uploadDocument = async (req: AuthRequest, res: Response) => {
 export const lierDocument = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const mod = await tacheService.canUserModifyTache(req.params.id, req.user.userId, req.user.role);
+    if (!mod) return res.status(403).json({ error: 'Accès refusé' });
     const { documentId } = req.body;
     if (!documentId) return res.status(400).json({ error: 'documentId requis' });
     await tacheService.lierDocument(req.params.id, documentId);
@@ -252,6 +290,8 @@ export const lierDocument = async (req: AuthRequest, res: Response) => {
 export const delierDocument = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const mod = await tacheService.canUserModifyTache(req.params.id, req.user.userId, req.user.role);
+    if (!mod) return res.status(403).json({ error: 'Accès refusé' });
     await tacheService.delierDocument(req.params.id, req.params.documentId);
     res.status(204).end();
   } catch (error: any) {

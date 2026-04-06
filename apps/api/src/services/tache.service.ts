@@ -1,6 +1,21 @@
-import { ResourceType } from '../generated/prisma/enums';
+import { PermissionType, ResourceType } from '../generated/prisma/enums';
 import { NotificationService } from './notification.service';
 import { prisma } from '../utils/prisma';
+
+const PERM_RANK: Record<PermissionType, number> = {
+  [PermissionType.lecture]: 1,
+  [PermissionType.modification]: 2,
+  [PermissionType.suppression]: 3,
+  [PermissionType.gestion]: 4,
+};
+
+export function parseTacheAssignPermission(raw: unknown): PermissionType {
+  const v = typeof raw === 'string' ? raw : '';
+  if (v === 'lecture' || v === 'modification' || v === 'suppression' || v === 'gestion') {
+    return v as PermissionType;
+  }
+  return PermissionType.lecture;
+}
 
 const TACHE_INCLUDE = {
   createur: { select: { id: true, nom: true, prenom: true } },
@@ -69,7 +84,14 @@ const TACHE_INCLUDE = {
 function formatTache(t: any) {
   return {
     ...t,
-    assignesUtilisateurs: t.assignesUtilisateurs?.map((tu: any) => tu.user) || [],
+    assignesUtilisateurs:
+      t.assignesUtilisateurs?.map((tu: any) => ({
+        id: tu.user.id,
+        nom: tu.user.nom,
+        prenom: tu.user.prenom,
+        tacheUserId: tu.id,
+        permission: tu.permission ?? PermissionType.lecture,
+      })) || [],
     assignesEntites: t.assignesEntites?.map((te: any) => ({
       ...te.entite,
       membres: te.entite?.membres || [],
@@ -78,16 +100,70 @@ function formatTache(t: any) {
   };
 }
 
-function canContributeurAgirSurTache(
-  userId: string,
-  t: { createurId: string | null; assignesUtilisateurs: { userId: string }[] }
-) {
-  if (t.createurId === userId) return true;
-  return (t.assignesUtilisateurs || []).some((a) => a.userId === userId);
-}
+const ACCES_PERM_LABELS: Record<PermissionType, string> = {
+  [PermissionType.lecture]: 'Consultation',
+  [PermissionType.modification]: 'Modification',
+  [PermissionType.suppression]: 'Suppression',
+  [PermissionType.gestion]: 'Gestion des accès',
+};
 
 export class TacheService {
   private notificationService = new NotificationService();
+
+  private permRank(p: PermissionType): number {
+    return PERM_RANK[p] ?? 0;
+  }
+
+  private async getTachePermSlice(tacheId: string) {
+    return prisma.tache.findFirst({
+      where: { id: tacheId, deletedAt: null },
+      select: {
+        id: true,
+        createurId: true,
+        assignesUtilisateurs: { select: { userId: true, permission: true } },
+      },
+    });
+  }
+
+  /** Droit effectif sur la tâche (hors liste « visible » métier). */
+  private effectiveDeleguePermission(
+    userId: string,
+    appRole: string,
+    t: { createurId: string | null; assignesUtilisateurs: { userId: string; permission: PermissionType }[] }
+  ): PermissionType | null {
+    if (appRole === 'admin') return PermissionType.gestion;
+    if (t.createurId === userId) return PermissionType.gestion;
+    const row = t.assignesUtilisateurs.find((a) => a.userId === userId);
+    if (appRole === 'contributeur') {
+      return row ? PermissionType.gestion : null;
+    }
+    if (appRole === 'lecteur') {
+      return row?.permission ?? null;
+    }
+    return row ? PermissionType.gestion : null;
+  }
+
+  async canUserManageTacheAcces(tacheId: string, userId: string, appRole: string): Promise<boolean> {
+    const t = await this.getTachePermSlice(tacheId);
+    if (!t) return false;
+    const eff = this.effectiveDeleguePermission(userId, appRole, t);
+    return eff !== null && this.permRank(eff) >= this.permRank(PermissionType.gestion);
+  }
+
+  async canUserModifyTache(tacheId: string, userId: string, appRole: string): Promise<boolean> {
+    const t = await this.getTachePermSlice(tacheId);
+    if (!t) return false;
+    const eff = this.effectiveDeleguePermission(userId, appRole, t);
+    return eff !== null && this.permRank(eff) >= this.permRank(PermissionType.modification);
+  }
+
+  async canUserDeleteTacheSoft(tacheId: string, userId: string, appRole: string): Promise<boolean> {
+    const t = await this.getTachePermSlice(tacheId);
+    if (!t) return false;
+    const eff = this.effectiveDeleguePermission(userId, appRole, t);
+    return eff !== null && this.permRank(eff) >= this.permRank(PermissionType.suppression);
+  }
+
   async findAll(filters: { statut?: string; projetId?: string; createurId?: string } = {}) {
     const where: any = { deletedAt: null };
     if (filters.statut) where.statut = filters.statut;
@@ -133,8 +209,7 @@ export class TacheService {
       include: { assignesUtilisateurs: true },
     });
     if (!existing || existing.deletedAt) throw new Error('Tâche non trouvée');
-    if (role === 'lecteur') throw new Error('Accès refusé');
-    if (role === 'contributeur' && !canContributeurAgirSurTache(userId, existing)) {
+    if (!(await this.canUserDeleteTacheSoft(id, userId, role))) {
       throw new Error('Accès refusé');
     }
     await prisma.tache.update({
@@ -149,7 +224,7 @@ export class TacheService {
       include: { assignesUtilisateurs: true },
     });
     if (!existing || !existing.deletedAt) throw new Error('Tâche non trouvée dans la corbeille');
-    if (role !== 'admin' && !canContributeurAgirSurTache(userId, existing)) {
+    if (!(await this.canUserDeleteTacheSoft(id, userId, role))) {
       throw new Error('Accès refusé');
     }
     await prisma.tache.update({
@@ -189,7 +264,10 @@ export class TacheService {
         userStoryId: userStoryId || null,
         createurId,
         assignesUtilisateurs: {
-          create: assignesUtilisateurIds.map((userId: string) => ({ userId })),
+          create: assignesUtilisateurIds.map((userId: string) => ({
+            userId,
+            permission: PermissionType.modification,
+          })),
         },
         assignesEntites: {
           create: assignesEntiteIds.map((entiteId: string) => ({ entiteId })),
@@ -276,7 +354,11 @@ export class TacheService {
       await prisma.tacheUser.deleteMany({ where: { tacheId: id } });
       if (assignesUtilisateurIds.length > 0) {
         await prisma.tacheUser.createMany({
-          data: assignesUtilisateurIds.map((userId: string) => ({ tacheId: id, userId })),
+          data: assignesUtilisateurIds.map((userId: string) => ({
+            tacheId: id,
+            userId,
+            permission: PermissionType.modification,
+          })),
           skipDuplicates: true,
         });
       }
@@ -556,7 +638,7 @@ export class TacheService {
     return false;
   }
 
-  async getAccesDetail(tacheId: string, role: string) {
+  async getAccesDetail(tacheId: string, role: string, requesterId: string) {
     const t = await prisma.tache.findFirst({
       where: { id: tacheId, deletedAt: null },
       include: {
@@ -574,14 +656,15 @@ export class TacheService {
       where: { role: 'admin', statut: 'actif' },
       select: { id: true, nom: true, prenom: true, email: true },
     });
-    const canManage = role === 'admin' || role === 'contributeur';
+    const canManage = await this.canUserManageTacheAcces(tacheId, requesterId, role);
     return {
       admins,
       creator: t.createur,
       delegations: t.assignesUtilisateurs.map((tu) => ({
         id: tu.id,
         user: tu.user,
-        permissionLabel: 'Assigné à la tâche',
+        permission: tu.permission,
+        permissionLabel: ACCES_PERM_LABELS[tu.permission] ?? tu.permission,
       })),
       entites: t.assignesEntites.map((te) => ({
         id: te.id,
@@ -593,26 +676,57 @@ export class TacheService {
     };
   }
 
-  async addTacheAssigne(tacheId: string, userIdToAdd: string, role: string) {
-    if (role !== 'admin' && role !== 'contributeur') throw new Error('Accès refusé');
+  async addTacheAssigne(
+    tacheId: string,
+    userIdToAdd: string,
+    permission: PermissionType,
+    actorId: string,
+    actorRole: string
+  ) {
+    if (!(await this.canUserManageTacheAcces(tacheId, actorId, actorRole))) {
+      throw new Error('Accès refusé');
+    }
     const t = await prisma.tache.findFirst({ where: { id: tacheId, deletedAt: null } });
     if (!t) throw new Error('Tâche non trouvée');
     await prisma.tacheUser.upsert({
       where: { tacheId_userId: { tacheId, userId: userIdToAdd } },
-      create: { tacheId, userId: userIdToAdd },
-      update: {},
+      create: { tacheId, userId: userIdToAdd, permission },
+      update: { permission },
     });
-    return this.getAccesDetail(tacheId, role);
+    return this.getAccesDetail(tacheId, actorRole, actorId);
   }
 
-  async removeTacheAssigne(tacheId: string, tacheUserId: string, role: string) {
-    if (role !== 'admin' && role !== 'contributeur') throw new Error('Accès refusé');
+  async updateTacheAssignePermission(
+    tacheId: string,
+    tacheUserId: string,
+    permission: PermissionType,
+    actorId: string,
+    actorRole: string
+  ) {
+    if (!(await this.canUserManageTacheAcces(tacheId, actorId, actorRole))) {
+      throw new Error('Accès refusé');
+    }
+    const row = await prisma.tacheUser.findFirst({
+      where: { id: tacheUserId, tacheId },
+    });
+    if (!row) throw new Error('Assignation introuvable');
+    await prisma.tacheUser.update({
+      where: { id: tacheUserId },
+      data: { permission },
+    });
+    return this.getAccesDetail(tacheId, actorRole, actorId);
+  }
+
+  async removeTacheAssigne(tacheId: string, tacheUserId: string, actorId: string, actorRole: string) {
+    if (!(await this.canUserManageTacheAcces(tacheId, actorId, actorRole))) {
+      throw new Error('Accès refusé');
+    }
     const row = await prisma.tacheUser.findFirst({
       where: { id: tacheUserId, tacheId },
     });
     if (!row) throw new Error('Assignation introuvable');
     await prisma.tacheUser.delete({ where: { id: tacheUserId } });
-    return this.getAccesDetail(tacheId, role);
+    return this.getAccesDetail(tacheId, actorRole, actorId);
   }
 
   async getJournalHistory(tacheId: string, page: number, limit: number) {

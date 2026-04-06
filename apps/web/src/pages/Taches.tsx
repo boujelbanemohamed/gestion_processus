@@ -45,6 +45,13 @@ const LABEL_LOG_ACTION: Record<string, string> = {
   export: 'Export',
 };
 
+const PERM_TACHE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'lecture', label: '👁 Lecture' },
+  { value: 'modification', label: '✏️ Modification' },
+  { value: 'suppression', label: '🗑 Suppression' },
+  { value: 'gestion', label: '🔐 Gestion des accès' },
+];
+
 const LABEL_RESSOURCE: Record<string, string> = {
   processus: 'Processus',
   document: 'Document',
@@ -71,7 +78,7 @@ export type Tache = {
   critereAcceptation?: string;
   projetId?: string;
   projet?: { id: string; nom: string };
-  assignesUtilisateurs?: { id: string; nom: string; prenom: string }[];
+  assignesUtilisateurs?: { id: string; nom: string; prenom: string; permission?: string; tacheUserId?: string }[];
   assignesEntites?: { id: string; nom: string }[];
   liaisons?: { id: string; tacheId: string; tacheLieeId: string; type: string; tacheLiee?: { id: string; nom: string; statut: string } }[];
   commentaires?: Commentaire[];
@@ -1102,9 +1109,23 @@ function getAccesPersonnes(tache: Tache, allUsers: UserOption[]) {
     add(u.id, `${(u as any).prenom} ${u.nom}`, 'Admin', 'modification + accès + lecture')
   );
 
-  // 2. Assignés à la tâche
-  (tache.assignesUtilisateurs || []).forEach(u =>
-    add(u.id, `${u.prenom} ${u.nom}`, 'Assigné à la tâche', 'modification + lecture')
+  // 2. Assignés à la tâche (niveau issu de la délégation sur la tâche)
+  const accesPourPerm = (perm?: string) => {
+    switch (perm) {
+      case 'lecture':
+        return 'lecture';
+      case 'modification':
+        return 'modification + lecture';
+      case 'suppression':
+        return 'modification + suppression + lecture';
+      case 'gestion':
+        return 'modification + accès + lecture';
+      default:
+        return 'modification + lecture';
+    }
+  };
+  (tache.assignesUtilisateurs || []).forEach((u) =>
+    add(u.id, `${u.prenom} ${u.nom}`, 'Assigné à la tâche', accesPourPerm(u.permission))
   );
 
   // 3. Membres du projet
@@ -1863,6 +1884,7 @@ export function TacheCard({
   const [accesDetail, setAccesDetail] = useState<any | null>(null);
   const [accesLoading, setAccesLoading] = useState(false);
   const [newAssignUserId, setNewAssignUserId] = useState('');
+  const [newAssignPerm, setNewAssignPerm] = useState('lecture');
   const [showHistModal, setShowHistModal] = useState(false);
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
@@ -1873,6 +1895,7 @@ export function TacheCard({
     setShowAccesModal(true);
     setAccesDetail(null);
     setNewAssignUserId('');
+    setNewAssignPerm('lecture');
     setAccesLoading(true);
     try {
       const { data } = await api.get(`/taches/${tache.id}/acces`);
@@ -1893,8 +1916,22 @@ export function TacheCard({
   const handleAddAssigne = async () => {
     if (!newAssignUserId) return;
     try {
-      await api.post(`/taches/${tache.id}/assignes`, { userId: newAssignUserId });
+      await api.post(`/taches/${tache.id}/assignes`, {
+        userId: newAssignUserId,
+        permission: newAssignPerm,
+      });
       setNewAssignUserId('');
+      setNewAssignPerm('lecture');
+      await refreshAcces();
+      onRefreshData?.();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleChangeAssignPermission = async (assignId: string, permission: string) => {
+    try {
+      await api.patch(`/taches/${tache.id}/assignes/${assignId}`, { permission });
       await refreshAcces();
       onRefreshData?.();
     } catch (e: any) {
@@ -2009,6 +2046,13 @@ export function TacheCard({
               <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium text-center sm:text-left" title="Vous pouvez modifier cette tâche">
                 ✏️ Modification
               </span>
+            ) : onSoftDelete ? (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 font-medium text-center sm:text-left border border-amber-200"
+                title="Pas d’édition du contenu : mise en corbeille / restauration autorisée selon votre délégation"
+              >
+                🗑 Corbeille (sans édition)
+              </span>
             ) : (
               <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium text-center sm:text-left" title="Vous avez uniquement accès en lecture">
                 👁 Lecture seule
@@ -2023,7 +2067,7 @@ export function TacheCard({
                 ✏️ Modifier
               </button>
             )}
-            {canEdit && onSoftDelete && (
+            {onSoftDelete && (
               <button
                 type="button"
                 onClick={() => onSoftDelete(tache.id)}
@@ -2104,9 +2148,12 @@ export function TacheCard({
           <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
             <h3 className="text-xl font-semibold mb-2">Accès — {tache.nom}</h3>
             <p className="text-sm text-gray-600 mb-5 leading-relaxed">
-              Les comptes <span className="font-medium">administrateur</span> ont tous les droits. Le{' '}
-              <span className="font-medium">créateur</span> de la tâche dispose de droits étendus. Les personnes{' '}
-              <span className="font-medium">assignées</span> peuvent consulter et intervenir selon leur rôle applicatif.
+              Les comptes <span className="font-medium">administrateur</span> et <span className="font-medium">contributeur</span>{' '}
+              ont tous les droits sur la tâche. Le <span className="font-medium">créateur</span> gère les accès comme un
+              délégué « gestion ». Pour chaque <span className="font-medium">assigné</span> (profil lecteur), choisissez :{' '}
+              <span className="font-medium">Lecture</span>, <span className="font-medium">Modification</span>,{' '}
+              <span className="font-medium">Suppression</span> (corbeille / restauration) ou{' '}
+              <span className="font-medium">Gestion des accès</span>.
             </p>
             {accesLoading ? (
               <p className="text-sm text-gray-500">Chargement…</p>
@@ -2149,15 +2196,29 @@ export function TacheCard({
                           key={d.id}
                           className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50"
                         >
-                          <span className="font-medium">
+                          <span className="font-medium shrink-0">
                             {d.user.prenom} {d.user.nom}
                           </span>
-                          <span className="text-gray-500">— {d.permissionLabel || 'Assigné'}</span>
+                          {accesDetail.canManagePermissions ? (
+                            <select
+                              value={d.permission || 'lecture'}
+                              onChange={(e) => void handleChangeAssignPermission(d.id, e.target.value)}
+                              className="text-xs border border-gray-300 rounded-md px-2 py-1.5 min-w-[12rem] flex-1 max-w-xs"
+                            >
+                              {PERM_TACHE_OPTIONS.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-gray-500 text-sm">— {d.permissionLabel || d.permission || 'Lecture'}</span>
+                          )}
                           {accesDetail.canManagePermissions && (
                             <button
                               type="button"
                               onClick={() => void handleRemoveAssigne(d.id)}
-                              className="text-xs text-red-600 hover:underline ml-auto"
+                              className="text-xs text-red-600 hover:underline ml-auto shrink-0"
                             >
                               Retirer
                             </button>
@@ -2185,7 +2246,7 @@ export function TacheCard({
                 {accesDetail.canManagePermissions && (
                   <div className="border-t border-gray-200 pt-4 space-y-3">
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Assigner un utilisateur</p>
-                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3 items-end">
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_auto] gap-3 items-end">
                       <select
                         value={newAssignUserId}
                         onChange={(e) => setNewAssignUserId(e.target.value)}
@@ -2204,6 +2265,17 @@ export function TacheCard({
                               {u.prenom} {u.nom}
                             </option>
                           ))}
+                      </select>
+                      <select
+                        value={newAssignPerm}
+                        onChange={(e) => setNewAssignPerm(e.target.value)}
+                        className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        {PERM_TACHE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
                       </select>
                       <button
                         type="button"
@@ -3354,6 +3426,23 @@ export default function Taches() {
 
   const canEdit = (tache: Tache) => {
     if (isAdmin || isContributeur) return true;
+    if (isLecteur && currentUser) {
+      if (tache.createurId === currentUser.id) return true;
+      const a = tache.assignesUtilisateurs?.find((u) => u.id === currentUser.id);
+      const p = a?.permission || 'lecture';
+      return p === 'modification' || p === 'suppression' || p === 'gestion';
+    }
+    return false;
+  };
+
+  const canSoftDeleteTache = (tache: Tache) => {
+    if (isAdmin || isContributeur) return true;
+    if (currentUser && tache.createurId === currentUser.id) return true;
+    if (isLecteur && currentUser) {
+      const a = tache.assignesUtilisateurs?.find((u) => u.id === currentUser.id);
+      const p = a?.permission || 'lecture';
+      return p === 'suppression' || p === 'gestion';
+    }
     return false;
   };
 
@@ -3932,7 +4021,7 @@ export default function Taches() {
                   allUsers={users}
                   onOpenEpic={(id) => setDetailEpicId(id)}
                   onOpenUserStory={(id) => setDetailUserStoryId(id)}
-                  onSoftDelete={canEdit(t) ? handleSoftDeleteTache : undefined}
+                  onSoftDelete={canSoftDeleteTache(t) ? handleSoftDeleteTache : undefined}
                   onRefreshData={loadAll}
                 />
               ))}

@@ -265,6 +265,7 @@ app.get("/api/v1/taches/corbeille", tacheController.getTachesCorbeille);
 app.get("/api/v1/taches/documents-liables", tacheController.getDocumentsLiables);
 app.get("/api/v1/taches/:id/acces", tacheController.getTacheAcces);
 app.post("/api/v1/taches/:id/assignes", tacheController.postTacheAssigne);
+app.patch("/api/v1/taches/:id/assignes/:assignId", tacheController.patchTacheAssignePermission);
 app.delete("/api/v1/taches/:id/assignes/:assignId", tacheController.deleteTacheAssigne);
 app.get("/api/v1/taches/:id/history", tacheController.getTacheHistory);
 app.post("/api/v1/taches/:id/restaurer", tacheController.restoreTache);

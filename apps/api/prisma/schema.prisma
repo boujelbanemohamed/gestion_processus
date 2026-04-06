@@ -893,12 +893,13 @@ model Tache {
 }
 
 model TacheUser {
-  id        String   @id @default(uuid())
-  tacheId   String
-  tache     Tache    @relation(fields: [tacheId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User     @relation("TacheAssigneUser", fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+  id         String         @id @default(uuid())
+  tacheId    String
+  tache      Tache          @relation(fields: [tacheId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User           @relation("TacheAssigneUser", fields: [userId], references: [id], onDelete: Cascade)
+  permission PermissionType @default(lecture)
+  createdAt  DateTime       @default(now())
 
   @@unique([tacheId, userId])
   @@index([tacheId])
