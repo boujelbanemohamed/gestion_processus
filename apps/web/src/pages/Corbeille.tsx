@@ -1,7 +1,21 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 
+const CORBEILLE_TABS = [
+  'processus',
+  'documents',
+  'licences',
+  'clientsFournisseurs',
+  'contrats',
+  'entites',
+  'projets',
+  'agile',
+] as const;
+type CorbeilleTab = (typeof CORBEILLE_TABS)[number];
+
 export default function Corbeille() {
+  const [searchParams] = useSearchParams();
   const [processus, setProcessus] = useState<any[]>([]);
   const [documents, setDocuments] = useState<any[]>([]);
   const [licences, setLicences] = useState<any[]>([]);
@@ -23,6 +37,13 @@ export default function Corbeille() {
     | 'projets'
     | 'agile'
   >('processus');
+
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t && (CORBEILLE_TABS as readonly string[]).includes(t)) {
+      setActiveTab(t as CorbeilleTab);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     loadCorbeille();

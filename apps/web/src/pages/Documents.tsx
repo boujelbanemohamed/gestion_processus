@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
+import { getPaginationPageNumbers } from '../utils/pagination';
 import * as XLSX from 'xlsx';
 
 export default function Documents() {
@@ -562,57 +563,62 @@ export default function Documents() {
     }
   };
 
-  if (loading) return <div className="p-6">Chargement...</div>;
+  if (loading) {
+    return (
+      <div className="p-6">
+        <div className="text-center py-10 text-gray-400">Chargement...</div>
+      </div>
+    );
+  }
 
   const totalPages = Math.max(1, Math.ceil(documents.length / pageSize));
-  const startIdx = (page - 1) * pageSize;
+  const safePage = Math.min(page, totalPages);
+  const startIdx = (safePage - 1) * pageSize;
   const pagedDocuments = documents.slice(startIdx, startIdx + pageSize);
-  const getPageNumbers = () => {
-    const pages: (number | string)[] = [];
-    if (totalPages <= 7) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-      return pages;
-    }
-    const addRange = (start: number, end: number) => {
-      for (let i = start; i <= end; i++) pages.push(i);
-    };
-    if (page <= 4) {
-      addRange(1, 5);
-      pages.push('...');
-      pages.push(totalPages);
-    } else if (page >= totalPages - 3) {
-      pages.push(1);
-      pages.push('...');
-      addRange(totalPages - 4, totalPages);
-    } else {
-      pages.push(1);
-      pages.push('...');
-      addRange(page - 1, page + 1);
-      pages.push('...');
-      pages.push(totalPages);
-    }
-    return pages;
-  };
 
   return (
     <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Documents</h1>
-        {!isLecteur && (
-          <button
-            onClick={() => {
-              setShowUploadModal(true);
-              setError('');
-              setFiles([]);
-              setFileNames({});
-              setUploadData({ nom: '', description: '', estConfidentiel: false, versionMajeure: '1', versionMineure: '0', versionPatch: '0', processusId: '', typeDocument: 'general' });
-              setPermissionUserIds([]);
-            }}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            Nouveau document
-          </button>
-        )}
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Documents</h1>
+          <p className="text-sm text-gray-500 mt-1">{documents.length} document(s)</p>
+        </div>
+        <div className="flex flex-wrap gap-2 justify-end">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => navigate('/corbeille?tab=documents')}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
+            >
+              🗑 Corbeille
+            </button>
+          )}
+          {!isLecteur && (
+            <button
+              type="button"
+              onClick={() => {
+                setShowUploadModal(true);
+                setError('');
+                setFiles([]);
+                setFileNames({});
+                setUploadData({
+                  nom: '',
+                  description: '',
+                  estConfidentiel: false,
+                  versionMajeure: '1',
+                  versionMineure: '0',
+                  versionPatch: '0',
+                  processusId: '',
+                  typeDocument: 'general',
+                });
+                setPermissionUserIds([]);
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
+            >
+              + Nouveau document
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow mb-6">
@@ -701,375 +707,349 @@ export default function Documents() {
           </div>
         )}
       </div>
-      <div className="bg-white rounded-lg shadow overflow-x-auto">
-        <div className="flex justify-between items-center p-4 border-b">
-          <h2 className="text-lg font-semibold">Liste des documents</h2>
-          {sortConfig && (
-            <button
-              onClick={resetSort}
-              className="px-3 py-1 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
-              title="Réinitialiser le tri"
-            >
-              Réinitialiser le tri
-            </button>
-          )}
+      <div className="bg-white rounded-lg shadow">
+        <div className="p-4 border-b border-gray-100 space-y-3">
+          <div className="flex flex-wrap justify-between items-center gap-3">
+            <h2 className="text-lg font-semibold text-gray-900">Liste des documents</h2>
+            {sortConfig && (
+              <button
+                type="button"
+                onClick={resetSort}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                title="Réinitialiser le tri"
+              >
+                Réinitialiser le tri
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2 items-center text-xs text-gray-600">
+            <span className="font-semibold text-gray-500 shrink-0">Trier par :</span>
+            {(
+              [
+                ['nom', 'Nom'],
+                ['typeDocument', 'Type'],
+                ['statut', 'Statut'],
+                ['uploadedBy', 'Uploadé par'],
+                ['createdAt', "Date d'upload"],
+                ['updatedAt', 'Modifié le'],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                type="button"
+                key={key}
+                onClick={() => handleSort(key)}
+                className={`px-2 py-1 rounded-md border ${
+                  sortConfig?.key === key
+                    ? 'border-blue-500 bg-blue-50 text-blue-800'
+                    : 'border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                {label}
+                {sortConfig?.key === key ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : ''}
+              </button>
+            ))}
+          </div>
         </div>
-        <table className="min-w-full divide-y divide-gray-200 min-w-[1100px]">
-          <thead className="bg-gray-50">
-            <tr>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('nom')}
-              >
-                <div className="flex items-center gap-1">
-                  Nom
-                  {sortConfig?.key === 'nom' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </div>
-              </th>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('typeDocument')}
-              >
-                <div className="flex items-center gap-1">
-                  Type
-                  {sortConfig?.key === 'typeDocument' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </div>
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Processus / Projet / Contrat / Licence / Tâche</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('statut')}
-              >
-                <div className="flex items-center gap-1">
-                  Statut
-                  {sortConfig?.key === 'statut' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </div>
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Accès</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Commentaires</th>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('uploadedBy')}
-              >
-                <div className="flex items-center gap-1">
-                  Uploadé par
-                  {sortConfig?.key === 'uploadedBy' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </div>
-              </th>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('createdAt')}
-              >
-                <div className="flex items-center gap-1">
-                  Date d'upload
-                  {sortConfig?.key === 'createdAt' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </div>
-              </th>
-              <th 
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100"
-                onClick={() => handleSort('updatedAt')}
-              >
-                <div className="flex items-center gap-1">
-                  Date de modification
-                  {sortConfig?.key === 'updatedAt' && (
-                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
-                  )}
-                </div>
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Visualisations</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Téléchargements</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Favoris</th>
-              {isAdmin && (
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-              )}
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {pagedDocuments.map((d) => {
-              const isLicenceLinkedDoc = d.typeDocument === 'licence' || d.referenceType === 'licence';
-              const showRestrictedAccess = d.estConfidentiel || isLicenceLinkedDoc;
-              return (
-              <tr key={d.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  <button
-                    onClick={() => handleViewDocument(d)}
-                    className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
-                  >
-                    {d.nom}
-                  </button>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm capitalize">
-                  {d.typeDocument === 'autre' && d.tacheDocuments?.length > 0 ? 'tâche' : d.typeDocument === 'licence' ? 'Licence' : d.typeDocument}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  {d.referenceType === 'processus' && d.referenceId ? (
-                    d.processus ? (
+        <div className="p-4 space-y-4">
+          {documents.length === 0 && (
+            <div className="text-center py-10 text-gray-400 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+              Aucun document
+            </div>
+          )}
+          {pagedDocuments.map((d) => {
+            const isLicenceLinkedDoc = d.typeDocument === 'licence' || d.referenceType === 'licence';
+            const showRestrictedAccess = d.estConfidentiel || isLicenceLinkedDoc;
+            const statut =
+              d.typeDocument === 'contrat' && d.contrats?.[0]?.contrat?.statut
+                ? d.contrats[0].contrat.statut
+                : d.statut;
+            const statutColor =
+              statut === 'valide' || statut === 'actif'
+                ? 'bg-green-100 text-green-800'
+                : statut === 'en_revision' || statut === 'suspendu'
+                  ? 'bg-yellow-100 text-yellow-800'
+                  : statut === 'expire' || statut === 'resilie'
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-gray-100 text-gray-800';
+            const typeLabel =
+              d.typeDocument === 'autre' && d.tacheDocuments?.length > 0
+                ? 'tâche'
+                : d.typeDocument === 'licence'
+                  ? 'Licence'
+                  : d.typeDocument;
+            return (
+              <div key={d.id} className="bg-gray-50/80 rounded-lg border border-gray-100 p-5">
+                <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
                       <button
-                        onClick={() => navigate(`/processus/${d.referenceId}`)}
-                        className="text-blue-600 hover:text-blue-800 hover:underline"
+                        type="button"
+                        onClick={() => handleViewDocument(d)}
+                        className="text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline text-left"
                       >
-                        {d.processus.nom} ({d.processus.codeProcessus})
+                        {d.nom}
                       </button>
-                    ) : (
-                      <button
-                        onClick={() => navigate(`/processus/${d.referenceId}`)}
-                        className="text-blue-600 hover:text-blue-800 hover:underline"
-                      >
-                        Voir le processus
-                      </button>
-                    )
-                  ) : (
-                    d.referenceType === 'projet' && d.referenceId ? (
-                      <button onClick={() => navigate(`/projets/${d.referenceId}`)} className="text-blue-600 hover:text-blue-800 hover:underline">
-                        {d.projet ? `${d.projet.nom} (${d.projet.codeProjet})` : 'Voir le projet'}
-                      </button>
-                    ) : d.typeDocument === 'contrat' ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-xs font-medium">
-                        📄 {d.contrats?.[0]?.contrat?.nom || 'Contrat lié'}
+                      <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded text-xs font-medium capitalize">
+                        {typeLabel}
                       </span>
-                    ) : d.referenceType === 'licence' && (d.licence || d.referenceId) ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-800 rounded text-xs font-medium">
-                        🔑 {d.licence?.nom || 'Licence'}
-                        {d.licence?.reference ? ` (#${d.licence.reference})` : ''}
-                      </span>
-                    ) : d.typeDocument === 'tache' || d.typeDocument === 'autre' ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 text-orange-700 rounded text-xs font-medium">
-                        📋 {d.tacheDocuments?.[0]?.tache?.nom || 'Tâche'}
-                      </span>
-                    ) : (
-                      <span className="text-gray-500 italic">N/A</span>
-                    )
-                  )}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">{d.version || '-'}</td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  {(() => {
-                    const statut = d.typeDocument === 'contrat' && d.contrats?.[0]?.contrat?.statut
-                      ? d.contrats[0].contrat.statut
-                      : d.statut;
-                    const color = statut === 'valide' || statut === 'actif' ? 'bg-green-100 text-green-800' :
-                      statut === 'en_revision' || statut === 'suspendu' ? 'bg-yellow-100 text-yellow-800' :
-                      statut === 'expire' || statut === 'resilie' ? 'bg-red-100 text-red-800' :
-                      'bg-gray-100 text-gray-800';
-                    return <span className={`px-2 py-1 text-xs rounded ${color}`}>{statut}</span>;
-                  })()}
-                  {showRestrictedAccess && (
-                    <div className="mt-2 text-xs text-gray-700 space-y-1">
-                      <span className="inline-block px-2 py-0.5 bg-red-100 text-red-800 rounded">
-                        {isLicenceLinkedDoc ? 'Confidentiel (licence)' : 'Confidentiel'}
-                      </span>
-                      {
-                        (() => {
-                          const selectedUsers = (d.permissionsUtilisateurs || [])
-                            .map((p: any) => p.user)
-                            .filter((u: any) => !!u);
-                          const viewers: string[] = [];
-                          selectedUsers.forEach((u: any) => viewers.push(`${u.prenom} ${u.nom}`));
-                          if (d.uploadedBy) viewers.push(`${d.uploadedBy.prenom} ${d.uploadedBy.nom}`);
-                          if (d.licence?.createdBy) viewers.push(`${d.licence.createdBy.prenom} ${d.licence.createdBy.nom}`);
-                          (d.licence?.permissions || []).forEach((lp: any) => {
-                            if (lp.user) viewers.push(`${lp.user.prenom} ${lp.user.nom}`);
-                          });
-                          if (d.processus?.proprietaire) viewers.push(`${d.processus.proprietaire.prenom} ${d.processus.proprietaire.nom}`);
-                          if (d.processus?.createdBy) viewers.push(`${d.processus.createdBy.prenom} ${d.processus.createdBy.nom}`);
-                          const editors: string[] = [];
-                          selectedUsers.forEach((u: any) => editors.push(`${u.prenom} ${u.nom}`));
-                          if (d.uploadedBy) editors.push(`${d.uploadedBy.prenom} ${d.uploadedBy.nom}`);
-                          const uniq = (arr: string[]) => Array.from(new Set(arr.filter(Boolean)));
-                          const viewersUniq = uniq(viewers);
-                          const editorsUniq = uniq(editors);
-                          return (
-                            <div className="space-y-0.5">
-                              <div>
-                                <span className="font-medium">Peuvent consulter:</span>{' '}
-                                {viewersUniq.length > 0 ? viewersUniq.join(', ') : 'N/A'}
-                              </div>
-                              <div>
-                                <span className="font-medium">Peuvent modifier:</span>{' '}
-                                {editorsUniq.length > 0 ? editorsUniq.join(', ') : 'N/A'}
-                              </div>
-                            </div>
-                          );
-                        })()
-                      }
+                      <span className={`px-2 py-0.5 text-xs rounded font-medium ${statutColor}`}>{statut}</span>
+                      <span className="text-xs text-gray-500">v{d.version || '—'}</span>
                     </div>
-                  )}
-                </td>
-                <td className="px-6 py-4 text-sm">
-                  {showRestrictedAccess ? (
-                    <div>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">🔒 Accès restreint</span>
-                      {isLicenceLinkedDoc && (
-                        <p className="mt-1 text-xs text-amber-800">Aligné sur les droits de la licence</p>
+                    <div className="text-sm text-gray-700 mb-2">
+                      <span className="font-medium text-gray-600">Référence : </span>
+                      {d.referenceType === 'processus' && d.referenceId ? (
+                        d.processus ? (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/processus/${d.referenceId}`)}
+                            className="text-blue-600 hover:underline"
+                          >
+                            {d.processus.nom} ({d.processus.codeProcessus})
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/processus/${d.referenceId}`)}
+                            className="text-blue-600 hover:underline"
+                          >
+                            Voir le processus
+                          </button>
+                        )
+                      ) : d.referenceType === 'projet' && d.referenceId ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/projets/${d.referenceId}`)}
+                          className="text-blue-600 hover:underline"
+                        >
+                          {d.projet ? `${d.projet.nom} (${d.projet.codeProjet})` : 'Voir le projet'}
+                        </button>
+                      ) : d.typeDocument === 'contrat' ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-xs font-medium">
+                          📄 {d.contrats?.[0]?.contrat?.nom || 'Contrat lié'}
+                        </span>
+                      ) : d.referenceType === 'licence' && (d.licence || d.referenceId) ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-800 rounded text-xs font-medium">
+                          🔑 {d.licence?.nom || 'Licence'}
+                          {d.licence?.reference ? ` (#${d.licence.reference})` : ''}
+                        </span>
+                      ) : d.typeDocument === 'tache' || d.typeDocument === 'autre' ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 text-orange-700 rounded text-xs font-medium">
+                          📋 {d.tacheDocuments?.[0]?.tache?.nom || 'Tâche'}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 italic">N/A</span>
                       )}
-                      <div className="mt-1 text-xs text-gray-600 space-y-0.5">
-                        {(() => {
-                          const ayantsDroit: {nom: string, roles: string[]}[] = [];
-                          const addPerson = (id: string, nom: string, role: string) => {
-                            const existing = ayantsDroit.find(a => a.nom === nom);
-                            if (existing) { if (!existing.roles.includes(role)) existing.roles.push(role); }
-                            else ayantsDroit.push({ nom, roles: [role] });
-                          };
-                          usersList.filter(u => u.role === 'admin').forEach(u => addPerson(u.id, `${u.prenom} ${u.nom}`, 'Admin'));
-                          if (d.uploadedBy) addPerson(d.uploadedBy.id, `${d.uploadedBy.prenom} ${d.uploadedBy.nom}`, 'Uploadeur');
-                          (d.permissionsUtilisateurs || []).forEach((p: any) => { if (p.user) addPerson(p.user.id, `${p.user.prenom} ${p.user.nom}`, 'Accès document'); });
-                          if (d.licence?.createdBy) {
-                            addPerson(d.licence.createdBy.id, `${d.licence.createdBy.prenom} ${d.licence.createdBy.nom}`, 'Créateur licence');
-                          }
-                          (d.licence?.permissions || []).forEach((lp: any) => {
-                            if (lp.user) {
-                              const niveau = lp.niveau === 'lecture' ? 'Lecture' : lp.niveau === 'modification' ? 'Modification' : lp.niveau === 'suppression' ? 'Suppression' : lp.niveau;
-                              addPerson(lp.user.id, `${lp.user.prenom} ${lp.user.nom}`, `Licence (${niveau})`);
-                            }
-                          });
-                          if (ayantsDroit.length === 0) return <span className="italic text-gray-400">Aucun utilisateur défini</span>;
-                          return ayantsDroit.map((a, i) => (
-                            <div key={i}><span className="font-medium">{a.nom}</span> <span className="text-gray-400">({a.roles.join(', ')})</span></div>
-                          ));
-                        })()}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mb-3">
+                      <div>
+                        <span className="font-medium text-gray-700">Uploadé par : </span>
+                        {d.uploadedBy ? `${d.uploadedBy.prenom} ${d.uploadedBy.nom}` : '—'}
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700">Vues / Téléchargements : </span>
+                        {d.nombreVisualisations || 0} / {d.nombreTelechargements || 0}
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700">Créé : </span>
+                        {formatDate(d.createdAt)}
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700">Modifié : </span>
+                        {formatDate(d.updatedAt)}
                       </div>
                     </div>
-                  ) : (
-                    <div>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">🌐 Accès libre</span>
-                      <div className="mt-1 text-xs text-gray-400 italic">Tous les utilisateurs</div>
+                    {showRestrictedAccess && (
+                      <div className="text-xs text-gray-700 space-y-1 mb-2">
+                        <span className="inline-block px-2 py-0.5 bg-red-100 text-red-800 rounded">
+                          {isLicenceLinkedDoc ? 'Confidentiel (licence)' : 'Confidentiel'}
+                        </span>
+                      </div>
+                    )}
+                    <div className="mt-3 flex flex-wrap items-start gap-2 sm:gap-3 text-xs text-gray-700 border border-slate-100 rounded-lg px-3 py-2.5 bg-slate-50/90">
+                      <span className="font-semibold text-gray-600 uppercase shrink-0 pt-0.5">Accès :</span>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0 flex-1">
+                        {showRestrictedAccess ? (
+                          <div>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                              🔒 Accès restreint
+                            </span>
+                            {isLicenceLinkedDoc && (
+                              <p className="mt-1 text-xs text-amber-800">Aligné sur les droits de la licence</p>
+                            )}
+                            <div className="mt-1 text-xs text-gray-600 space-y-0.5">
+                              {(() => {
+                                const ayantsDroit: { nom: string; roles: string[] }[] = [];
+                                const addPerson = (id: string, nom: string, role: string) => {
+                                  const existing = ayantsDroit.find((a) => a.nom === nom);
+                                  if (existing) {
+                                    if (!existing.roles.includes(role)) existing.roles.push(role);
+                                  } else ayantsDroit.push({ nom, roles: [role] });
+                                };
+                                usersList
+                                  .filter((u) => u.role === 'admin')
+                                  .forEach((u) => addPerson(u.id, `${u.prenom} ${u.nom}`, 'Admin'));
+                                if (d.uploadedBy)
+                                  addPerson(d.uploadedBy.id, `${d.uploadedBy.prenom} ${d.uploadedBy.nom}`, 'Uploadeur');
+                                (d.permissionsUtilisateurs || []).forEach((p: any) => {
+                                  if (p.user) addPerson(p.user.id, `${p.user.prenom} ${p.user.nom}`, 'Accès document');
+                                });
+                                if (d.licence?.createdBy) {
+                                  addPerson(
+                                    d.licence.createdBy.id,
+                                    `${d.licence.createdBy.prenom} ${d.licence.createdBy.nom}`,
+                                    'Créateur licence'
+                                  );
+                                }
+                                (d.licence?.permissions || []).forEach((lp: any) => {
+                                  if (lp.user) {
+                                    const niveau =
+                                      lp.niveau === 'lecture'
+                                        ? 'Lecture'
+                                        : lp.niveau === 'modification'
+                                          ? 'Modification'
+                                          : lp.niveau === 'suppression'
+                                            ? 'Suppression'
+                                            : lp.niveau;
+                                    addPerson(lp.user.id, `${lp.user.prenom} ${lp.user.nom}`, `Licence (${niveau})`);
+                                  }
+                                });
+                                if (ayantsDroit.length === 0)
+                                  return <span className="italic text-gray-400">Aucun utilisateur défini</span>;
+                                return ayantsDroit.map((a, idx) => (
+                                  <div key={idx}>
+                                    <span className="font-medium">{a.nom}</span>{' '}
+                                    <span className="text-gray-400">({a.roles.join(', ')})</span>
+                                  </div>
+                                ));
+                              })()}
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                              🌐 Accès libre
+                            </span>
+                            <div className="mt-1 text-xs text-gray-400 italic">Tous les utilisateurs authentifiés</div>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  <button
-                    onClick={() => openCommentsModal(d)}
-                    className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-                    title="Voir les commentaires"
-                  >
-                    Voir commentaires{typeof commentCounts[d.id] === 'number' ? ` (${commentCounts[d.id]})` : ''}
-                  </button>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  {d.uploadedBy ? `${d.uploadedBy.prenom} ${d.uploadedBy.nom}` : '-'}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                  {formatDate(d.createdAt)}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                  {formatDate(d.updatedAt)}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                  <div className="flex items-center gap-1">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                    {d.nombreVisualisations || 0}
                   </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                  <div className="flex items-center gap-1">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    {d.nombreTelechargements || 0}
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  <button
-                    onClick={() => handleToggleDocumentFavori(d.id)}
-                    disabled={loadingFavoris[d.id]}
-                    className={`px-3 py-2 rounded-md transition-colors flex items-center gap-2 ${
-                      favorisDocuments.has(d.id)
-                        ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 border border-yellow-300'
-                        : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-300'
-                    } disabled:opacity-50`}
-                    title={favorisDocuments.has(d.id) ? 'Retirer des favoris' : 'Ajouter aux favoris'}
-                  >
-                    <svg className="w-4 h-4" fill={favorisDocuments.has(d.id) ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                    </svg>
-                    <span className="text-xs font-medium hidden sm:inline">
-                      {favorisDocuments.has(d.id) ? 'Retirer' : 'Ajouter'}
-                    </span>
-                  </button>
-                </td>
-                {isAdmin && (
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleEdit(d)}
-                        className="px-3 py-1 text-xs bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200"
-                        title="Modifier le document"
-                      >
-                        Modifier
-                      </button>
-                      {canModifierAcces(d) && (
+                  <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
+                    <button
+                      type="button"
+                      onClick={() => handleViewDocument(d)}
+                      className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                    >
+                      👁 Consulter
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openCommentsModal(d)}
+                      className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                    >
+                      💬 Commentaires
+                      {typeof commentCounts[d.id] === 'number' ? ` (${commentCounts[d.id]})` : ''}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleDocumentFavori(d.id)}
+                      disabled={loadingFavoris[d.id]}
+                      className={`px-3 py-1.5 text-xs rounded hover:opacity-90 disabled:opacity-50 ${
+                        favorisDocuments.has(d.id)
+                          ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                          : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
+                      }`}
+                    >
+                      {favorisDocuments.has(d.id) ? '⭐ Retirer favori' : '☆ Ajouter favori'}
+                    </button>
+                    {isAdmin && (
+                      <>
                         <button
-                          onClick={() => handleOpenAccesModal(d)}
-                          className="px-3 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200"
-                          title="Modifier l'accès"
+                          type="button"
+                          onClick={() => handleEdit(d)}
+                          className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
                         >
-                          🔑 Accès
+                          ✏️ Modifier
                         </button>
-                      )}
+                        {canModifierAcces(d) && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAccesModal(d)}
+                            className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
+                          >
+                            🔐 Accès
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(d)}
+                          className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                        >
+                          🗑 Mettre en corbeille
+                        </button>
+                      </>
+                    )}
+                    {!isAdmin && canModifierAcces(d) && (
                       <button
-                        onClick={() => handleDelete(d)}
-                        className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
-                        title="Supprimer le document"
+                        type="button"
+                        onClick={() => handleOpenAccesModal(d)}
+                        className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
                       >
-                        Supprimer
+                        🔐 Accès
                       </button>
-                    </div>
-                  </td>
-                )}
-              </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {documents.length === 0 && (
-          <div className="text-center py-8 text-gray-500">Aucun document</div>
-        )}
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
         {documents.length > pageSize && (
-          <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4">
+          <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4 px-4 pb-4 flex-wrap gap-3">
             <div className="text-sm text-gray-700">
               Affichage {startIdx + 1}-{Math.min(startIdx + pageSize, documents.length)} sur {documents.length}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
+                type="button"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className={`px-4 py-2 rounded text-sm font-medium ${page === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                disabled={safePage === 1}
+                className={`px-4 py-2 rounded text-sm font-medium ${
+                  safePage === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
               >
                 Précédent
               </button>
-              <div className="flex gap-1">
-                {getPageNumbers().map((p, idx) => (
+              <div className="flex gap-1 flex-wrap items-center">
+                {getPaginationPageNumbers(safePage, totalPages).map((p, idx) =>
                   typeof p === 'string' ? (
-                    <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">{p}</span>
+                    <span key={`ellipsis-${idx}`} className="px-2 text-gray-500">
+                      {p}
+                    </span>
                   ) : (
                     <button
-                      key={p as number}
-                      onClick={() => setPage(p as number)}
-                      className={`px-3 py-2 rounded text-sm font-medium ${page === p ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                      key={p}
+                      type="button"
+                      onClick={() => setPage(p)}
+                      className={`px-3 py-2 rounded text-sm font-medium ${
+                        safePage === p ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
                     >
                       {p}
                     </button>
                   )
-                ))}
+                )}
               </div>
               <button
+                type="button"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className={`px-4 py-2 rounded text-sm font-medium ${page === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                disabled={safePage === totalPages}
+                className={`px-4 py-2 rounded text-sm font-medium ${
+                  safePage === totalPages
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
               >
                 Suivant
               </button>
