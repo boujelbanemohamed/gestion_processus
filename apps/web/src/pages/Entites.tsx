@@ -81,6 +81,8 @@ export default function Entites() {
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
   const [expandedEntiteIds, setExpandedEntiteIds] = useState<Set<string>>(() => new Set());
+  const [showCorbeilleModal, setShowCorbeilleModal] = useState(false);
+  const [corbeilleEntites, setCorbeilleEntites] = useState<any[]>([]);
   const toggleEntiteRow = (id: string) => {
     setExpandedEntiteIds((prev) => {
       const next = new Set(prev);
@@ -104,6 +106,32 @@ export default function Entites() {
   useEffect(() => {
     setPage(1);
   }, [filters.search, filters.type, filters.parentId, filters.responsableId, sortConfig]);
+
+  const loadCorbeilleEntites = async () => {
+    try {
+      const r = await api.get('/entites/corbeille');
+      setCorbeilleEntites(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setCorbeilleEntites([]);
+    }
+  };
+
+  const handleRestoreEntiteFromCorbeille = async (id: string) => {
+    try {
+      await api.post(`/corbeille/entites/${id}/restaurer`);
+      setShowCorbeilleModal(false);
+      await loadEntites();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur lors de la restauration');
+    }
+  };
+
+  const canRestoreEntiteCorbeille = (row: any) =>
+    currentUser?.role === 'admin' ||
+    row.createdById === currentUser?.id ||
+    row.createdBy?.id === currentUser?.id ||
+    row.responsableId === currentUser?.id ||
+    row.responsable?.id === currentUser?.id;
 
   const cap = (e: any) => ({
     canView: e.capabilities?.canView !== false,
@@ -337,7 +365,12 @@ export default function Entites() {
   };
 
   const handleSoftDelete = async (id: string, nom: string) => {
-    if (!confirm(`Mettre l’entité « ${nom} » en corbeille ? (restauration par un administrateur)`)) return;
+    if (
+      !confirm(
+        `Mettre l’entité « ${nom} » en corbeille ? (restauration possible ; suppression définitive depuis la corbeille globale)`
+      )
+    )
+      return;
     try {
       await api.delete(`/entites/${id}`);
       loadEntites();
@@ -375,8 +408,18 @@ export default function Entites() {
           <h1 className="text-2xl font-bold text-gray-900">Entités</h1>
           <p className="text-sm text-gray-500 mt-1">{entites.length} entité(s)</p>
         </div>
-        {!isLecteur && (
-          <div className="flex flex-wrap gap-2 justify-end">
+        <div className="flex flex-wrap gap-2 justify-end">
+          <button
+            type="button"
+            onClick={async () => {
+              await loadCorbeilleEntites();
+              setShowCorbeilleModal(true);
+            }}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
+          >
+            🗑 Corbeille
+          </button>
+          {!isLecteur && (
             <button
               type="button"
               onClick={() => {
@@ -396,8 +439,8 @@ export default function Entites() {
             >
               + Nouvelle entité
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow mb-6">
@@ -950,6 +993,60 @@ export default function Entites() {
               >
                 Fermer
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCorbeilleModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-5 border-b">
+              <h2 className="text-lg font-semibold">🗑 Entités en corbeille</h2>
+              <button
+                type="button"
+                onClick={() => setShowCorbeilleModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl"
+                aria-label="Fermer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              {corbeilleEntites.length === 0 && (
+                <p className="text-sm text-gray-500">Aucune entité en corbeille.</p>
+              )}
+              {corbeilleEntites.map((ce: any) => (
+                <div
+                  key={ce.id}
+                  className="flex flex-wrap justify-between items-center gap-3 p-3 border rounded-lg bg-gray-50"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900">{ce.nom}</p>
+                    <p className="text-xs text-gray-500 font-mono">{ce.code}</p>
+                    <p className="text-xs text-gray-500">
+                      Supprimé le {ce.deletedAt ? new Date(ce.deletedAt).toLocaleString('fr-FR') : '—'}
+                      {ce.createdBy && ` · Créé par ${ce.createdBy.prenom} ${ce.createdBy.nom}`}
+                    </p>
+                  </div>
+                  {canRestoreEntiteCorbeille(ce) ? (
+                    <button
+                      type="button"
+                      onClick={() => handleRestoreEntiteFromCorbeille(ce.id)}
+                      className="shrink-0 px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700"
+                    >
+                      Restaurer
+                    </button>
+                  ) : (
+                    <span className="text-xs text-gray-400 shrink-0">
+                      Restauration : admin, créateur ou responsable
+                    </span>
+                  )}
+                </div>
+              ))}
+              <p className="text-xs text-gray-400 pt-2">
+                La suppression définitive reste réservée aux administrateurs (corbeille globale).
+              </p>
             </div>
           </div>
         </div>

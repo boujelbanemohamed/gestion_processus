@@ -100,6 +100,7 @@ app.get("/api/v1/dashboard/taches-en-retard", dashboardController.getTachesEnRet
 // Entités
 app.get("/api/v1/entites", entiteController.getAllEntites);
 app.get("/api/v1/entites/tree", entiteController.getEntiteTree);
+app.get("/api/v1/entites/corbeille", entiteController.getEntitesCorbeille);
 app.get("/api/v1/entites/:id/acces", entiteController.getEntiteAcces);
 app.get("/api/v1/entites/:id/history", entiteController.getEntiteHistory);
 app.post("/api/v1/entites/:id/permissions", entiteController.addEntitePermission);
@@ -248,6 +249,7 @@ app.delete("/api/v1/corbeille/entites/:id", corbeilleController.supprimerDefinit
 app.post("/api/v1/corbeille/projets/:id/restaurer", corbeilleController.restaurerProjet);
 app.delete("/api/v1/corbeille/projets/:id", corbeilleController.supprimerDefinitivementProjet);
 app.post("/api/v1/corbeille/pv-reunions/:id/restaurer", corbeilleController.restaurerPvReunion);
+app.delete("/api/v1/corbeille/pv-reunions/:id", corbeilleController.supprimerDefinitivementPvReunion);
 app.post("/api/v1/corbeille/taches-agile/:id/restaurer", corbeilleController.restaurerTacheAgile);
 app.delete("/api/v1/corbeille/taches-agile/:id", corbeilleController.supprimerDefinitivementTacheAgile);
 app.post("/api/v1/corbeille/epics-agile/:id/restaurer", corbeilleController.restaurerEpicAgile);

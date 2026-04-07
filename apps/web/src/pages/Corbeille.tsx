@@ -285,6 +285,22 @@ export default function Corbeille() {
     }
   };
 
+  const handleSupprimerPvReunion = async (id: string) => {
+    if (
+      !window.confirm(
+        'Supprimer définitivement ce PV de réunion ? Les fichiers associés seront supprimés. Cette action est irréversible.'
+      )
+    )
+      return;
+    try {
+      await api.delete(`/corbeille/pv-reunions/${id}`);
+      await loadCorbeille();
+    } catch (error: any) {
+      console.error('Erreur suppression:', error);
+      alert(error?.response?.data?.error || 'Erreur lors de la suppression définitive');
+    }
+  };
+
   if (loading) return <div className="p-6">Chargement...</div>;
 
   return (
@@ -742,13 +758,22 @@ export default function Corbeille() {
                     {pv.deletedAt ? new Date(pv.deletedAt).toLocaleDateString('fr-FR') : '—'}
                   </td>
                   <td className="px-6 py-4 text-sm">
-                    <button
-                      type="button"
-                      onClick={() => handleRestaurerPvReunion(pv.id)}
-                      className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
-                    >
-                      Restaurer
-                    </button>
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleRestaurerPvReunion(pv.id)}
+                        className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
+                      >
+                        Restaurer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSupprimerPvReunion(pv.id)}
+                        className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200"
+                      >
+                        Supprimer définitivement
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

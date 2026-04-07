@@ -490,6 +490,23 @@ export class EntiteService {
     });
   }
 
+  /** Corbeille : tout pour l’admin, sinon entités dont l’utilisateur est créateur ou responsable (aligné processus). */
+  async listDeletedForCorbeilleScoped(auth: EntiteAuth) {
+    const where: any = { deletedAt: { not: null } };
+    if (!isAdminRole(auth.role)) {
+      where.OR = [{ createdById: auth.userId }, { responsableId: auth.userId }];
+    }
+    return prisma.entite.findMany({
+      where,
+      include: {
+        responsable: { select: { id: true, nom: true, prenom: true } },
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+        parent: { select: { id: true, nom: true, code: true } },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+  }
+
   async getTree(auth: EntiteAuth) {
     const all = await this.findAll(auth);
     const root = all.filter((e) => !e.parentId);

@@ -42,6 +42,17 @@ export const getEntiteTree = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const getEntitesCorbeille = async (req: AuthRequest, res: Response) => {
+  try {
+    const auth = authFromReq(req);
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
+    const rows = await entiteService.listDeletedForCorbeilleScoped(auth);
+    res.json(rows);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 export const getEntite = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);

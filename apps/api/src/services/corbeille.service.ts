@@ -315,4 +315,29 @@ export class CorbeilleService {
       orderBy: { deletedAt: 'desc' },
     });
   }
+
+  /** Suppression définitive d’un PV en corbeille : enregistrement + documents principal et pièces des commentaires. */
+  async supprimerDefinitivementPvReunion(id: string) {
+    const pv = await prisma.pvReunion.findFirst({
+      where: { id, deletedAt: { not: null } },
+      include: { commentaires: { select: { documentId: true } } },
+    });
+    if (!pv) throw new Error('PV non trouvé ou non en corbeille');
+
+    const docIds = new Set<string>();
+    docIds.add(pv.documentId);
+    for (const c of pv.commentaires) {
+      if (c.documentId) docIds.add(c.documentId);
+    }
+
+    await prisma.pvReunion.delete({ where: { id } });
+
+    for (const docId of docIds) {
+      try {
+        await this.supprimerDefinitivementDocument(docId);
+      } catch {
+        // Document déjà supprimé ou fichier manquant : continuer
+      }
+    }
+  }
 }

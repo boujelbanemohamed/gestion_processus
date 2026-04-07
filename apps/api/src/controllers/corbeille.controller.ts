@@ -294,8 +294,21 @@ export const restaurerEntite = async (req: AuthRequest, res: Response) => {
     if (!req.user?.userId || !req.user?.role) {
       return res.status(401).json({ error: 'Non authentifié' });
     }
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut restaurer des éléments.' });
+    const deleted = await prisma.entite.findFirst({
+      where: { id: req.params.id, deletedAt: { not: null } },
+      select: { createdById: true, responsableId: true },
+    });
+    if (!deleted) {
+      return res.status(400).json({ error: 'Élément introuvable ou non en corbeille' });
+    }
+    const isAdmin = req.user.role === 'admin';
+    const isCreator = deleted.createdById === req.user.userId;
+    const isResponsable = deleted.responsableId === req.user.userId;
+    if (!isAdmin && !isCreator && !isResponsable) {
+      return res.status(403).json({
+        error:
+          'Accès refusé. Seuls l’administrateur, le créateur ou le responsable peuvent restaurer cette entité.',
+      });
     }
     const row = await corbeilleService.restaurerEntite(req.params.id);
     await logAccess(req, res, 'modification', 'entite', row.id, row.nom, { action: 'restauration' });
@@ -488,5 +501,23 @@ export const restaurerPvReunion = async (req: AuthRequest, res: Response) => {
     if (msg === 'NOT_FOUND') return res.status(400).json({ error: 'Élément introuvable ou non en corbeille' });
     if (msg === 'FORBIDDEN') return res.status(403).json({ error: 'Accès refusé' });
     res.status(400).json({ error: msg });
+  }
+};
+
+export const supprimerDefinitivementPvReunion = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Accès refusé.' });
+    }
+    await corbeilleService.supprimerDefinitivementPvReunion(req.params.id);
+    await logAccess(req, res, 'suppression', ResourceType.pvReunion, req.params.id, undefined, {
+      action: 'suppression_definitive',
+    });
+    res.status(204).send();
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
   }
 };
