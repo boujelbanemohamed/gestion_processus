@@ -95,6 +95,8 @@ export default function Processus() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [showFiltres, setShowFiltres] = useState(false);
+  /** Lignes de processus dépliées (par défaut tout est replié). */
+  const [expandedProcessusIds, setExpandedProcessusIds] = useState<Set<string>>(() => new Set());
   const [showCorbeilleModal, setShowCorbeilleModal] = useState(false);
   const [corbeilleProcessus, setCorbeilleProcessus] = useState<any[]>([]);
 
@@ -116,6 +118,17 @@ export default function Processus() {
   );
 
   const firstProcessusLoad = useRef(true);
+
+  const toggleProcessusRow = (id: string) => {
+    setExpandedProcessusIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const isProcessusRowExpanded = (id: string) => expandedProcessusIds.has(id);
 
   const resetCreateModal = () => {
     setFormData({
@@ -599,20 +612,83 @@ export default function Processus() {
           const actifAdmins = users.filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'));
           const creatorId = p.createdById || p.createdBy?.id;
 
+          const rowOpen = isProcessusRowExpanded(p.id);
+
           return (
-            <div key={p.id} className="bg-white rounded-lg shadow p-5">
-              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 mb-2 flex-wrap">
+            <div key={p.id} className="bg-white rounded-lg shadow overflow-hidden">
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 p-4 lg:gap-4">
+                <button
+                  type="button"
+                  onClick={() => toggleProcessusRow(p.id)}
+                  className="flex flex-1 min-w-0 items-start gap-3 text-left rounded-lg hover:bg-gray-50 -m-1 p-1 lg:m-0 lg:p-2 lg:-m-2 transition-colors"
+                  aria-expanded={rowOpen}
+                  aria-label={rowOpen ? 'Replier le détail du processus' : 'Afficher le détail du processus'}
+                >
+                  <span className="text-gray-400 shrink-0 w-5 text-center leading-7" aria-hidden>
+                    {rowOpen ? '▼' : '▶'}
+                  </span>
+                  <div className="flex flex-wrap items-center gap-3 min-w-0 flex-1">
                     <span
-                      className={`px-2 py-0.5 rounded text-xs font-medium ${currentStatut?.color || 'bg-gray-100 text-gray-800'}`}
+                      className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${currentStatut?.color || 'bg-gray-100 text-gray-800'}`}
                     >
                       {currentStatut?.label || p.statut}
                     </span>
                     <h2 className="text-lg font-semibold text-gray-900">{p.nom}</h2>
-                    <span className="text-sm text-gray-500 font-mono">{p.codeProcessus}</span>
+                    <span className="text-sm text-gray-500 font-mono shrink-0">{p.codeProcessus}</span>
                   </div>
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600">
+                </button>
+
+                <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem] pl-8 lg:pl-0">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/processus/${p.id}`)}
+                    className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                  >
+                    👁 Détails
+                  </button>
+                  {capModify(p) && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/processus/${p.id}`, { state: { openEdit: true } })}
+                      className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                    >
+                      ✏️ Modifier
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onAccesButtonClick(p)}
+                    className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
+                  >
+                    🔐 Accès
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openHistoriqueModal(p)}
+                    className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                  >
+                    📜 Historique
+                  </button>
+                  {capDelete(p) && (
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(p.id, p.nom)}
+                      disabled={deletingId === p.id}
+                      className={`px-3 py-1.5 text-xs rounded ${
+                        deletingId === p.id
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                          : 'bg-red-100 text-red-700 hover:bg-red-200'
+                      }`}
+                    >
+                      {deletingId === p.id ? '…' : '🗑 Mettre en corbeille'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {rowOpen && (
+                <div className="px-5 pb-5 pt-0 border-t border-gray-100">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600 pt-4">
                     <div>
                       <span className="font-medium">Documents : </span>
                       <span className="text-blue-700 font-semibold">{p.nombreDocuments ?? 0}</span>
@@ -635,9 +711,7 @@ export default function Processus() {
                       </div>
                     )}
                   </div>
-                  {p.description && (
-                    <p className="text-sm text-gray-600 mt-2 line-clamp-2">{p.description}</p>
-                  )}
+                  {p.description && <p className="text-sm text-gray-600 mt-2">{p.description}</p>}
 
                   {p.entites?.length > 0 && (
                     <div className="mt-2">
@@ -785,54 +859,7 @@ export default function Processus() {
                     </div>
                   </div>
                 </div>
-
-                <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/processus/${p.id}`)}
-                    className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
-                  >
-                    👁 Détails
-                  </button>
-                  {capModify(p) && (
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/processus/${p.id}`, { state: { openEdit: true } })}
-                      className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-                    >
-                      ✏️ Modifier
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => onAccesButtonClick(p)}
-                    className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
-                  >
-                    🔐 Accès
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openHistoriqueModal(p)}
-                    className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
-                  >
-                    📜 Historique
-                  </button>
-                  {capDelete(p) && (
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(p.id, p.nom)}
-                      disabled={deletingId === p.id}
-                      className={`px-3 py-1.5 text-xs rounded ${
-                        deletingId === p.id
-                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                          : 'bg-red-100 text-red-700 hover:bg-red-200'
-                      }`}
-                    >
-                      {deletingId === p.id ? '…' : '🗑 Mettre en corbeille'}
-                    </button>
-                  )}
-                </div>
-              </div>
+              )}
             </div>
           );
         })}
