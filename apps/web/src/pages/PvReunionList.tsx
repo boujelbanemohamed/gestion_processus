@@ -5,6 +5,7 @@ import axios from 'axios';
 import { useAuth } from '../store/auth';
 import { canModifyModule } from '../utils/uiModuleRoute';
 import { getPaginationPageNumbers } from '../utils/pagination';
+import { PvReunionAccesModal } from '../components/PvReunionAccesModal';
 
 const PAGE_SIZE = 15;
 
@@ -104,6 +105,7 @@ export default function PvReunionList() {
   const [histModalPv, setHistModalPv] = useState<any | null>(null);
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
+  const [accesModalPv, setAccesModalPv] = useState<{ id: string; titre: string } | null>(null);
 
   const canUseModule = canModifyModule(user?.uiModules, 'pv_reunion');
 
@@ -252,16 +254,19 @@ export default function PvReunionList() {
     }
   };
 
-  const filtered = useMemo(
-    () =>
-      rows.filter(
-        (r) =>
-          !search.trim() ||
-          r.titre?.toLowerCase().includes(search.toLowerCase()) ||
-          r.createdBy?.nom?.toLowerCase().includes(search.toLowerCase())
-      ),
-    [rows, search]
-  );
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (r) =>
+        r.titre?.toLowerCase().includes(q) ||
+        r.createdBy?.nom?.toLowerCase().includes(q) ||
+        r.createdBy?.prenom?.toLowerCase().includes(q) ||
+        String(r.id || '')
+          .toLowerCase()
+          .includes(q)
+    );
+  }, [rows, search]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -303,7 +308,7 @@ export default function PvReunionList() {
       <div className="bg-white rounded-lg shadow border border-gray-100 p-4 mb-4">
         <input
           type="search"
-          placeholder="Rechercher par titre ou créateur…"
+          placeholder="Rechercher par titre, créateur ou ID…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
@@ -324,7 +329,10 @@ export default function PvReunionList() {
               <div key={r.id} className="bg-white rounded-lg shadow border border-gray-100 p-5">
                 <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
                   <div className="flex-1 min-w-0">
-                    <h2 className="text-lg font-semibold text-gray-900 mb-2">{r.titre}</h2>
+                    <h2 className="text-lg font-semibold text-gray-900 mb-1">{r.titre}</h2>
+                    <p className="text-[11px] font-mono text-gray-400 break-all mb-2" title={r.id}>
+                      ID : {r.id}
+                    </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600">
                       <div>
                         <span className="font-medium text-gray-700">Date réunion : </span>
@@ -352,6 +360,13 @@ export default function PvReunionList() {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
+                    <button
+                      type="button"
+                      onClick={() => setAccesModalPv({ id: r.id, titre: r.titre || 'PV' })}
+                      className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
+                    >
+                      🔐 Accès
+                    </button>
                     <button
                       type="button"
                       onClick={() => navigate(`/pv-reunion/${r.id}`)}
@@ -451,6 +466,13 @@ export default function PvReunionList() {
           </div>
         </div>
       )}
+
+      <PvReunionAccesModal
+        open={!!accesModalPv}
+        onClose={() => setAccesModalPv(null)}
+        pvId={accesModalPv?.id ?? null}
+        titreFallback={accesModalPv?.titre ?? ''}
+      />
 
       {histModalPv && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">

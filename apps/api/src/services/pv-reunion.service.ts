@@ -1,5 +1,5 @@
 import { prisma } from '../utils/prisma';
-import { DocType, RefType, Role } from '../generated/prisma/enums';
+import { DocType, RefType, Role, UserStatus } from '../generated/prisma/enums';
 import { NotificationService } from './notification.service';
 
 export type LiensExplicites = {
@@ -532,6 +532,134 @@ export class PvReunionService {
     });
     if (!com?.pieceJointe || com.pvReunion.deletedAt) return null;
     return com.pieceJointe;
+  }
+
+  private readonly pvListLinkedSelect = {
+    id: true,
+    titre: true,
+    dateReunion: true,
+    createdAt: true,
+    createdById: true,
+    document: {
+      select: { id: true, nom: true, fichierNomOriginal: true },
+    },
+    createdBy: { select: { id: true, nom: true, prenom: true } },
+    modificationDelegues: { select: { userId: true } },
+  } as const;
+
+  private mapLinkedRows(
+    rows: Array<{ createdById: string; modificationDelegues: { userId: string }[] }>,
+    userId: string,
+    role: string
+  ) {
+    return rows.map((pv) => ({
+      ...pv,
+      capabilities: mapCapabilities(pv, userId, role),
+    }));
+  }
+
+  async listLinkedToProjet(projetId: string, userId: string, role: string) {
+    const rows = await prisma.pvReunion.findMany({
+      where: { deletedAt: null, projets: { some: { projetId } } },
+      select: this.pvListLinkedSelect,
+      orderBy: { createdAt: 'desc' },
+    });
+    return this.mapLinkedRows(rows, userId, role);
+  }
+
+  async listLinkedToTache(tacheId: string, userId: string, role: string) {
+    const rows = await prisma.pvReunion.findMany({
+      where: { deletedAt: null, taches: { some: { tacheId } } },
+      select: this.pvListLinkedSelect,
+      orderBy: { createdAt: 'desc' },
+    });
+    return this.mapLinkedRows(rows, userId, role);
+  }
+
+  async listLinkedToUserStory(userStoryId: string, userId: string, role: string) {
+    const rows = await prisma.pvReunion.findMany({
+      where: { deletedAt: null, userStories: { some: { userStoryId } } },
+      select: this.pvListLinkedSelect,
+      orderBy: { createdAt: 'desc' },
+    });
+    return this.mapLinkedRows(rows, userId, role);
+  }
+
+  async listLinkedToEpic(epicId: string, userId: string, role: string) {
+    const rows = await prisma.pvReunion.findMany({
+      where: { deletedAt: null, epics: { some: { epicId } } },
+      select: this.pvListLinkedSelect,
+      orderBy: { createdAt: 'desc' },
+    });
+    return this.mapLinkedRows(rows, userId, role);
+  }
+
+  async listLinkedToContrat(contratId: string, userId: string, role: string) {
+    const rows = await prisma.pvReunion.findMany({
+      where: { deletedAt: null, contrats: { some: { contratId } } },
+      select: this.pvListLinkedSelect,
+      orderBy: { createdAt: 'desc' },
+    });
+    return this.mapLinkedRows(rows, userId, role);
+  }
+
+  async listLinkedToProcessus(processusId: string, userId: string, role: string) {
+    const rows = await prisma.pvReunion.findMany({
+      where: { deletedAt: null, processus: { some: { processusId } } },
+      select: this.pvListLinkedSelect,
+      orderBy: { createdAt: 'desc' },
+    });
+    return this.mapLinkedRows(rows, userId, role);
+  }
+
+  /** Détail « Accès » (modale type contrat : lecture ; pas de permissions fines hors présents / délégués côté API). */
+  async getAccesDetail(pvId: string, userId: string, role: string) {
+    const pv = await prisma.pvReunion.findFirst({
+      where: { id: pvId, deletedAt: null },
+      include: {
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true, role: true } },
+        modificationDelegues: {
+          include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
+        },
+        presentsUser: {
+          include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
+        },
+        presentsClientFournisseur: {
+          include: { clientFournisseur: { select: { id: true, nom: true, type: true } } },
+        },
+        document: { select: { id: true, nom: true, fichierNomOriginal: true } },
+      },
+    });
+    if (!pv) throw new Error('NOT_FOUND');
+
+    const admins = await prisma.user.findMany({
+      where: { role: Role.admin, statut: UserStatus.actif },
+      select: { id: true, nom: true, prenom: true, email: true, role: true },
+      orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
+    });
+
+    const deleguesForCap = pv.modificationDelegues.map((d) => ({ userId: d.userId }));
+    const canManagePermissions = canModifyPv(
+      { createdById: pv.createdById, modificationDelegues: deleguesForCap },
+      userId,
+      role
+    );
+
+    return {
+      ficheNom: pv.titre,
+      pvId: pv.id,
+      admins,
+      creator: pv.createdBy,
+      modificationDelegues: pv.modificationDelegues,
+      presentsUser: pv.presentsUser,
+      presentsClientFournisseur: pv.presentsClientFournisseur,
+      document: pv.document,
+      canManagePermissions,
+      delegations: [] as { id: string; permission: string; user: unknown }[],
+      adminSansAccesUserIds: [] as string[],
+      visibilityNote:
+        'Tout utilisateur habilité sur le module « PV de réunion » peut consulter ce procès-verbal. Peuvent le modifier : les administrateurs, le créateur et les utilisateurs désignés comme délégués modification. Les présents sont informatifs (réunion) ; pour les modifier, ouvrez la fiche PV en édition.',
+    };
   }
 }
 

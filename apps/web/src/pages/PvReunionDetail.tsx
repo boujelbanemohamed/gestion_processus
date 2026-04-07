@@ -4,6 +4,7 @@ import { api, API_BASE_URL } from '../services/api';
 import axios from 'axios';
 import { useAuth } from '../store/auth';
 import { canModifyModule } from '../utils/uiModuleRoute';
+import { PvReunionAccesModal, type PvReunionAccesDetail } from '../components/PvReunionAccesModal';
 
 const ACTION_JOURNAL: Record<string, string> = {
   connexion: 'Connexion',
@@ -107,6 +108,8 @@ export default function PvReunionDetail() {
   const [commentSending, setCommentSending] = useState(false);
 
   const [showAccesModal, setShowAccesModal] = useState(false);
+  const [accesSynth, setAccesSynth] = useState<PvReunionAccesDetail | null>(null);
+  const [accesSynthLoading, setAccesSynthLoading] = useState(false);
   const [histOpen, setHistOpen] = useState(false);
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
@@ -154,6 +157,16 @@ export default function PvReunionDetail() {
 
   useEffect(() => {
     load();
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    setAccesSynthLoading(true);
+    api
+      .get(`/pv-reunions/${id}/acces`)
+      .then((r) => setAccesSynth(r.data))
+      .catch(() => setAccesSynth(null))
+      .finally(() => setAccesSynthLoading(false));
   }, [id]);
 
   useEffect(() => {
@@ -211,6 +224,12 @@ export default function PvReunionDetail() {
       });
       setEditMode(false);
       await load();
+      try {
+        const { data } = await api.get(`/pv-reunions/${id}/acces`);
+        setAccesSynth(data);
+      } catch {
+        /* garde l’ancienne synthèse */
+      }
     } catch (err: any) {
       alert(err?.response?.data?.error || err?.message);
     } finally {
@@ -322,7 +341,10 @@ export default function PvReunionDetail() {
       <div className="bg-white rounded-lg shadow p-5 mb-6">
         <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
           <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-semibold text-gray-900 mb-3">{pv.titre}</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">{pv.titre}</h2>
+            <p className="text-[11px] font-mono text-gray-400 break-all mb-3" title={pv.id}>
+              ID : {pv.id}
+            </p>
 
         {!editMode ? (
           <div className="grid md:grid-cols-2 gap-4 text-sm">
@@ -527,6 +549,99 @@ export default function PvReunionDetail() {
       {!editMode && (
         <>
           <section className="bg-white rounded-lg shadow border border-gray-100 p-6 mb-6">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">Accès et personnes concernées</h2>
+              <button
+                type="button"
+                onClick={() => setShowAccesModal(true)}
+                className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200 shrink-0"
+              >
+                🔐 Détail des accès (modale)
+              </button>
+            </div>
+            {accesSynthLoading && <p className="text-sm text-gray-500">Chargement…</p>}
+            {!accesSynthLoading && accesSynth && (
+              <div className="space-y-4 text-sm text-gray-700">
+                <p className="text-gray-600 leading-relaxed">{accesSynth.visibilityNote}</p>
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Administrateurs actifs</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {(accesSynth.admins || []).map((a) => (
+                      <span key={a.id} className="px-2 py-1 bg-slate-100 rounded text-xs">
+                        {a.prenom} {a.nom}
+                      </span>
+                    ))}
+                    {(accesSynth.admins || []).length === 0 && (
+                      <span className="text-gray-400 italic">Aucun</span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Créateur</h3>
+                  <p>
+                    {accesSynth.creator ? (
+                      <>
+                        <span className="font-medium">
+                          {accesSynth.creator.prenom} {accesSynth.creator.nom}
+                        </span>
+                        {accesSynth.creator.email && (
+                          <span className="text-gray-500 ml-1">({accesSynth.creator.email})</span>
+                        )}
+                      </>
+                    ) : (
+                      '—'
+                    )}
+                  </p>
+                </div>
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Délégués modification</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {(accesSynth.modificationDelegues || []).map((d, i) => (
+                      <span key={d.user?.id || d.userId || i} className="px-2 py-1 bg-blue-50 text-blue-900 rounded text-xs">
+                        {d.user ? `${d.user.prenom} ${d.user.nom}` : d.userId}
+                      </span>
+                    ))}
+                    {(accesSynth.modificationDelegues || []).length === 0 && (
+                      <span className="text-gray-400 italic">Aucun</span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Présents (utilisateurs)</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {(accesSynth.presentsUser || []).map((p, i) => (
+                      <span key={p.user?.id || i} className="px-2 py-1 bg-gray-100 rounded text-xs">
+                        {p.user ? `${p.user.prenom} ${p.user.nom}` : '—'}
+                      </span>
+                    ))}
+                    {(accesSynth.presentsUser || []).length === 0 && (
+                      <span className="text-gray-400 italic">Aucun</span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">
+                    Présents (clients / fournisseurs)
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {(accesSynth.presentsClientFournisseur || []).map((p, i) => (
+                      <span key={p.clientFournisseur?.id || i} className="px-2 py-1 bg-amber-50 rounded text-xs">
+                        {clientFournisseurLabel(p.clientFournisseur)}
+                      </span>
+                    ))}
+                    {(accesSynth.presentsClientFournisseur || []).length === 0 && (
+                      <span className="text-gray-400 italic">Aucun</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+            {!accesSynthLoading && !accesSynth && (
+              <p className="text-sm text-gray-500">Synthèse des accès indisponible.</p>
+            )}
+          </section>
+
+          <section className="bg-white rounded-lg shadow border border-gray-100 p-6 mb-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Rattachements effectifs</h2>
             <div className="grid md:grid-cols-2 gap-4 text-sm">
               <div>
@@ -593,39 +708,6 @@ export default function PvReunionDetail() {
                 </ul>
               </div>
             </div>
-          </section>
-
-          <section className="bg-white rounded-lg shadow border border-gray-100 p-6 mb-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-2">Présents</h2>
-            <div className="text-sm text-gray-600 flex flex-wrap gap-2">
-              {pv.presentsUser?.length
-                ? pv.presentsUser.map((x: any) => (
-                    <span key={x.id || x.userId} className="px-2 py-1 bg-gray-100 rounded">
-                      {x.user ? `${x.user.prenom} ${x.user.nom}` : x.userId}
-                    </span>
-                  ))
-                : null}
-              {pv.presentsClientFournisseur?.length
-                ? pv.presentsClientFournisseur.map((x: any) => (
-                    <span key={x.id || x.clientFournisseurId} className="px-2 py-1 bg-amber-50 rounded">
-                      {clientFournisseurLabel(x.clientFournisseur || { id: x.clientFournisseurId })}
-                    </span>
-                  ))
-                : null}
-              {!pv.presentsUser?.length && !pv.presentsClientFournisseur?.length ? '—' : null}
-            </div>
-            {pv.modificationDelegues?.length > 0 && (
-              <div className="mt-4">
-                <h3 className="text-sm font-medium text-gray-700 mb-2">Délégués modification</h3>
-                <div className="flex flex-wrap gap-2 text-sm">
-                  {pv.modificationDelegues.map((x: any) => (
-                    <span key={x.id || x.userId} className="px-2 py-1 bg-blue-50 text-blue-800 rounded">
-                      {x.user ? `${x.user.prenom} ${x.user.nom}` : x.userId}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
           </section>
 
           <section className="bg-white rounded-lg shadow border border-gray-100 p-6">
@@ -712,42 +794,12 @@ export default function PvReunionDetail() {
         </>
       )}
 
-      {showAccesModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-3">Accès au PV</h3>
-            <p className="text-sm text-gray-600 mb-3">
-              La consultation du module est soumise à vos droits applicatifs. Peuvent modifier ce PV : le créateur, les
-              administrateurs et les utilisateurs désignés comme délégués modification.
-            </p>
-            <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Créateur</p>
-            <p className="text-sm text-gray-800 mb-3">
-              {pv.createdBy ? `${pv.createdBy.prenom} ${pv.createdBy.nom}` : '—'}
-            </p>
-            {pv.modificationDelegues?.length > 0 && (
-              <>
-                <p className="text-xs font-semibold text-gray-500 uppercase mb-1">Délégués modification</p>
-                <ul className="text-sm text-gray-800 list-disc list-inside mb-3">
-                  {pv.modificationDelegues.map((x: any) => (
-                    <li key={x.id || x.userId}>
-                      {x.user ? `${x.user.prenom} ${x.user.nom}` : x.userId}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
-            <div className="flex justify-end mt-4">
-              <button
-                type="button"
-                onClick={() => setShowAccesModal(false)}
-                className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
-              >
-                Fermer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <PvReunionAccesModal
+        open={showAccesModal}
+        onClose={() => setShowAccesModal(false)}
+        pvId={id ?? null}
+        titreFallback={pv.titre || ''}
+      />
 
       {histOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">

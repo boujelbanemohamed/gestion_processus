@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { ResourceType } from '../generated/prisma/enums';
 import { parseTacheAssignPermission, TacheService } from '../services/tache.service';
+import { pvReunionService } from '../services/pv-reunion.service';
 import { AuthRequest } from '../middleware/auth';
 import { logAccess } from '../middleware/logger';
 
@@ -304,6 +305,22 @@ export const getDocumentsLiables = async (req: AuthRequest, res: Response) => {
     const { search } = req.query;
     const documents = await tacheService.getDocumentsLiables(search as string);
     res.json(documents);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const getTachePvReunions = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const ok = await tacheService.canUserViewTache(req.params.id, req.user.userId, req.user.role);
+    if (!ok) return res.status(403).json({ error: 'Accès refusé' });
+    const list = await pvReunionService.listLinkedToTache(
+      req.params.id,
+      req.user.userId,
+      req.user.role
+    );
+    res.json(list);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

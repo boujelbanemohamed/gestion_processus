@@ -4,6 +4,7 @@ import { api, API_BASE_URL } from '../services/api';
 import axios from 'axios';
 import { useAuth } from '../store/auth';
 import { getPaginationPageNumbers } from '../utils/pagination';
+import { PvReunionsLieesBlock } from '../components/PvReunionsLieesBlock';
 
 const uploadApi = axios.create({ baseURL: API_BASE_URL });
 uploadApi.interceptors.request.use((config) => {
@@ -770,6 +771,9 @@ export default function Contrats() {
                             </div>
                           ))}
                         </div>
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-gray-100">
+                        <PvReunionsLieesBlock apiPath={`/contrats/${c.id}/pv-reunions`} />
                       </div>
                         </div>
 

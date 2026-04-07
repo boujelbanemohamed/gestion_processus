@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { ProjetService } from '../services/projet.service';
+import { pvReunionService } from '../services/pv-reunion.service';
 import { AuthRequest } from '../middleware/auth';
 import { logAccess } from '../middleware/logger';
 import { prisma } from '../utils/prisma';
@@ -15,7 +16,7 @@ function authFromReq(req: AuthRequest): { userId: string; role: string } | null 
 export const getAllProjets = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);
-    if (!auth) return res.status(401).json({ error: 'Non authentifiÃ©' });
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
 
     const { statut, entiteId, search, nom, sortBy, sortOrder, priorite, type, periodeDebut, periodeFin } = req.query;
     const searchVal = (search as string) || (nom as string) || undefined;
@@ -43,7 +44,7 @@ export const getAllProjets = async (req: AuthRequest, res: Response) => {
 export const getProjetsCorbeille = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);
-    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
+    if (!auth) return res.status(401).json({ error: 'Non authentifi' });
     const rows = await projetService.listDeletedForCorbeilleScoped(auth);
     res.json(rows);
   } catch (error: any) {
@@ -54,11 +55,11 @@ export const getProjetsCorbeille = async (req: AuthRequest, res: Response) => {
 export const getProjet = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);
-    if (!auth) return res.status(401).json({ error: 'Non authentifiÃ©' });
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
 
     const projet = await projetService.findOne(req.params.id, auth);
     if (!projet) {
-      return res.status(404).json({ error: 'Projet non trouvÃ©' });
+      return res.status(404).json({ error: 'Projet non trouvé' });
     }
 
     const nombreConsultations = await projetService.getConsultationCount(req.params.id);
@@ -76,7 +77,7 @@ export const getProjet = async (req: AuthRequest, res: Response) => {
 export const getProjetAcces = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);
-    if (!auth) return res.status(401).json({ error: 'Non authentifiÃ©' });
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
     const data = await projetService.getAccesDetail(req.params.id, auth);
     res.json(data);
   } catch (e: any) {
@@ -88,7 +89,7 @@ export const getProjetAcces = async (req: AuthRequest, res: Response) => {
 export const addProjetPermission = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);
-    if (!auth) return res.status(401).json({ error: 'Non authentifiÃ©' });
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
     const { userId, permission } = req.body;
     if (!userId || !permission) return res.status(400).json({ error: 'userId et permission requis' });
     const created = await projetService.addPermission(req.params.id, userId, permission as PermissionType, auth);
@@ -107,7 +108,7 @@ export const addProjetPermission = async (req: AuthRequest, res: Response) => {
 export const removeProjetPermission = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);
-    if (!auth) return res.status(401).json({ error: 'Non authentifiÃ©' });
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
     await projetService.removePermission(req.params.id, req.params.permissionId, auth);
     await logAccess(req, res, 'modification', 'projet', req.params.id, undefined, { action: 'permission_retiree' });
     res.status(204).end();
@@ -120,7 +121,7 @@ export const removeProjetPermission = async (req: AuthRequest, res: Response) =>
 export const createProjet = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);
-    if (!auth) return res.status(401).json({ error: 'Non authentifiÃ©' });
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
 
     const createData: any = { ...req.body };
     if (req.body.entiteIds !== undefined) {
@@ -145,11 +146,11 @@ export const createProjet = async (req: AuthRequest, res: Response) => {
 export const updateProjet = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);
-    if (!auth) return res.status(401).json({ error: 'Non authentifiÃ©' });
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
 
     const oldProjet = await projetService.findOne(req.params.id, auth);
     if (!oldProjet) {
-      return res.status(404).json({ error: 'Projet non trouvÃ©' });
+      return res.status(404).json({ error: 'Projet non trouvé' });
     }
 
     const updateData: any = { ...req.body };
@@ -188,7 +189,7 @@ export const updateProjet = async (req: AuthRequest, res: Response) => {
     );
     res.json(projet);
   } catch (error: any) {
-    const code = error.message === 'AccÃ¨s refusÃ©' ? 403 : error.message === 'Projet non trouvÃ©' ? 404 : 400;
+    const code = error.message === 'Accès refusé' ? 403 : error.message === 'Projet non trouvé' ? 404 : 400;
     res.status(code).json({ error: error.message });
   }
 };
@@ -196,13 +197,13 @@ export const updateProjet = async (req: AuthRequest, res: Response) => {
 export const deleteProjet = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);
-    if (!auth) return res.status(401).json({ error: 'Non authentifiÃ©' });
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
 
     await projetService.softDelete(req.params.id, auth);
     await logAccess(req, res, 'suppression', 'projet', req.params.id, undefined, { action: 'corbeille' });
     res.status(204).send();
   } catch (error: any) {
-    const code = error.message === 'AccÃ¨s refusÃ©' ? 403 : error.message === 'Projet non trouvÃ©' ? 404 : 400;
+    const code = error.message === 'Accès refusé' ? 403 : error.message === 'Projet non trouvé' ? 404 : 400;
     res.status(code).json({ error: error.message });
   }
 };
@@ -210,7 +211,7 @@ export const deleteProjet = async (req: AuthRequest, res: Response) => {
 export const getProjetHistory = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);
-    if (!auth) return res.status(401).json({ error: 'Non authentifiÃ©' });
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
 
     const projet = await prisma.projet.findFirst({
       where: { id: req.params.id, deletedAt: null },
@@ -225,7 +226,7 @@ export const getProjetHistory = async (req: AuthRequest, res: Response) => {
         equipe: { select: { userId: true } },
       },
     });
-    if (!projet) return res.status(404).json({ error: 'Projet non trouvÃ©' });
+    if (!projet) return res.status(404).json({ error: 'Projet non trouvé' });
 
     const permRows = await prisma.permission.findMany({
       where: { ressourceType: 'projet', ressourceId: req.params.id, userId: auth.userId },
@@ -247,7 +248,7 @@ export const getProjetHistory = async (req: AuthRequest, res: Response) => {
       gov ||
       permTypes.length > 0;
 
-    if (!canView) return res.status(403).json({ error: 'AccÃ¨s refusÃ©' });
+    if (!canView) return res.status(403).json({ error: 'Accès refusé' });
 
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
@@ -291,6 +292,19 @@ export const getProjetHistory = async (req: AuthRequest, res: Response) => {
         totalPages: Math.ceil(total / limit),
       },
     });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const getProjetPvReunions = async (req: AuthRequest, res: Response) => {
+  try {
+    const auth = authFromReq(req);
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
+    const projet = await projetService.findOne(req.params.id, auth);
+    if (!projet) return res.status(404).json({ error: 'Projet non trouvé' });
+    const list = await pvReunionService.listLinkedToProjet(req.params.id, auth.userId, auth.role);
+    res.json(list);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

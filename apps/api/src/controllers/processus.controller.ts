@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { ProcessusService } from '../services/processus.service';
+import { pvReunionService } from '../services/pv-reunion.service';
 import { AuthRequest } from '../middleware/auth';
 import { logAccess } from '../middleware/logger';
 import { prisma } from '../utils/prisma';
@@ -364,6 +365,19 @@ export const getProcessusHistory = async (req: AuthRequest, res: Response) => {
         totalPages: Math.ceil(total / limit),
       },
     });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const getProcessusPvReunions = async (req: AuthRequest, res: Response) => {
+  try {
+    const auth = authFromReq(req);
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
+    const processus = await processusService.findOne(req.params.id, auth);
+    if (!processus) return res.status(404).json({ error: 'Processus non trouvé' });
+    const list = await pvReunionService.listLinkedToProcessus(req.params.id, auth.userId, auth.role);
+    res.json(list);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

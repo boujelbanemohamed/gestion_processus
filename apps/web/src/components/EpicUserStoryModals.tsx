@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, API_BASE_URL } from '../services/api';
+import { PvReunionsLieesBlock } from './PvReunionsLieesBlock';
 import type { ProjetOption, EntiteOption, DocTache } from '../pages/Taches';
 
 export type EpicRow = {
@@ -688,6 +689,9 @@ export function EpicDetailModal({ epicId, onClose }: { epicId: string; onClose: 
               {(epic.documents || []).length === 0 && <p className="text-gray-400">Aucun</p>}
             </ul>
           </div>
+          <div className="border-t border-gray-100 pt-4">
+            <PvReunionsLieesBlock apiPath={`/epics/${epicId}/pv-reunions`} />
+          </div>
         </div>
       </div>
     </div>
@@ -785,6 +789,9 @@ export function UserStoryDetailModal({
               ))}
               {(us.taches || []).length === 0 && <li className="text-gray-400 list-none">Aucune</li>}
             </ul>
+          </div>
+          <div className="border-t border-gray-100 pt-4">
+            <PvReunionsLieesBlock apiPath={`/user-stories/${userStoryId}/pv-reunions`} />
           </div>
         </div>
       </div>

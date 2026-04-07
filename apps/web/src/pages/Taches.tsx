@@ -17,6 +17,7 @@ import {
   type EpicRow,
   type UserStoryRow,
 } from '../components/EpicUserStoryModals';
+import { PvReunionsLieesBlock } from '../components/PvReunionsLieesBlock';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 
@@ -2172,6 +2173,10 @@ export function TacheCard({
           )}
           {/* Section Documents */}
           <DocumentsTache tacheId={tache.id} documents={tache.documents || []} canEdit={canEdit} />
+
+          <div className="border-t border-gray-200 pt-4">
+            <PvReunionsLieesBlock apiPath={`/taches/${tache.id}/pv-reunions`} />
+          </div>
 
           <div className="scroll-mt-4 border-t border-gray-200 pt-4 space-y-2">
             <h4 className="text-xs font-semibold text-gray-500 uppercase">Personnes habilitées (aperçu)</h4>

@@ -4,10 +4,14 @@ import path from 'path';
 import fs from 'fs';
 import { ResourceType } from '../generated/prisma/enums';
 import { EpicService } from '../services/epic.service';
+import { ProjetService } from '../services/projet.service';
+import { pvReunionService } from '../services/pv-reunion.service';
+import { prisma } from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
 import { logAccess } from '../middleware/logger';
 
 const epicService = new EpicService();
+const projetService = new ProjetService();
 
 const uploadDir = path.join(process.cwd(), 'uploads', 'epics');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -403,6 +407,47 @@ export const getUserStoryHistory = async (req: AuthRequest, res: Response) => {
     const limit = Math.min(parseInt(req.query.limit as string) || 80, 200);
     const out = await epicService.getUserStoryJournalHistory(req.params.id, page, limit);
     res.json(out);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const getEpicPvReunions = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const epic = await prisma.epic.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      select: { id: true, projetId: true },
+    });
+    if (!epic) return res.status(404).json({ error: 'Epic introuvable' });
+    const { canAccess } = await projetService.canAccess(epic.projetId, req.user.userId, req.user.role);
+    if (!canAccess) return res.status(403).json({ error: 'Accès refusé' });
+    const list = await pvReunionService.listLinkedToEpic(req.params.id, req.user.userId, req.user.role);
+    res.json(list);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const getUserStoryPvReunions = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const us = await prisma.userStory.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      select: { id: true, epic: { select: { projetId: true } } },
+    });
+    if (!us) return res.status(404).json({ error: 'User story introuvable' });
+    const projetId = us.epic?.projetId;
+    if (projetId) {
+      const { canAccess } = await projetService.canAccess(projetId, req.user.userId, req.user.role);
+      if (!canAccess) return res.status(403).json({ error: 'Accès refusé' });
+    }
+    const list = await pvReunionService.listLinkedToUserStory(
+      req.params.id,
+      req.user.userId,
+      req.user.role
+    );
+    res.json(list);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

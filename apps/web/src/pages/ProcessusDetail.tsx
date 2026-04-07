@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
+import { PvReunionsLieesBlock } from '../components/PvReunionsLieesBlock';
 import * as XLSX from 'xlsx';
 
 const PROC_PERM_LABELS: Record<string, string> = {
@@ -1121,6 +1122,12 @@ export default function ProcessusDetail() {
           </p>
         </div>
       </div>
+
+      {id && (
+        <div className="bg-white rounded-lg shadow mb-6 p-6">
+          <PvReunionsLieesBlock apiPath={`/processus/${id}/pv-reunions`} />
+        </div>
+      )}
 
       {/* Informations générales */}
       <div className="bg-white rounded-lg shadow mb-6 p-6">

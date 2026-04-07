@@ -117,6 +117,7 @@ app.delete(
   processusController.removeProcessusPermission
 );
 app.get("/api/v1/processus/:id/history", processusController.getProcessusHistory);
+app.get("/api/v1/processus/:id/pv-reunions", processusController.getProcessusPvReunions);
 app.get("/api/v1/processus/:id", processusController.getProcessus);
 app.post("/api/v1/processus", processusController.createProcessus);
 app.put("/api/v1/processus/:id", processusController.updateProcessus);
@@ -130,6 +131,7 @@ app.get("/api/v1/projets/:id/acces", projetController.getProjetAcces);
 app.get("/api/v1/projets/:id/history", projetController.getProjetHistory);
 app.post("/api/v1/projets/:id/permissions", projetController.addProjetPermission);
 app.delete("/api/v1/projets/:id/permissions/:permissionId", projetController.removeProjetPermission);
+app.get("/api/v1/projets/:id/pv-reunions", projetController.getProjetPvReunions);
 app.get("/api/v1/projets/:id", projetController.getProjet);
 app.post("/api/v1/projets", projetController.createProjet);
 app.put("/api/v1/projets/:id", projetController.updateProjet);
@@ -139,6 +141,7 @@ app.delete("/api/v1/projets/:id", projetController.deleteProjet);
 app.get("/api/v1/pv-reunions", pvReunionController.getPvReunions);
 app.get("/api/v1/pv-reunions/corbeille", pvReunionController.getPvReunionsCorbeille);
 app.get("/api/v1/pv-reunions/:id/history", pvReunionController.getPvReunionHistory);
+app.get("/api/v1/pv-reunions/:id/acces", pvReunionController.getPvReunionAcces);
 app.get(
   "/api/v1/pv-reunions/:id/commentaires/:commentId/piece",
   pvReunionController.downloadPvCommentairePiece
@@ -280,6 +283,7 @@ app.get("/api/v1/contrats/corbeille", contratController.getContratsCorbeille);
 app.get("/api/v1/contrats/stats-vues-pj", contratController.getContratsStatsVuesPj);
 app.get("/api/v1/contrats/:id/acces", contratController.getContratAcces);
 app.get("/api/v1/contrats/:id/historique", contratController.getContratHistorique);
+app.get("/api/v1/contrats/:id/pv-reunions", contratController.getContratPvReunions);
 app.post("/api/v1/contrats/:id/admin-sans-acces", contratController.blockAdminImplicitAccess);
 app.delete(
   "/api/v1/contrats/:id/admin-sans-acces/:userId",
@@ -317,6 +321,7 @@ app.post("/api/v1/taches/:id/assignes", tacheController.postTacheAssigne);
 app.patch("/api/v1/taches/:id/assignes/:assignId", tacheController.patchTacheAssignePermission);
 app.delete("/api/v1/taches/:id/assignes/:assignId", tacheController.deleteTacheAssigne);
 app.get("/api/v1/taches/:id/history", tacheController.getTacheHistory);
+app.get("/api/v1/taches/:id/pv-reunions", tacheController.getTachePvReunions);
 app.post("/api/v1/taches/:id/restaurer", tacheController.restoreTache);
 app.get("/api/v1/taches/:id", tacheController.getTache);
 app.post("/api/v1/taches", tacheController.createTache);
@@ -348,6 +353,7 @@ app.get(
 );
 app.post("/api/v1/epics/:id/restaurer", epicController.restoreEpic);
 app.get("/api/v1/epics/:id/history", epicController.getEpicHistory);
+app.get("/api/v1/epics/:id/pv-reunions", epicController.getEpicPvReunions);
 app.delete("/api/v1/epics/:id", epicController.softDeleteEpic);
 app.get("/api/v1/epics/:id", epicController.getEpic);
 app.put("/api/v1/epics/:id", epicController.updateEpic);
@@ -366,6 +372,7 @@ app.get(
 );
 app.post("/api/v1/user-stories/:id/restaurer", epicController.restoreUserStory);
 app.get("/api/v1/user-stories/:id/history", epicController.getUserStoryHistory);
+app.get("/api/v1/user-stories/:id/pv-reunions", epicController.getUserStoryPvReunions);
 app.delete("/api/v1/user-stories/:id", epicController.softDeleteUserStory);
 app.get("/api/v1/user-stories/:id", epicController.getUserStory);
 app.put("/api/v1/user-stories/:id", epicController.updateUserStory);

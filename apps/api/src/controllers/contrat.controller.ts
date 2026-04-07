@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { contratService } from '../services/contrat.service';
+import { pvReunionService } from '../services/pv-reunion.service';
 import { prisma } from '../utils/prisma';
 import multer from 'multer';
 import path from 'path';
@@ -81,6 +82,18 @@ export const getContratAcces = async (req: Request, res: Response) => {
     res.json(data);
   } catch (e: any) {
     return handleContratErr(res, e);
+  }
+};
+
+export const getContratPvReunions = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const contrat = await contratService.findOne(req.params.id, user.userId, user.role);
+    if (!contrat) return res.status(404).json({ error: 'Non trouvé ou accès refusé' });
+    const list = await pvReunionService.listLinkedToContrat(req.params.id, user.userId, user.role);
+    res.json(list);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 };
 

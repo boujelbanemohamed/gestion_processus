@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, type ReactNode } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import ProjetPilotageAgile from '../components/ProjetPilotageAgile';
+import { PvReunionsLieesBlock } from '../components/PvReunionsLieesBlock';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 
@@ -535,6 +536,7 @@ export default function ProjetDetail() {
   const [secContexte, setSecContexte] = useState(false);
   const [secObjectifs, setSecObjectifs] = useState(false);
   const [secDocuments, setSecDocuments] = useState(false);
+  const [secPvReunion, setSecPvReunion] = useState(false);
   const [secPilotage, setSecPilotage] = useState(false);
   const [secRecap, setSecRecap] = useState(false);
 
@@ -1674,6 +1676,15 @@ export default function ProjetDetail() {
               )}
             </div>
           </ProjetCollapsibleSection>
+
+        <ProjetCollapsibleSection
+          className="print:hidden"
+          open={secPvReunion}
+          onToggle={() => setSecPvReunion((v) => !v)}
+          title={<span className="text-gray-900">📋 PV de réunion liés au projet</span>}
+        >
+          {id ? <PvReunionsLieesBlock apiPath={`/projets/${id}/pv-reunions`} /> : null}
+        </ProjetCollapsibleSection>
 
         {/* Section Documents */}
         <ProjetCollapsibleSection

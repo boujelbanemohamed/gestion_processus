@@ -112,6 +112,19 @@ export const getPvReunionHistory = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const getPvReunionAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    const data = await pvReunionService.getAccesDetail(
+      req.params.id,
+      req.user!.userId,
+      req.user!.role
+    );
+    res.json(data);
+  } catch (e: unknown) {
+    handleErr(res, e);
+  }
+};
+
 export const getPvReunion = async (req: AuthRequest, res: Response) => {
   try {
     const pv = await pvReunionService.findOne(req.params.id, req.user!.userId, req.user!.role);
