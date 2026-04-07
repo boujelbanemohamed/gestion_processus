@@ -488,7 +488,17 @@ export default function ProjetDetail() {
   // Stakeholders with names
   const [partiesPrenantes, setPartiesPrenantes] = useState<{ type: string; nom: string }[]>([]);
   const [clientsFournisseurs, setClientsFournisseurs] = useState<any[]>([]);
-  const [newPartieCFId, setNewPartieCFId] = useState("");
+  const [newPartieCFId, setNewPartieCFId] = useState('');
+  const [expandedCfLiesIds, setExpandedCfLiesIds] = useState<Set<string>>(() => new Set());
+  const toggleCfLieRow = (cfId: string) => {
+    setExpandedCfLiesIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(cfId)) next.delete(cfId);
+      else next.add(cfId);
+      return next;
+    });
+  };
+  const isCfLieRowExpanded = (cfId: string) => expandedCfLiesIds.has(cfId);
   const [newPartie, setNewPartie] = useState({ type: 'Clients', nom: '' });
   // KPIs
   const [kpis, setKpis] = useState<string[]>([]);
@@ -1380,22 +1390,133 @@ export default function ProjetDetail() {
                 </div>
               )}
             </div>
-            {/* Clients / Fournisseurs liés */}
+            {/* Clients / Fournisseurs liés — lignes repliables (même principe que la liste Processus) */}
             <div className="mt-5">
               <label className="block text-sm font-medium text-gray-700 mb-2">🏢 Clients / Fournisseurs liés</label>
               {projet?.clientsFournisseurs?.length > 0 ? (
-                <div className="space-y-1 mb-3">
-                  {projet.clientsFournisseurs.map((cfp: any) => (
-                    <div key={cfp.clientFournisseurId} className="flex items-center gap-2">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${cfp.clientFournisseur?.type === 'client' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}>
-                        {cfp.clientFournisseur?.type === 'client' ? '👤 Client' : '🏭 Fournisseur'}
-                      </span>
-                      <span className="text-sm text-gray-700">{cfp.clientFournisseur?.nom}</span>
-                      {editing && (
-                        <button onClick={async () => { await api.delete(`/clients-fournisseurs/${cfp.clientFournisseurId}/projets/${id}`); loadProjet(); }} className="text-red-400 hover:text-red-600 text-xs ml-auto">✕</button>
-                      )}
-                    </div>
-                  ))}
+                <div className="space-y-4 mb-3">
+                  {projet.clientsFournisseurs.map((cfp: any) => {
+                    const cfId = cfp.clientFournisseurId as string;
+                    const cf = cfp.clientFournisseur;
+                    const rowOpen = isCfLieRowExpanded(cfId);
+                    const reps = cf?.representants || [];
+                    return (
+                      <div key={cfId} className="bg-white rounded-lg shadow overflow-hidden border border-gray-100">
+                        <button
+                          type="button"
+                          onClick={() => toggleCfLieRow(cfId)}
+                          className="w-full flex flex-wrap items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                          aria-expanded={rowOpen}
+                          aria-label={
+                            rowOpen
+                              ? 'Replier le détail du client / fournisseur'
+                              : 'Afficher le détail et les actions'
+                          }
+                        >
+                          <span
+                            className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${cf?.type === 'client' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}
+                          >
+                            {cf?.type === 'client' ? '👤 Client' : '🏭 Fournisseur'}
+                          </span>
+                          <span className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate text-left">
+                            {cf?.nom || '—'}
+                          </span>
+                          <span className="text-sm text-gray-500 font-mono shrink-0">{cf?.matriculeFiscale || '—'}</span>
+                          {rowOpen && (
+                            <span className="text-gray-400 shrink-0 ml-auto" aria-hidden>
+                              ▼
+                            </span>
+                          )}
+                        </button>
+
+                        {rowOpen && (
+                          <div className="px-4 sm:px-5 pb-4 pt-0 border-t border-gray-100">
+                            <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4 pt-3">
+                              <div className="min-w-0 flex-1 space-y-2">
+                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600">
+                                  {cf?.typeSociete?.nom && (
+                                    <div>
+                                      <span className="font-medium">Type : </span>
+                                      {cf.typeSociete.nom}
+                                    </div>
+                                  )}
+                                  {cf?.matriculeFiscale && (
+                                    <div>
+                                      <span className="font-medium">MF/ID : </span>
+                                      {cf.matriculeFiscale}
+                                    </div>
+                                  )}
+                                  {cf?.pays && (
+                                    <div>
+                                      <span className="font-medium">Pays : </span>
+                                      {cf.pays}
+                                    </div>
+                                  )}
+                                  {cf?.adresse && (
+                                    <div className="col-span-2 lg:col-span-4">
+                                      <span className="font-medium">Adresse : </span>
+                                      {cf.adresse}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {reps.length > 0 && (
+                                  <div className="mt-2">
+                                    <p className="text-xs font-medium text-gray-500 uppercase mb-1">Représentants légaux</p>
+                                    <div className="space-y-1">
+                                      {reps.map((rep: any) => (
+                                        <div
+                                          key={rep.id}
+                                          className="flex flex-wrap items-center gap-2 text-sm border border-gray-100 rounded-md px-2 py-1.5 bg-gray-50/80"
+                                        >
+                                          <span
+                                            className={`px-1.5 py-0.5 rounded text-xs shrink-0 ${rep.statut === 'en_exercice' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}
+                                          >
+                                            {rep.statut === 'en_exercice' ? 'En exercice' : 'Fin d’exercice'}
+                                          </span>
+                                          <span className="font-medium">
+                                            {rep.prenom} {rep.nom}
+                                          </span>
+                                          {rep.fonction && <span className="text-gray-400">— {rep.fonction}</span>}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
+                                <button
+                                  type="button"
+                                  onClick={() => navigate('/clients-fournisseurs')}
+                                  className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                                >
+                                  👁 Module C/F
+                                </button>
+                                {editing && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      await api.delete(`/clients-fournisseurs/${cfId}/projets/${id}`);
+                                      setExpandedCfLiesIds((prev) => {
+                                        const next = new Set(prev);
+                                        next.delete(cfId);
+                                        return next;
+                                      });
+                                      loadProjet();
+                                    }}
+                                    className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                                  >
+                                    🔗 Retirer du projet
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="text-sm text-gray-400 italic mb-3">Aucun client/fournisseur lié</p>
