@@ -92,6 +92,18 @@ export default function ClientsFournisseurs() {
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
   const [noAccesModalOpen, setNoAccesModalOpen] = useState(false);
+  const [expandedCfIds, setExpandedCfIds] = useState<Set<string>>(() => new Set());
+
+  const toggleCfRow = (id: string) => {
+    setExpandedCfIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const isCfRowExpanded = (id: string) => expandedCfIds.has(id);
 
   const emptyForm = {
     type: 'client',
@@ -395,18 +407,40 @@ export default function ClientsFournisseurs() {
       {loading ? <div className="text-center py-10 text-gray-400">Chargement...</div> : (
         <div className="space-y-4">
           {items.length === 0 && <div className="text-center py-10 text-gray-400">Aucune fiche trouvée</div>}
-          {pagedItems.map((item) => (
-            <div key={item.id} className="bg-white rounded-lg shadow p-5">
-              <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 mb-1 flex-wrap">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${item.type === 'client' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}>
-                      {item.type === 'client' ? '👤 Client' : '🏭 Fournisseur'}
-                    </span>
-                    <h2 className="text-lg font-semibold text-gray-900">{item.nom}</h2>
-                  </div>
+          {pagedItems.map((item) => {
+            const rowOpen = isCfRowExpanded(item.id);
+            return (
+            <div key={item.id} className="bg-white rounded-lg shadow overflow-hidden">
+              <button
+                type="button"
+                onClick={() => toggleCfRow(item.id)}
+                className="w-full flex flex-wrap items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                aria-expanded={rowOpen}
+                aria-label={
+                  rowOpen
+                    ? 'Replier le détail de la fiche'
+                    : 'Afficher le détail et les actions de la fiche'
+                }
+              >
+                <span
+                  className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${item.type === 'client' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}
+                >
+                  {item.type === 'client' ? '👤 Client' : '🏭 Fournisseur'}
+                </span>
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate">{item.nom}</h2>
+                <span className="text-sm text-gray-500 font-mono shrink-0">{item.matriculeFiscale || '—'}</span>
+                {rowOpen && (
+                  <span className="text-gray-400 shrink-0 ml-auto" aria-hidden>
+                    ▼
+                  </span>
+                )}
+              </button>
 
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm text-gray-600 mt-3">
+              {rowOpen && (
+                <div className="px-4 sm:px-5 pb-4 pt-0 border-t border-gray-100">
+                  <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4 pt-3">
+                    <div className="min-w-0 flex-1 space-y-2">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm text-gray-600">
                     {item.typeSociete && <div><span className="font-medium">Type : </span>{item.typeSociete.nom}</div>}
                     {item.matriculeFiscale && <div><span className="font-medium">MF/ID : </span>{item.matriculeFiscale}</div>}
                     {item.pays && <div><span className="font-medium">Pays : </span>{item.pays}</div>}
@@ -577,8 +611,9 @@ export default function ClientsFournisseurs() {
                       ))}
                     </div>
                   </div>
-                </div>
-                <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
+                        </div>
+
+                    <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
                   <button type="button" onClick={() => onAccesButtonClick(item)} className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200">🔐 Accès</button>
                   <button type="button" onClick={() => openHistoriqueModal(item)} className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200">📜 Historique</button>
                   {capModify(item) && (
@@ -590,10 +625,13 @@ export default function ClientsFournisseurs() {
                   {capDelete(item) && (
                     <button type="button" onClick={() => handleDelete(item.id, item.nom)} className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">🗑 Mettre en corbeille</button>
                   )}
-                </div>
-              </div>
+                    </div>
+                      </div>
+                    </div>
+                  )}
             </div>
-          ))}
+            );
+          })}
           {items.length > pageSize && (
             <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4 flex-wrap gap-3">
               <div className="text-sm text-gray-700">
