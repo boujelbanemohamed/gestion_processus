@@ -142,6 +142,17 @@ app.get("/api/v1/pv-reunions", pvReunionController.getPvReunions);
 app.get("/api/v1/pv-reunions/corbeille", pvReunionController.getPvReunionsCorbeille);
 app.get("/api/v1/pv-reunions/:id/history", pvReunionController.getPvReunionHistory);
 app.get("/api/v1/pv-reunions/:id/acces", pvReunionController.getPvReunionAcces);
+app.post("/api/v1/pv-reunions/:id/admin-sans-acces", pvReunionController.postPvReunionAdminSansAcces);
+app.delete(
+  "/api/v1/pv-reunions/:id/admin-sans-acces/:userId",
+  pvReunionController.deletePvReunionAdminSansAcces
+);
+app.delete(
+  "/api/v1/pv-reunions/:id/permissions/entry/:permissionEntryId",
+  pvReunionController.deletePvReunionPermissionEntry
+);
+app.post("/api/v1/pv-reunions/:id/permissions", pvReunionController.postPvReunionPermission);
+app.delete("/api/v1/pv-reunions/:id/permissions/:userId", pvReunionController.deletePvReunionPermission);
 app.get(
   "/api/v1/pv-reunions/:id/commentaires/:commentId/piece",
   pvReunionController.downloadPvCommentairePiece

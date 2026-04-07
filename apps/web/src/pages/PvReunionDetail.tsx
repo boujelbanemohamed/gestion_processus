@@ -594,6 +594,26 @@ export default function PvReunionDetail() {
                   </p>
                 </div>
                 <div>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Accès partagés</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {(accesSynth.delegations || []).length === 0 && (
+                      <span className="text-gray-400 italic">Aucune délégation explicite</span>
+                    )}
+                    {(accesSynth.delegations || []).map((d: any) => (
+                      <span
+                        key={d.id}
+                        className="px-2 py-1 bg-indigo-50 text-indigo-900 rounded text-xs"
+                        title={d.permission}
+                      >
+                        {d.user?.prenom} {d.user?.nom}
+                        <span className="text-indigo-600 ml-1">
+                          ({d.permission === 'lecture' ? 'lecture' : d.permission === 'modification' ? 'modif.' : d.permission === 'suppression' ? 'suppr.' : d.permission})
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div>
                   <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Délégués modification</h3>
                   <div className="flex flex-wrap gap-2">
                     {(accesSynth.modificationDelegues || []).map((d, i) => (
@@ -799,6 +819,15 @@ export default function PvReunionDetail() {
         onClose={() => setShowAccesModal(false)}
         pvId={id ?? null}
         titreFallback={pv.titre || ''}
+        onPermissionsChanged={() => {
+          void load();
+          if (id) {
+            api
+              .get(`/pv-reunions/${id}/acces`)
+              .then((r) => setAccesSynth(r.data))
+              .catch(() => {});
+          }
+        }}
       />
 
       {histOpen && (

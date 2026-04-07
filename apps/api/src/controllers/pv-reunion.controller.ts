@@ -48,6 +48,14 @@ function handleErr(res: Response, e: unknown) {
   const msg = e instanceof Error ? e.message : String(e);
   if (msg === 'NOT_FOUND') return res.status(404).json({ error: 'Non trouvé' });
   if (msg === 'FORBIDDEN') return res.status(403).json({ error: 'Accès refusé' });
+  if (
+    msg.startsWith('Les administrateurs') ||
+    msg.startsWith('Le créateur') ||
+    msg.startsWith('Seuls les comptes administrateur') ||
+    msg === 'Utilisateur introuvable'
+  ) {
+    return res.status(400).json({ error: msg });
+  }
   return res.status(500).json({ error: msg });
 }
 
@@ -74,10 +82,7 @@ export const getPvReunionsCorbeille = async (req: AuthRequest, res: Response) =>
 
 export const getPvReunionHistory = async (req: AuthRequest, res: Response) => {
   try {
-    const pv = await prisma.pvReunion.findFirst({
-      where: { id: req.params.id, deletedAt: null },
-      select: { id: true },
-    });
+    const pv = await pvReunionService.findOne(req.params.id, req.user!.userId, req.user!.role);
     if (!pv) return res.status(404).json({ error: 'Non trouvé' });
 
     const page = parseInt(req.query.page as string) || 1;
@@ -270,10 +275,83 @@ export const addPvCommentaire = async (req: AuthRequest, res: Response) => {
 
 export const downloadPvCommentairePiece = async (req: AuthRequest, res: Response) => {
   try {
-    const doc = await pvReunionService.getCommentairePieceDocument(req.params.commentId);
+    const doc = await pvReunionService.getCommentairePieceDocument(
+      req.params.commentId,
+      req.user!.userId,
+      req.user!.role
+    );
     if (!doc) return res.status(404).json({ error: 'Pièce jointe introuvable' });
     const filePath = path.join(uploadDir, doc.fichierUrl);
     res.download(filePath, doc.fichierNomOriginal);
+  } catch (e: unknown) {
+    handleErr(res, e);
+  }
+};
+
+export const postPvReunionPermission = async (req: AuthRequest, res: Response) => {
+  try {
+    const { userId, niveau } = req.body as { userId?: string; niveau?: string };
+    if (!userId || !niveau) return res.status(400).json({ error: 'userId et niveau requis' });
+    const perm = await pvReunionService.addPermission(
+      req.params.id,
+      userId,
+      niveau,
+      req.user!.userId,
+      req.user!.role
+    );
+    res.status(201).json(perm);
+  } catch (e: unknown) {
+    handleErr(res, e);
+  }
+};
+
+export const deletePvReunionPermission = async (req: AuthRequest, res: Response) => {
+  try {
+    await pvReunionService.removePermission(
+      req.params.id,
+      req.params.userId,
+      req.user!.userId,
+      req.user!.role
+    );
+    res.json({ success: true });
+  } catch (e: unknown) {
+    handleErr(res, e);
+  }
+};
+
+export const deletePvReunionPermissionEntry = async (req: AuthRequest, res: Response) => {
+  try {
+    await pvReunionService.removePermissionByEntryId(
+      req.params.id,
+      req.params.permissionEntryId,
+      req.user!.userId,
+      req.user!.role
+    );
+    res.json({ success: true });
+  } catch (e: unknown) {
+    handleErr(res, e);
+  }
+};
+
+export const postPvReunionAdminSansAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    const { userId } = (req.body || {}) as { userId?: string };
+    if (!userId) return res.status(400).json({ error: 'userId requis' });
+    await pvReunionService.blockAdminImplicitAccess(req.params.id, userId, req.user!.userId);
+    res.status(204).send();
+  } catch (e: unknown) {
+    handleErr(res, e);
+  }
+};
+
+export const deletePvReunionAdminSansAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    await pvReunionService.restoreAdminImplicitAccess(
+      req.params.id,
+      req.params.userId,
+      req.user!.userId
+    );
+    res.status(204).send();
   } catch (e: unknown) {
     handleErr(res, e);
   }

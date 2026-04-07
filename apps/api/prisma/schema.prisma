@@ -203,6 +203,8 @@ model User {
   userUiModuleAccesses          UserUiModuleAccess[]
 
   pvReunionsCrees               PvReunion[]              @relation("PvReunionCreatedBy")
+  pvReunionPermissions          PvReunionPermission[]    @relation("PvReunionPermission")
+  pvReunionsAdminSansAcces      PvReunionAdminSansAcces[] @relation("PvReunionAdminSansAcces")
   pvReunionPresents             PvReunionPresentUser[]
   pvReunionModificationDelegues PvReunionModificationDelegue[]
   pvReunionCommentairesAuteur   PvReunionCommentaire[]   @relation("PvReunionCommentaireAuteur")
@@ -1217,6 +1219,8 @@ model PvReunion {
   contrats                 PvReunionContrat[]
   processus                PvReunionProcessus[]
   modificationDelegues     PvReunionModificationDelegue[]
+  permissions              PvReunionPermission[]
+  adminSansAcces           PvReunionAdminSansAcces[]
   commentaires             PvReunionCommentaire[]
 
   @@index([createdById])
@@ -1323,6 +1327,35 @@ model PvReunionModificationDelegue {
   createdAt   DateTime  @default(now())
 
   @@unique([pvReunionId, userId])
+  @@index([userId])
+}
+
+/// Accès partagés (mêmes règles que ContratPermission : lecture | modification | suppression)
+model PvReunionPermission {
+  id          String    @id @default(uuid())
+  pvReunionId String
+  pvReunion   PvReunion @relation(fields: [pvReunionId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation("PvReunionPermission", fields: [userId], references: [id], onDelete: Cascade)
+  niveau      String
+  createdAt   DateTime  @default(now())
+
+  @@unique([pvReunionId, userId])
+  @@index([pvReunionId])
+  @@index([userId])
+}
+
+/// Administrateurs explicitement privés d’accès implicite (comme ContratAdminSansAcces)
+model PvReunionAdminSansAcces {
+  id          String    @id @default(uuid())
+  pvReunionId String
+  pvReunion   PvReunion @relation(fields: [pvReunionId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation("PvReunionAdminSansAcces", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([pvReunionId, userId])
+  @@index([pvReunionId])
   @@index([userId])
 }
 

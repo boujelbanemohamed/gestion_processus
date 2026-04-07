@@ -194,6 +194,7 @@ export default function PvReunionList() {
   };
 
   const canRestorePvCorbeille = (row: any) => {
+    if (row.capabilities?.canDelete != null) return !!row.capabilities.canDelete;
     if (user?.role === 'admin') return true;
     if (row.createdById === user?.id || row.createdBy?.id === user?.id) return true;
     return (row.modificationDelegues || []).some((d: any) => (d.userId || d.user?.id) === user?.id);
@@ -472,6 +473,7 @@ export default function PvReunionList() {
         onClose={() => setAccesModalPv(null)}
         pvId={accesModalPv?.id ?? null}
         titreFallback={accesModalPv?.titre ?? ''}
+        onPermissionsChanged={load}
       />
 
       {histModalPv && (
@@ -548,7 +550,7 @@ export default function PvReunionList() {
                       Restaurer
                     </button>
                   ) : (
-                    <span className="text-xs text-gray-400">Restauration : admin ou créateur</span>
+                    <span className="text-xs text-gray-400">Restauration : droit suppression requis</span>
                   )}
                 </div>
               ))}

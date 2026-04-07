@@ -53,6 +53,91 @@ export function parseIdArrayFromBody(val: unknown): string[] {
   return [];
 }
 
+/** Même modèle que Contrat (créateur, permissions explicites, admin implicite / adminSansAcces). */
+type PvReunionAcl = {
+  id: string;
+  createdById: string;
+  permissions: { userId: string; niveau: string }[];
+  adminSansAcces?: { userId: string }[];
+};
+
+function toPvAcl(pv: {
+  id: string;
+  createdById: string;
+  permissions?: { userId: string; niveau: string }[];
+  adminSansAcces?: { userId: string }[];
+}): PvReunionAcl {
+  return {
+    id: pv.id,
+    createdById: pv.createdById,
+    permissions: (pv.permissions || []).map((p) => ({ userId: p.userId, niveau: p.niveau })),
+    adminSansAcces: pv.adminSansAcces || [],
+  };
+}
+
+function adminImplicitAccessRefusedPv(pv: PvReunionAcl, userId: string): boolean {
+  return (pv.adminSansAcces || []).some((x) => x.userId === userId);
+}
+
+export function canViewPvReunion(pv: PvReunionAcl, userId: string, userRole: string): boolean {
+  if (pv.createdById === userId) return true;
+  const hasPerm = pv.permissions.some((p) => p.userId === userId);
+  if (userRole === Role.admin) {
+    if (adminImplicitAccessRefusedPv(pv, userId)) return hasPerm;
+    return true;
+  }
+  return hasPerm;
+}
+
+export function capabilitiesPvReunion(pv: PvReunionAcl, userId: string, userRole: string) {
+  const isAdmin = userRole === Role.admin;
+  const isCreator = pv.createdById === userId;
+  const perm = pv.permissions.find((p) => p.userId === userId);
+  const adminRefused = isAdmin && adminImplicitAccessRefusedPv(pv, userId);
+
+  if (isCreator) {
+    return {
+      canView: true,
+      canModify: true,
+      canDelete: true,
+      canManagePermissions: true,
+    };
+  }
+
+  if (perm) {
+    const canView = true;
+    const canModify = perm.niveau === 'modification' || perm.niveau === 'suppression';
+    const canDelete = perm.niveau === 'suppression';
+    return { canView, canModify, canDelete, canManagePermissions: false };
+  }
+
+  if (isAdmin && !adminRefused) {
+    return {
+      canView: true,
+      canModify: true,
+      canDelete: true,
+      canManagePermissions: false,
+    };
+  }
+
+  return { canView: false, canModify: false, canDelete: false, canManagePermissions: false };
+}
+
+async function maybeExcludeAdminAfterPermissionRemovedPv(
+  pvReunionId: string,
+  pvCreatedById: string,
+  targetUserId: string
+) {
+  if (targetUserId === pvCreatedById) return;
+  const u = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
+  if (u?.role !== Role.admin) return;
+  await prisma.pvReunionAdminSansAcces.upsert({
+    where: { pvReunionId_userId: { pvReunionId, userId: targetUserId } },
+    create: { pvReunionId, userId: targetUserId },
+    update: {},
+  });
+}
+
 const pvIncludeDetail = {
   document: {
     select: {
@@ -66,6 +151,10 @@ const pvIncludeDetail = {
     },
   },
   createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+  permissions: {
+    include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
+  },
+  adminSansAcces: { select: { userId: true } },
   presentsUser: { include: { user: { select: { id: true, nom: true, prenom: true, email: true } } } },
   presentsClientFournisseur: {
     include: { clientFournisseur: { select: { id: true, nom: true, type: true } } },
@@ -97,14 +186,25 @@ const pvIncludeDetail = {
   },
 } as const;
 
-export function canModifyPv(
-  pv: { createdById: string; modificationDelegues?: { userId: string }[] },
-  userId: string,
-  role: string
-): boolean {
-  if (role === Role.admin) return true;
-  if (pv.createdById === userId) return true;
-  return !!pv.modificationDelegues?.some((d) => d.userId === userId);
+function mapPvWithCaps<T extends object>(pv: T, userId: string, role: string) {
+  const acl = toPvAcl(pv as any);
+  const caps = capabilitiesPvReunion(acl, userId, role);
+  return {
+    ...pv,
+    liensExplicites: parseLiensExplicites((pv as { liensExplicites?: unknown }).liensExplicites),
+    capabilities: caps,
+    accesApercu: {
+      delegations: (((pv as { permissions?: unknown[] }).permissions || []) as any[]).map((p: any) => ({
+        id: p.id,
+        user: p.user,
+        niveau: p.niveau,
+      })),
+    },
+  } as T & {
+    liensExplicites: LiensExplicites;
+    capabilities: ReturnType<typeof capabilitiesPvReunion>;
+    accesApercu: { delegations: Array<{ id?: string; user?: unknown; niveau: string }> };
+  };
 }
 
 async function expandLiens(liens: LiensExplicites): Promise<LiensExplicites> {
@@ -193,16 +293,50 @@ async function replaceLiens(pvReunionId: string, expanded: LiensExplicites) {
   }
 }
 
-function mapCapabilities(pv: any, userId: string, role: string) {
-  const delegues = (pv.modificationDelegues || []).map((d: any) => ({ userId: d.userId }));
-  return {
-    canView: true,
-    canModify: canModifyPv({ createdById: pv.createdById, modificationDelegues: delegues }, userId, role),
-  };
-}
-
 export class PvReunionService {
   private notificationService = new NotificationService();
+
+  /** Aligne les lignes PvReunionPermission sur les délégués « modification » du formulaire. */
+  private async syncDeleguesToPermissionRows(
+    pvReunionId: string,
+    delegueUserIds: string[],
+    createdById: string
+  ) {
+    const ids = uniq(delegueUserIds).filter((x) => x !== createdById);
+    for (const uid of ids) {
+      await prisma.pvReunionPermission.upsert({
+        where: { pvReunionId_userId: { pvReunionId, userId: uid } },
+        create: { pvReunionId, userId: uid, niveau: 'modification' },
+        update: {},
+      });
+    }
+  }
+
+  private async onDeleguesFormUpdated(
+    pvReunionId: string,
+    createdById: string,
+    previousDelegueIds: string[],
+    newDelegueIds: string[]
+  ) {
+    const newSet = new Set(uniq(newDelegueIds).filter((x) => x !== createdById));
+    for (const old of previousDelegueIds) {
+      if (!newSet.has(old)) {
+        const perm = await prisma.pvReunionPermission.findUnique({
+          where: { pvReunionId_userId: { pvReunionId, userId: old } },
+        });
+        if (perm?.niveau === 'modification') {
+          await prisma.pvReunionPermission.delete({ where: { id: perm.id } });
+        }
+      }
+    }
+    for (const uid of newSet) {
+      await prisma.pvReunionPermission.upsert({
+        where: { pvReunionId_userId: { pvReunionId, userId: uid } },
+        create: { pvReunionId, userId: uid, niveau: 'modification' },
+        update: {},
+      });
+    }
+  }
 
   async findAll(userId: string, role: string) {
     const list = await prisma.pvReunion.findMany({
@@ -213,14 +347,15 @@ export class PvReunionService {
           select: { id: true, nom: true, fichierNomOriginal: true },
         },
         createdBy: { select: { id: true, nom: true, prenom: true } },
-        modificationDelegues: { select: { userId: true } },
+        permissions: {
+          include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
+        },
+        adminSansAcces: { select: { userId: true } },
       },
     });
-    return list.map((pv) => ({
-      ...pv,
-      liensExplicites: parseLiensExplicites(pv.liensExplicites),
-      capabilities: mapCapabilities(pv, userId, role),
-    }));
+    return list
+      .filter((pv) => canViewPvReunion(toPvAcl(pv), userId, role))
+      .map((pv) => mapPvWithCaps(pv, userId, role));
   }
 
   async findOne(id: string, userId: string, role: string) {
@@ -229,11 +364,8 @@ export class PvReunionService {
       include: pvIncludeDetail,
     });
     if (!pv) return null;
-    return {
-      ...pv,
-      liensExplicites: parseLiensExplicites(pv.liensExplicites),
-      capabilities: mapCapabilities(pv, userId, role),
-    };
+    if (!canViewPvReunion(toPvAcl(pv), userId, role)) return null;
+    return mapPvWithCaps(pv, userId, role);
   }
 
   async create(
@@ -296,6 +428,12 @@ export class PvReunionService {
 
     await replaceLiens(pv.id, expanded);
 
+    await this.syncDeleguesToPermissionRows(
+      pv.id,
+      uniq(data.modificationDelegueIds),
+      userId
+    );
+
     return this.findOne(pv.id, userId, role);
   }
 
@@ -314,10 +452,14 @@ export class PvReunionService {
   ) {
     const existing = await prisma.pvReunion.findFirst({
       where: { id, deletedAt: null },
-      include: { modificationDelegues: true },
+      include: {
+        modificationDelegues: true,
+        permissions: { select: { userId: true, niveau: true } },
+        adminSansAcces: { select: { userId: true } },
+      },
     });
     if (!existing) throw new Error('NOT_FOUND');
-    if (!canModifyPv(existing, userId, role)) throw new Error('FORBIDDEN');
+    if (!capabilitiesPvReunion(toPvAcl(existing), userId, role).canModify) throw new Error('FORBIDDEN');
 
     const liensExplicites = data.liens
       ? (data.liens as object)
@@ -353,13 +495,16 @@ export class PvReunionService {
     }
 
     if (data.modificationDelegueIds) {
+      const prevDelegueIds = existing.modificationDelegues.map((d) => d.userId);
       await prisma.pvReunionModificationDelegue.deleteMany({ where: { pvReunionId: id } });
-      await prisma.pvReunionModificationDelegue.createMany({
-        data: uniq(data.modificationDelegueIds)
-          .filter((uid) => uid !== existing.createdById)
-          .map((uid) => ({ pvReunionId: id, userId: uid })),
-        skipDuplicates: true,
-      });
+      const nextDelegueIds = uniq(data.modificationDelegueIds).filter((uid) => uid !== existing.createdById);
+      if (nextDelegueIds.length) {
+        await prisma.pvReunionModificationDelegue.createMany({
+          data: nextDelegueIds.map((uid) => ({ pvReunionId: id, userId: uid })),
+          skipDuplicates: true,
+        });
+      }
+      await this.onDeleguesFormUpdated(id, existing.createdById, prevDelegueIds, data.modificationDelegueIds);
     }
 
     if (expanded) await replaceLiens(id, expanded);
@@ -370,10 +515,13 @@ export class PvReunionService {
   async softDelete(id: string, userId: string, role: string) {
     const existing = await prisma.pvReunion.findFirst({
       where: { id, deletedAt: null },
-      include: { modificationDelegues: true },
+      include: {
+        permissions: { select: { userId: true, niveau: true } },
+        adminSansAcces: { select: { userId: true } },
+      },
     });
     if (!existing) throw new Error('NOT_FOUND');
-    if (!canModifyPv(existing, userId, role)) throw new Error('FORBIDDEN');
+    if (!capabilitiesPvReunion(toPvAcl(existing), userId, role).canDelete) throw new Error('FORBIDDEN');
     await prisma.pvReunion.update({
       where: { id },
       data: { deletedAt: new Date() },
@@ -388,24 +536,32 @@ export class PvReunionService {
     if (role !== Role.admin) {
       where.createdById = userId;
     }
-    return prisma.pvReunion.findMany({
+    const rows = await prisma.pvReunion.findMany({
       where,
       orderBy: { deletedAt: 'desc' },
       include: {
         document: { select: { id: true, nom: true, fichierNomOriginal: true } },
         createdBy: { select: { id: true, nom: true, prenom: true } },
-        modificationDelegues: { select: { userId: true } },
+        permissions: { select: { userId: true, niveau: true } },
+        adminSansAcces: { select: { userId: true } },
       },
     });
+    return rows.map((pv) => ({
+      ...pv,
+      capabilities: capabilitiesPvReunion(toPvAcl(pv), userId, role),
+    }));
   }
 
   async restoreFromCorbeille(id: string, userId: string, role: string) {
     const existing = await prisma.pvReunion.findFirst({
       where: { id, deletedAt: { not: null } },
-      include: { modificationDelegues: true },
+      include: {
+        permissions: { select: { userId: true, niveau: true } },
+        adminSansAcces: { select: { userId: true } },
+      },
     });
     if (!existing) throw new Error('NOT_FOUND');
-    if (!canModifyPv(existing, userId, role)) throw new Error('FORBIDDEN');
+    if (!capabilitiesPvReunion(toPvAcl(existing), userId, role).canDelete) throw new Error('FORBIDDEN');
     await prisma.pvReunion.update({
       where: { id },
       data: { deletedAt: null },
@@ -425,10 +581,15 @@ export class PvReunionService {
       where: { id: pvId, deletedAt: null },
       include: {
         createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+        permissions: {
+          include: { user: { select: { id: true, email: true, nom: true, prenom: true } } },
+        },
+        adminSansAcces: { select: { userId: true } },
         modificationDelegues: { include: { user: { select: { id: true, email: true, nom: true, prenom: true } } } },
       },
     });
     if (!pv) throw new Error('NOT_FOUND');
+    if (!canViewPvReunion(toPvAcl(pv), auteurId, role)) throw new Error('FORBIDDEN');
 
     let documentId: string | null = null;
     if (fichier) {
@@ -501,6 +662,16 @@ export class PvReunionService {
           nom: `${d.user.prenom} ${d.user.nom}`,
         });
       }
+      for (const p of pv.permissions) {
+        if (p.userId === auteurId) continue;
+        if (!['modification', 'suppression'].includes(p.niveau)) continue;
+        if (destinataires.some((x) => x.id === p.userId)) continue;
+        destinataires.push({
+          id: p.user.id,
+          email: p.user.email,
+          nom: `${p.user.prenom} ${p.user.nom}`,
+        });
+      }
     }
 
     if (destinataires.length > 0) {
@@ -520,17 +691,21 @@ export class PvReunionService {
     return c;
   }
 
-  async getCommentairePieceDocument(commentaireId: string) {
+  async getCommentairePieceDocument(commentaireId: string, userId: string, userRole: string) {
     const com = await prisma.pvReunionCommentaire.findUnique({
       where: { id: commentaireId },
       include: {
         pvReunion: {
-          include: { modificationDelegues: { select: { userId: true } } },
+          include: {
+            permissions: { select: { userId: true, niveau: true } },
+            adminSansAcces: { select: { userId: true } },
+          },
         },
         pieceJointe: true,
       },
     });
     if (!com?.pieceJointe || com.pvReunion.deletedAt) return null;
+    if (!canViewPvReunion(toPvAcl(com.pvReunion as any), userId, userRole)) return null;
     return com.pieceJointe;
   }
 
@@ -544,18 +719,27 @@ export class PvReunionService {
       select: { id: true, nom: true, fichierNomOriginal: true },
     },
     createdBy: { select: { id: true, nom: true, prenom: true } },
-    modificationDelegues: { select: { userId: true } },
+    permissions: { select: { userId: true, niveau: true } },
+    adminSansAcces: { select: { userId: true } },
   } as const;
 
   private mapLinkedRows(
-    rows: Array<{ createdById: string; modificationDelegues: { userId: string }[] }>,
+    rows: Array<{
+      id: string;
+      titre: string;
+      createdById: string;
+      permissions: { userId: string; niveau: string }[];
+      adminSansAcces: { userId: string }[];
+    }>,
     userId: string,
     role: string
   ) {
-    return rows.map((pv) => ({
-      ...pv,
-      capabilities: mapCapabilities(pv, userId, role),
-    }));
+    return rows
+      .filter((pv) => canViewPvReunion(toPvAcl(pv), userId, role))
+      .map((pv) => ({
+        ...pv,
+        capabilities: capabilitiesPvReunion(toPvAcl(pv), userId, role),
+      }));
   }
 
   async listLinkedToProjet(projetId: string, userId: string, role: string) {
@@ -612,11 +796,15 @@ export class PvReunionService {
     return this.mapLinkedRows(rows, userId, role);
   }
 
-  /** Détail « Accès » (modale type contrat : lecture ; pas de permissions fines hors présents / délégués côté API). */
+  /** Détail « Accès » — même structure que le contrat (delegations, adminSansAccesUserIds, etc.). */
   async getAccesDetail(pvId: string, userId: string, role: string) {
     const pv = await prisma.pvReunion.findFirst({
       where: { id: pvId, deletedAt: null },
       include: {
+        permissions: {
+          include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
+        },
+        adminSansAcces: { select: { userId: true } },
         createdBy: { select: { id: true, nom: true, prenom: true, email: true, role: true } },
         modificationDelegues: {
           include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
@@ -631,6 +819,7 @@ export class PvReunionService {
       },
     });
     if (!pv) throw new Error('NOT_FOUND');
+    if (!canViewPvReunion(toPvAcl(pv), userId, role)) throw new Error('FORBIDDEN');
 
     const admins = await prisma.user.findMany({
       where: { role: Role.admin, statut: UserStatus.actif },
@@ -638,28 +827,155 @@ export class PvReunionService {
       orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
     });
 
-    const deleguesForCap = pv.modificationDelegues.map((d) => ({ userId: d.userId }));
-    const canManagePermissions = canModifyPv(
-      { createdById: pv.createdById, modificationDelegues: deleguesForCap },
-      userId,
-      role
-    );
+    const delegations = pv.permissions.map((p) => ({
+      id: p.id,
+      permission: p.niveau,
+      user: p.user,
+      grantedBy: null as null,
+      createdAt: p.createdAt,
+    }));
 
     return {
       ficheNom: pv.titre,
       pvId: pv.id,
       admins,
       creator: pv.createdBy,
+      delegations,
+      canManagePermissions: pv.createdById === userId,
+      adminSansAccesUserIds: pv.adminSansAcces.map((x) => x.userId),
       modificationDelegues: pv.modificationDelegues,
       presentsUser: pv.presentsUser,
       presentsClientFournisseur: pv.presentsClientFournisseur,
       document: pv.document,
-      canManagePermissions,
-      delegations: [] as { id: string; permission: string; user: unknown }[],
-      adminSansAccesUserIds: [] as string[],
       visibilityNote:
-        'Tout utilisateur habilité sur le module « PV de réunion » peut consulter ce procès-verbal. Peuvent le modifier : les administrateurs, le créateur et les utilisateurs désignés comme délégués modification. Les présents sont informatifs (réunion) ; pour les modifier, ouvrez la fiche PV en édition.',
+        'Mêmes règles que pour un contrat : seul le créateur du PV gère les accès partagés. Pour un administrateur, sans ligne dans « Accès partagés » et sans exclusion, l’accès est complet ; une ligne limite ses droits ; « Retirer l’accès » le prive totalement jusqu’à un nouvel accès explicite. Les « présents » restent informatifs (réunion).',
     };
+  }
+
+  async addPermission(
+    pvReunionId: string,
+    targetUserId: string,
+    niveau: string,
+    actorUserId: string,
+    _actorRole: string
+  ) {
+    const pv = await prisma.pvReunion.findFirst({
+      where: { id: pvReunionId, deletedAt: null },
+      include: { permissions: true },
+    });
+    if (!pv) throw new Error('NOT_FOUND');
+    if (pv.createdById !== actorUserId) throw new Error('FORBIDDEN');
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, role: true, nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    if (pv.createdById === targetUserId) throw new Error('Le créateur du PV a déjà tous les droits');
+
+    await prisma.pvReunionAdminSansAcces.deleteMany({
+      where: { pvReunionId, userId: targetUserId },
+    });
+
+    const row = await prisma.pvReunionPermission.upsert({
+      where: { pvReunionId_userId: { pvReunionId, userId: targetUserId } },
+      create: { pvReunionId, userId: targetUserId, niveau },
+      update: { niveau },
+      include: { user: { select: { id: true, nom: true, prenom: true, email: true } } },
+    });
+
+    if (niveau === 'modification' || niveau === 'suppression') {
+      await prisma.pvReunionModificationDelegue.upsert({
+        where: { pvReunionId_userId: { pvReunionId, userId: targetUserId } },
+        create: { pvReunionId, userId: targetUserId },
+        update: {},
+      });
+    }
+
+    return row;
+  }
+
+  async removePermission(pvReunionId: string, targetUserId: string, actorUserId: string, _actorRole: string) {
+    const pv = await prisma.pvReunion.findFirst({
+      where: { id: pvReunionId, deletedAt: null },
+      include: { permissions: { include: { user: true } } },
+    });
+    if (!pv) throw new Error('NOT_FOUND');
+    if (pv.createdById !== actorUserId) throw new Error('FORBIDDEN');
+    const perm = pv.permissions.find((p) => p.userId === targetUserId);
+    if (!perm) throw new Error('NOT_FOUND');
+    await prisma.pvReunionPermission.deleteMany({ where: { pvReunionId, userId: targetUserId } });
+    await prisma.pvReunionModificationDelegue.deleteMany({
+      where: { pvReunionId, userId: targetUserId },
+    });
+    await maybeExcludeAdminAfterPermissionRemovedPv(pvReunionId, pv.createdById, targetUserId);
+  }
+
+  async removePermissionByEntryId(
+    pvReunionId: string,
+    permissionEntryId: string,
+    actorUserId: string,
+    _actorRole: string
+  ) {
+    const pv = await prisma.pvReunion.findFirst({
+      where: { id: pvReunionId, deletedAt: null },
+      include: { permissions: true },
+    });
+    if (!pv) throw new Error('NOT_FOUND');
+    if (pv.createdById !== actorUserId) throw new Error('FORBIDDEN');
+    const perm = await prisma.pvReunionPermission.findFirst({
+      where: { id: permissionEntryId, pvReunionId },
+      include: { user: { select: { nom: true, prenom: true } } },
+    });
+    if (!perm) throw new Error('NOT_FOUND');
+    await prisma.pvReunionPermission.delete({ where: { id: permissionEntryId } });
+    await prisma.pvReunionModificationDelegue.deleteMany({
+      where: { pvReunionId, userId: perm.userId },
+    });
+    await maybeExcludeAdminAfterPermissionRemovedPv(pvReunionId, pv.createdById, perm.userId);
+  }
+
+  async blockAdminImplicitAccess(pvReunionId: string, targetUserId: string, actorUserId: string) {
+    const pv = await prisma.pvReunion.findFirst({
+      where: { id: pvReunionId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!pv) throw new Error('NOT_FOUND');
+    if (pv.createdById !== actorUserId) throw new Error('FORBIDDEN');
+    if (pv.createdById === targetUserId) throw new Error('Le créateur du PV ne peut pas être exclu');
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { role: true, nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    if (target.role !== Role.admin) {
+      throw new Error("Seuls les comptes administrateur peuvent être privés de l'accès implicite au PV");
+    }
+    await prisma.pvReunionPermission.deleteMany({ where: { pvReunionId, userId: targetUserId } });
+    await prisma.pvReunionModificationDelegue.deleteMany({
+      where: { pvReunionId, userId: targetUserId },
+    });
+    await prisma.pvReunionAdminSansAcces.upsert({
+      where: { pvReunionId_userId: { pvReunionId, userId: targetUserId } },
+      create: { pvReunionId, userId: targetUserId },
+      update: {},
+    });
+  }
+
+  async restoreAdminImplicitAccess(pvReunionId: string, targetUserId: string, actorUserId: string) {
+    const pv = await prisma.pvReunion.findFirst({
+      where: { id: pvReunionId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!pv) throw new Error('NOT_FOUND');
+    if (pv.createdById !== actorUserId) throw new Error('FORBIDDEN');
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    await prisma.pvReunionAdminSansAcces.deleteMany({
+      where: { pvReunionId, userId: targetUserId },
+    });
   }
 }
 
