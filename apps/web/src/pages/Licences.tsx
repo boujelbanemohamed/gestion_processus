@@ -82,6 +82,14 @@ const emptyForm = {
   clientFournisseurIds: [] as string[],
 };
 
+const defaultFormNotif = () => ({
+  mode: 'before_end' as 'before_end' | 'date_recurrence',
+  joursAvant: 30,
+  dateAlerte: '',
+  recurrence: 'none' as 'none' | 'weekly' | 'monthly' | 'yearly',
+  destinataires: [] as string[],
+});
+
 export default function Licences() {
   const { user } = useAuth();
   const [licences, setLicences] = useState<any[]>([]);
@@ -105,13 +113,9 @@ export default function Licences() {
   const [showDetailModal, setShowDetailModal] = useState<any>(null);
   const [detailTab, setDetailTab] = useState<'info'|'historique'|'docs'|'comments'|'notifs'|'acces'>('info');
   const [commentForm, setCommentForm] = useState({ contenu: '', assigneA: '' });
-  const [notifForm, setNotifForm] = useState({
-    mode: 'before_end' as 'before_end' | 'date_recurrence',
-    joursAvant: 30,
-    dateAlerte: '',
-    recurrence: 'none' as 'none' | 'weekly' | 'monthly' | 'yearly',
-    destinataires: [] as string[],
-  });
+  const [notifForm, setNotifForm] = useState(defaultFormNotif());
+  /** Alertes à créer depuis le modal Nouvelle / Modifier licence */
+  const [formNotif, setFormNotif] = useState(defaultFormNotif());
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [showCorbeilleModal, setShowCorbeilleModal] = useState(false);
   const [corbeilleLicences, setCorbeilleLicences] = useState<any[]>([]);
@@ -243,6 +247,7 @@ export default function Licences() {
     setEditing(null);
     setForm({ ...emptyForm, devise: devises[0]?.code || '' });
     setNewFiles([]);
+    setFormNotif(defaultFormNotif());
     setShowForm(true);
   };
   const openEdit = (l: any) => {
@@ -257,7 +262,9 @@ export default function Licences() {
       processusIds: (l.processus || []).map((p: any) => p.id),
       clientFournisseurIds: (l.clientsFournisseurs || []).map((c: any) => c.id),
     });
-    setNewFiles([]); setShowForm(true);
+    setNewFiles([]);
+    setFormNotif(defaultFormNotif());
+    setShowForm(true);
   };
 
   const handleSubmit = async () => {
@@ -277,6 +284,18 @@ export default function Licences() {
         processusIds: form.processusIds,
         clientFournisseurIds: form.clientFournisseurIds,
       };
+
+      if (formNotif.destinataires.length > 0) {
+        if (formNotif.mode === 'before_end' && !data.dateFin) {
+          alert('Pour une alerte « X jours avant fin », renseignez la date de fin de la licence.');
+          return;
+        }
+        if (formNotif.mode === 'date_recurrence' && !formNotif.dateAlerte?.trim()) {
+          alert('Pour une alerte à date fixe, choisissez une date d’alerte.');
+          return;
+        }
+      }
+
       let licenceId: string;
       if (editing) {
         await api.put(`/licences/${editing.id}`, data);
@@ -290,8 +309,33 @@ export default function Licences() {
         fd.append('documents', file, file.name);
         await uploadApi.post(`/licences/${licenceId}/upload`, fd);
       }
-      setShowForm(false); loadAll();
-    } catch (e: any) { alert('Erreur: ' + (e?.response?.data?.error || e.message)); }
+
+      if (formNotif.destinataires.length > 0) {
+        try {
+          await api.post(`/licences/${licenceId}/notifications`, {
+            mode: formNotif.mode,
+            joursAvant: formNotif.mode === 'before_end' ? formNotif.joursAvant : undefined,
+            dateAlerte:
+              formNotif.mode === 'date_recurrence' && formNotif.dateAlerte
+                ? new Date(formNotif.dateAlerte + 'T12:00:00').toISOString()
+                : undefined,
+            recurrence: formNotif.mode === 'date_recurrence' ? formNotif.recurrence : undefined,
+            destinataires: formNotif.destinataires,
+          });
+        } catch (ne: any) {
+          alert(
+            'Licence enregistrée, mais l’alerte n’a pas pu être créée : ' +
+              (ne?.response?.data?.error || ne?.message || 'Erreur'),
+          );
+        }
+      }
+
+      setShowForm(false);
+      setFormNotif(defaultFormNotif());
+      loadAll();
+    } catch (e: any) {
+      alert('Erreur: ' + (e?.response?.data?.error || e.message));
+    }
   };
 
   const handleDelete = async (id: string, nom: string) => {
@@ -350,13 +394,7 @@ export default function Licences() {
         recurrence: notifForm.mode === 'date_recurrence' ? notifForm.recurrence : undefined,
         destinataires: notifForm.destinataires,
       });
-      setNotifForm({
-        mode: 'before_end',
-        joursAvant: 30,
-        dateAlerte: '',
-        recurrence: 'none',
-        destinataires: [],
-      });
+      setNotifForm(defaultFormNotif());
       const res = await api.get(`/licences/${showDetailModal.id}`);
       setShowDetailModal(res.data);
       loadAll();
@@ -988,6 +1026,123 @@ export default function Licences() {
                   )}
                 </div>
               </div>
+
+              <div className="space-y-4 border-t border-amber-100 pt-4 bg-amber-50/40 -mx-6 px-6 py-4 rounded-lg">
+                <p className="text-sm font-semibold text-gray-800">🔔 Alertes e-mail (optionnel)</p>
+                <p className="text-xs text-gray-600">
+                  Si vous cochez au moins un destinataire, une alerte sera créée à l’enregistrement (même logique que dans le détail licence → onglet Alertes). Laissez les cases vides pour ne pas créer d’alerte.
+                </p>
+                {editing?.notifications?.length > 0 && (
+                  <div className="text-xs text-gray-700 space-y-1">
+                    <span className="font-medium">Alertes déjà configurées ({editing.notifications.length}) :</span>
+                    <ul className="list-disc list-inside text-gray-600">
+                      {(editing.notifications as any[]).map((n: any) => (
+                        <li key={n.id}>
+                          {n.mode === 'date_recurrence'
+                            ? `Date / récurrence — ${n.dateAlerte ? new Date(n.dateAlerte).toLocaleDateString('fr-FR') : '—'} (${RECURRENCE_ALERTE_LABELS[n.recurrence] || n.recurrence})`
+                            : `${n.joursAvant} j. avant fin`}
+                          {' · '}
+                          {n.destinataires?.length ?? 0} destinataire(s)
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-gray-500 italic">Vous pouvez ajouter une alerte supplémentaire ci-dessous.</p>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="form-alerte-mode"
+                      checked={formNotif.mode === 'before_end'}
+                      onChange={() => setFormNotif((f) => ({ ...f, mode: 'before_end' }))}
+                    />
+                    Avant fin de validité (nécessite une date de fin)
+                  </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="radio"
+                      name="form-alerte-mode"
+                      checked={formNotif.mode === 'date_recurrence'}
+                      onChange={() => setFormNotif((f) => ({ ...f, mode: 'date_recurrence' }))}
+                    />
+                    Date fixe avec récurrence éventuelle
+                  </label>
+                </div>
+                {formNotif.mode === 'before_end' && (
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <label className="text-sm text-gray-700">Notifier</label>
+                    <input
+                      type="number"
+                      value={formNotif.joursAvant}
+                      onChange={(e) =>
+                        setFormNotif((f) => ({
+                          ...f,
+                          joursAvant: Math.max(1, parseInt(e.target.value, 10) || 30),
+                        }))
+                      }
+                      className="w-20 border border-gray-300 rounded-md px-2 py-1 text-sm bg-white"
+                      min={1}
+                    />
+                    <span className="text-sm text-gray-700">jour(s) avant la date de fin</span>
+                  </div>
+                )}
+                {formNotif.mode === 'date_recurrence' && (
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Date de l’alerte</label>
+                      <input
+                        type="date"
+                        value={formNotif.dateAlerte}
+                        onChange={(e) => setFormNotif((f) => ({ ...f, dateAlerte: e.target.value }))}
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Récurrence</label>
+                      <select
+                        value={formNotif.recurrence}
+                        onChange={(e) =>
+                          setFormNotif((f) => ({
+                            ...f,
+                            recurrence: e.target.value as 'none' | 'weekly' | 'monthly' | 'yearly',
+                          }))
+                        }
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white"
+                      >
+                        {(Object.keys(RECURRENCE_ALERTE_LABELS) as (keyof typeof RECURRENCE_ALERTE_LABELS)[]).map((k) => (
+                          <option key={k} value={k}>
+                            {RECURRENCE_ALERTE_LABELS[k]}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <p className="text-xs font-medium text-gray-600 mb-2">Destinataires</p>
+                  <div className="border border-gray-300 rounded-md max-h-36 overflow-y-auto p-2 space-y-1 bg-white">
+                    {users.map((u: any) => (
+                      <label key={u.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded">
+                        <input
+                          type="checkbox"
+                          checked={formNotif.destinataires.includes(u.id)}
+                          onChange={(e) =>
+                            setFormNotif((f) => ({
+                              ...f,
+                              destinataires: e.target.checked
+                                ? [...f.destinataires, u.id]
+                                : f.destinataires.filter((id) => id !== u.id),
+                            }))
+                          }
+                        />
+                        {u.prenom} {u.nom} ({u.email})
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <span className="block text-xs font-medium text-gray-600 mb-1">Documents</span>
                 <div className="flex flex-wrap items-center gap-2">
