@@ -94,6 +94,8 @@ export default function ClientsFournisseurs() {
   const [histoLoading, setHistoLoading] = useState(false);
   const [noAccesModalOpen, setNoAccesModalOpen] = useState(false);
   const [expandedCfIds, setExpandedCfIds] = useState<Set<string>>(() => new Set());
+  const [showCorbeilleModal, setShowCorbeilleModal] = useState(false);
+  const [corbeilleItems, setCorbeilleItems] = useState<any[]>([]);
 
   const toggleCfRow = (id: string) => {
     setExpandedCfIds((prev) => {
@@ -152,6 +154,28 @@ export default function ClientsFournisseurs() {
     })();
   }, []);
 
+  const loadCorbeilleClientsFournisseurs = async () => {
+    try {
+      const r = await api.get('/clients-fournisseurs/corbeille');
+      setCorbeilleItems(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setCorbeilleItems([]);
+    }
+  };
+
+  const handleRestoreCfFromCorbeille = async (id: string) => {
+    try {
+      await api.post(`/corbeille/clients-fournisseurs/${id}/restaurer`);
+      setShowCorbeilleModal(false);
+      await load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur lors de la restauration');
+    }
+  };
+
+  const canRestoreCfCorbeille = (row: any) =>
+    user?.role === 'admin' || row.createdById === user?.id || row.createdBy?.id === user?.id;
+
   const openCreate = () => { setForm(emptyForm); setEditing(null); setShowModal(true); };
   const openEdit = (item: any) => {
     setForm({
@@ -202,7 +226,7 @@ export default function ClientsFournisseurs() {
   };
 
   const handleDelete = async (id: string, nom: string) => {
-    if (!confirm(`Mettre « ${nom} » en corbeille ? Vous pourrez la restaurer depuis la corbeille (admin).`)) return;
+    if (!confirm(`Mettre « ${nom} » en corbeille ? Vous pourrez la restaurer depuis la corbeille (admin ou créateur).`)) return;
     try {
       await api.delete(`/clients-fournisseurs/${id}`);
       load();
@@ -347,6 +371,16 @@ export default function ClientsFournisseurs() {
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Clients / Fournisseurs</h1>
         <div className="flex flex-wrap gap-2 justify-end">
+          <button
+            type="button"
+            onClick={async () => {
+              await loadCorbeilleClientsFournisseurs();
+              setShowCorbeilleModal(true);
+            }}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
+          >
+            🗑 Corbeille
+          </button>
           {canCreate && (
             <button
               type="button"
@@ -1012,6 +1046,58 @@ export default function ClientsFournisseurs() {
             )}
             <div className="flex justify-end mt-4">
               <button type="button" onClick={() => setHistModalItem(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCorbeilleModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-5 border-b">
+              <h2 className="text-lg font-semibold">🗑 Clients / fournisseurs en corbeille</h2>
+              <button
+                type="button"
+                onClick={() => setShowCorbeilleModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl"
+                aria-label="Fermer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              {corbeilleItems.length === 0 && (
+                <p className="text-sm text-gray-500">Aucune fiche en corbeille.</p>
+              )}
+              {corbeilleItems.map((cp: any) => (
+                <div
+                  key={cp.id}
+                  className="flex flex-wrap justify-between items-center gap-3 p-3 border rounded-lg bg-gray-50"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900">{cp.nom}</p>
+                    <p className="text-xs text-gray-500">
+                      {cp.type === 'fournisseur' ? 'Fournisseur' : 'Client'}
+                      {cp.deletedAt ? ` · Supprimé le ${new Date(cp.deletedAt).toLocaleString('fr-FR')}` : ''}
+                      {cp.createdBy && ` · Créé par ${cp.createdBy.prenom} ${cp.createdBy.nom}`}
+                    </p>
+                  </div>
+                  {canRestoreCfCorbeille(cp) ? (
+                    <button
+                      type="button"
+                      onClick={() => handleRestoreCfFromCorbeille(cp.id)}
+                      className="shrink-0 px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700"
+                    >
+                      Restaurer
+                    </button>
+                  ) : (
+                    <span className="text-xs text-gray-400 shrink-0">Restauration : admin ou créateur</span>
+                  )}
+                </div>
+              ))}
+              <p className="text-xs text-gray-400 pt-2">
+                La suppression définitive reste réservée aux administrateurs (corbeille globale).
+              </p>
             </div>
           </div>
         </div>

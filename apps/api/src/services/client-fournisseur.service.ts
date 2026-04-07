@@ -616,6 +616,21 @@ export const clientFournisseurService = {
     });
   },
 
+  /** Corbeille : tout pour l’admin, sinon uniquement les fiches créées par l’utilisateur (aligné projets). */
+  async listDeletedForCorbeilleScoped(auth: CfAuth) {
+    const where: { deletedAt: { not: null }; createdById?: string } = { deletedAt: { not: null } };
+    if (!isAdminRole(auth.role)) {
+      where.createdById = auth.userId;
+    }
+    return prisma.clientFournisseur.findMany({
+      where,
+      include: {
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+  },
+
   async restoreFromCorbeille(id: string) {
     const row = await getCfAclRowAllowDeleted(id);
     if (!row || !row.deletedAt) throw new Error('Élément introuvable ou non supprimé');

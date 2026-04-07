@@ -204,8 +204,19 @@ export const restaurerClientFournisseur = async (req: AuthRequest, res: Response
     if (!req.user?.userId || !req.user?.role) {
       return res.status(401).json({ error: 'Non authentifié' });
     }
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut restaurer des éléments.' });
+    const deleted = await prisma.clientFournisseur.findFirst({
+      where: { id: req.params.id, deletedAt: { not: null } },
+      select: { createdById: true },
+    });
+    if (!deleted) {
+      return res.status(400).json({ error: 'Élément introuvable ou non en corbeille' });
+    }
+    const isAdmin = req.user.role === 'admin';
+    const isCreator = deleted.createdById === req.user.userId;
+    if (!isAdmin && !isCreator) {
+      return res.status(403).json({
+        error: 'Accès refusé. Seuls l’administrateur ou le créateur peuvent restaurer cette fiche.',
+      });
     }
     const row = await corbeilleService.restaurerClientFournisseur(req.params.id, req.user.userId);
     await logAccess(req, res, 'modification', 'clientFournisseur', row.id, row.nom, { action: 'restauration' });

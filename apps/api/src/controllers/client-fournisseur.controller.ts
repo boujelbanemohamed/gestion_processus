@@ -67,6 +67,17 @@ export const getClientsFournisseurs = async (req: AuthRequest, res: Response) =>
   }
 };
 
+export const getClientsFournisseursCorbeille = async (req: AuthRequest, res: Response) => {
+  try {
+    const auth = authFromReq(req);
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
+    const rows = await clientFournisseurService.listDeletedForCorbeilleScoped(auth);
+    res.json(rows);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
 export const getClientFournisseur = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);
