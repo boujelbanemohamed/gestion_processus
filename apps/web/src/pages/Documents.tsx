@@ -56,6 +56,16 @@ export default function Documents() {
   const pageSize = 10;
   const [favorisDocuments, setFavorisDocuments] = useState<Set<string>>(new Set());
   const [loadingFavoris, setLoadingFavoris] = useState<Record<string, boolean>>({});
+  const [expandedDocumentIds, setExpandedDocumentIds] = useState<Set<string>>(() => new Set());
+  const toggleDocumentRow = (id: string) => {
+    setExpandedDocumentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const isDocumentRowExpanded = (id: string) => expandedDocumentIds.has(id);
 
   useEffect(() => {
     loadDocuments();
@@ -777,23 +787,37 @@ export default function Documents() {
                 : d.typeDocument === 'licence'
                   ? 'Licence'
                   : d.typeDocument;
+            const rowOpen = isDocumentRowExpanded(d.id);
             return (
-              <div key={d.id} className="bg-gray-50/80 rounded-lg border border-gray-100 p-5">
-                <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <button
-                        type="button"
-                        onClick={() => handleViewDocument(d)}
-                        className="text-lg font-semibold text-blue-600 hover:text-blue-800 hover:underline text-left"
-                      >
-                        {d.nom}
-                      </button>
+              <div key={d.id} className="bg-gray-50/80 rounded-lg border border-gray-100 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => toggleDocumentRow(d.id)}
+                  className="w-full flex flex-wrap items-center gap-3 px-4 py-3 text-left hover:bg-gray-100/90 transition-colors"
+                  aria-expanded={rowOpen}
+                  aria-label={rowOpen ? 'Replier le détail du document' : 'Afficher le détail et les actions du document'}
+                >
+                  <span className={`px-2 py-0.5 text-xs rounded font-medium shrink-0 ${statutColor}`}>{statut}</span>
+                  <span className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate text-left">{d.nom}</span>
+                  <span className="text-xs text-gray-500 font-mono shrink-0">v{d.version || '—'}</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded text-xs font-medium capitalize shrink-0 hidden sm:inline">
+                    {typeLabel}
+                  </span>
+                  {rowOpen && (
+                    <span className="text-gray-400 shrink-0 ml-auto sm:ml-0" aria-hidden>
+                      ▼
+                    </span>
+                  )}
+                </button>
+
+                {rowOpen && (
+                  <div className="px-4 sm:px-5 pb-4 pt-0 border-t border-gray-200 bg-gray-50/50">
+                    <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4 pt-3">
+                      <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2 sm:hidden">
                       <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded text-xs font-medium capitalize">
                         {typeLabel}
                       </span>
-                      <span className={`px-2 py-0.5 text-xs rounded font-medium ${statutColor}`}>{statut}</span>
-                      <span className="text-xs text-gray-500">v{d.version || '—'}</span>
                     </div>
                     <div className="text-sm text-gray-700 mb-2">
                       <span className="font-medium text-gray-600">Référence : </span>
@@ -934,7 +958,8 @@ export default function Documents() {
                         )}
                       </div>
                     </div>
-                  </div>
+                        </div>
+
                   <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
                     <button
                       type="button"
@@ -1000,7 +1025,9 @@ export default function Documents() {
                       </button>
                     )}
                   </div>
-                </div>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

@@ -112,6 +112,16 @@ export default function Licences() {
   const pickProcessusRef = useRef<HTMLSelectElement>(null);
   const pickCfRef = useRef<HTMLSelectElement>(null);
   const [detailDocUploading, setDetailDocUploading] = useState(false);
+  const [expandedLicenceIds, setExpandedLicenceIds] = useState<Set<string>>(() => new Set());
+  const toggleLicenceRow = (id: string) => {
+    setExpandedLicenceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const isLicenceRowExpanded = (id: string) => expandedLicenceIds.has(id);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -456,18 +466,37 @@ export default function Licences() {
           {pagedFiltered.map((l) => {
             const statut = STATUTS.find(s => s.value === l.statut);
             const jours = l.dateFin ? joursRestants(l.dateFin) : null;
+            const rowOpen = isLicenceRowExpanded(l.id);
             return (
               <div
                 key={l.id}
-                className={`bg-white rounded-lg shadow p-5 ${jours !== null && jours <= 30 && jours > 0 ? 'ring-1 ring-orange-300' : ''}`}
+                className={`bg-white rounded-lg shadow overflow-hidden ${jours !== null && jours <= 30 && jours > 0 ? 'ring-1 ring-orange-300' : ''}`}
               >
-                <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${statut?.color}`}>{statut?.label}</span>
-                      <h2 className="text-lg font-semibold text-gray-900 cursor-pointer hover:text-blue-600" onClick={() => openDetail(l)}>{l.nom}</h2>
-                      {l.reference && <span className="text-xs text-gray-400">#{l.reference}</span>}
-                      <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{l.typeLicence}</span>
+                <button
+                  type="button"
+                  onClick={() => toggleLicenceRow(l.id)}
+                  className="w-full flex flex-wrap items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                  aria-expanded={rowOpen}
+                  aria-label={rowOpen ? 'Replier le détail de la licence' : 'Afficher le détail et les actions de la licence'}
+                >
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${statut?.color}`}>{statut?.label}</span>
+                  <span className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate text-left">{l.nom}</span>
+                  <span className="text-sm text-gray-500 font-mono shrink-0">{l.reference || '—'}</span>
+                  {rowOpen && (
+                    <span className="text-gray-400 shrink-0 ml-auto" aria-hidden>
+                      ▼
+                    </span>
+                  )}
+                </button>
+
+                {rowOpen && (
+                  <div className="px-4 sm:px-5 pb-4 pt-0 border-t border-gray-100">
+                    <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4 pt-3">
+                      <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {l.typeLicence && (
+                        <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{l.typeLicence}</span>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-4 text-xs text-gray-500 mb-2">
                       {l.nombreSieges && <span>👥 {l.nombreSieges} utilisateurs</span>}
@@ -575,8 +604,9 @@ export default function Licences() {
                         ))}
                       </div>
                     </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
+                        </div>
+
+                    <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
                     <button type="button" onClick={() => openDetail(l)} className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200">👁 Détails</button>
                     {canEditLicence(l) && <button type="button" onClick={() => openEdit(l)} className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">✏️ Modifier licence</button>}
                     <button type="button" onClick={() => onAccesButtonClick(l)} className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200">🔐 Accès</button>
@@ -584,8 +614,10 @@ export default function Licences() {
                     {canSoftDelete(l) && (
                       <button type="button" onClick={() => handleDelete(l.id, l.nom)} className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">🗑 Mettre en corbeille</button>
                     )}
-                  </div>
-                </div>
+                    </div>
+                      </div>
+                    </div>
+                )}
               </div>
             );
           })}

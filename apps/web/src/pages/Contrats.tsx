@@ -115,6 +115,16 @@ export default function Contrats() {
   const [showDashboardModal, setShowDashboardModal] = useState(false);
   const [vuesPjByContrat, setVuesPjByContrat] = useState<Record<string, number>>({});
   const [dashboardVuesLoading, setDashboardVuesLoading] = useState(false);
+  const [expandedContratIds, setExpandedContratIds] = useState<Set<string>>(() => new Set());
+  const toggleContratRow = (id: string) => {
+    setExpandedContratIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const isContratRowExpanded = (id: string) => expandedContratIds.has(id);
 
   const emptyForm = {
     nom: '', dateSignature: '', dateEnregistrement: '', dateExpiration: '',
@@ -615,16 +625,40 @@ export default function Contrats() {
               const jours = c.dateExpiration ? joursRestants(c.dateExpiration) : null;
               const tags = c.tags ? JSON.parse(c.tags) : [];
               const rows = delegationsRows(c);
+              const rowOpen = isContratRowExpanded(c.id);
               return (
-                <div key={c.id} className="bg-white rounded-lg shadow p-5">
-                  <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-2 flex-wrap">
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${statut?.color}`}>{statut?.label}</span>
-                        <h2 className="text-lg font-semibold text-gray-900">{c.nom}</h2>
-                        {jours !== null && jours <= 30 && jours > 0 && <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs">⚠️ Expire dans {jours}j</span>}
-                        {jours !== null && jours <= 0 && <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs">🔴 Expiré</span>}
-                      </div>
+                <div key={c.id} className="bg-white rounded-lg shadow overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => toggleContratRow(c.id)}
+                    className="w-full flex flex-wrap items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                    aria-expanded={rowOpen}
+                    aria-label={rowOpen ? 'Replier le détail du contrat' : 'Afficher le détail et les actions du contrat'}
+                  >
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${statut?.color}`}>{statut?.label}</span>
+                    <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate">{c.nom}</h2>
+                    <span className="text-sm text-gray-500 font-mono shrink-0">
+                      {c.dateExpiration ? new Date(c.dateExpiration).toLocaleDateString('fr-FR') : '—'}
+                    </span>
+                    {rowOpen && (
+                      <span className="text-gray-400 shrink-0 ml-auto" aria-hidden>
+                        ▼
+                      </span>
+                    )}
+                  </button>
+
+                  {rowOpen && (
+                    <div className="px-4 sm:px-5 pb-4 pt-0 border-t border-gray-100">
+                      <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4 pt-3">
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {jours !== null && jours <= 30 && jours > 0 && (
+                              <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs">⚠️ Expire dans {jours}j</span>
+                            )}
+                            {jours !== null && jours <= 0 && (
+                              <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs">🔴 Expiré</span>
+                            )}
+                          </div>
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600">
                         {c.dateSignature && <div><span className="font-medium">Signature : </span>{new Date(c.dateSignature).toLocaleDateString('fr-FR')}</div>}
                         {c.dateEnregistrement && <div><span className="font-medium">Enregistrement : </span>{new Date(c.dateEnregistrement).toLocaleDateString('fr-FR')}</div>}
@@ -713,14 +747,17 @@ export default function Contrats() {
                           ))}
                         </div>
                       </div>
-                    </div>
+                        </div>
+
                     <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
                       {capModify(c) && <button type="button" onClick={() => openEdit(c)} className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">✏️ Modifier Contrat</button>}
                       <button type="button" onClick={() => onAccesButtonClick(c)} className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200">🔐 Accès</button>
                       <button type="button" onClick={() => openHistoriqueModal(c)} className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200">📜 Historique</button>
                       {capDelete(c) && <button type="button" onClick={() => handleDelete(c.id, c.nom)} className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">🗑 Mettre en corbeille</button>}
                     </div>
-                  </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
