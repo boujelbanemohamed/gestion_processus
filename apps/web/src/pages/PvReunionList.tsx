@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, API_BASE_URL } from '../services/api';
 import axios from 'axios';
@@ -44,6 +44,11 @@ uploadApi.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
+
+function tokenQs() {
+  const t = localStorage.getItem('token');
+  return t ? `?token=${encodeURIComponent(t)}` : '';
+}
 
 function IdChips({
   label,
@@ -100,6 +105,7 @@ export default function PvReunionList() {
   const [processusList, setProcessusList] = useState<any[]>([]);
 
   const [titre, setTitre] = useState('');
+  const [statutForm, setStatutForm] = useState('brouillon');
   const [dateReunion, setDateReunion] = useState('');
   const [fichier, setFichier] = useState<File | null>(null);
   const [presentUserIds, setPresentUserIds] = useState<string[]>([]);
@@ -122,6 +128,9 @@ export default function PvReunionList() {
   const [showFiltres, setShowFiltres] = useState(false);
   const [filtreStatut, setFiltreStatut] = useState('');
   const [expandedPvIds, setExpandedPvIds] = useState<Set<string>>(() => new Set());
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
+  const firstPvLoad = useRef(true);
 
   const canUseModule = canModifyModule(user?.uiModules, 'pv_reunion');
 
@@ -136,14 +145,18 @@ export default function PvReunionList() {
   const isPvExpanded = (id: string) => expandedPvIds.has(id);
 
   const load = async () => {
-    setLoading(true);
+    const showFullLoading = firstPvLoad.current;
+    if (showFullLoading) setLoading(true);
     try {
       const r = await api.get('/pv-reunions');
       setRows(r.data || []);
     } catch {
       setRows([]);
     } finally {
-      setLoading(false);
+      if (showFullLoading) {
+        setLoading(false);
+        firstPvLoad.current = false;
+      }
     }
   };
 
@@ -178,7 +191,17 @@ export default function PvReunionList() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, filtreStatut]);
+  }, [search, filtreStatut, sortConfig]);
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const resetSort = () => setSortConfig(null);
 
   useEffect(() => {
     if (showForm) loadRefs();
@@ -285,7 +308,7 @@ export default function PvReunionList() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
+    const base = rows.filter((r) => {
       const matchStatut = !filtreStatut || r.statut === filtreStatut;
       if (!q) return matchStatut;
       const matchText =
@@ -297,21 +320,48 @@ export default function PvReunionList() {
           .includes(q);
       return matchStatut && matchText;
     });
-  }, [rows, search, filtreStatut]);
+    if (!sortConfig) return base;
+    const dir = sortConfig.direction === 'asc' ? 1 : -1;
+    return [...base].sort((a, b) => {
+      if (sortConfig.key === 'titre') {
+        return dir * (a.titre || '').localeCompare(b.titre || '', 'fr', { sensitivity: 'base' });
+      }
+      if (sortConfig.key === 'statut') {
+        return dir * (a.statut || '').localeCompare(b.statut || '', 'fr');
+      }
+      if (sortConfig.key === 'dateReunion') {
+        const ta = a.dateReunion ? new Date(a.dateReunion).getTime() : 0;
+        const tb = b.dateReunion ? new Date(b.dateReunion).getTime() : 0;
+        return dir * (ta - tb);
+      }
+      if (sortConfig.key === 'createur') {
+        const na = a.createdBy ? `${a.createdBy.prenom} ${a.createdBy.nom}` : '';
+        const nb = b.createdBy ? `${b.createdBy.prenom} ${b.createdBy.nom}` : '';
+        return dir * na.localeCompare(nb, 'fr', { sensitivity: 'base' });
+      }
+      return 0;
+    });
+  }, [rows, search, filtreStatut, sortConfig]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const startIdx = (safePage - 1) * PAGE_SIZE;
   const paged = filtered.slice(startIdx, startIdx + PAGE_SIZE);
 
+  if (loading) {
+    return (
+      <div className="p-6">
+        <div className="text-center py-10 text-gray-400">Chargement...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">PV de réunion</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {filtered.length} PV — procès-verbaux et rattachements (projets, tâches, epics, contrats, processus).
-          </p>
+          <p className="text-sm text-gray-500 mt-1">{filtered.length} PV accessible(s)</p>
         </div>
         <div className="flex flex-wrap gap-2 justify-end">
           <button
@@ -336,7 +386,7 @@ export default function PvReunionList() {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow mb-6 border border-gray-100">
+      <div className="bg-white rounded-lg shadow mb-6">
         <button
           type="button"
           onClick={() => setShowFiltres(!showFiltres)}
@@ -352,13 +402,13 @@ export default function PvReunionList() {
           <div className="px-4 pb-4 pt-0 border-t border-gray-100">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
               <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-gray-600 mb-1">Recherche</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Titre, créateur ou ID</label>
                 <input
-                  type="search"
-                  placeholder="Titre, créateur ou ID…"
+                  type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+                  placeholder="Rechercher…"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                 />
               </div>
               <div>
@@ -366,9 +416,9 @@ export default function PvReunionList() {
                 <select
                   value={filtreStatut}
                   onChange={(e) => setFiltreStatut(e.target.value)}
-                  className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                 >
-                  <option value="">Tous les statuts</option>
+                  <option value="">Tous</option>
                   {PV_STATUTS.map((s) => (
                     <option key={s.value} value={s.value}>
                       {s.label}
@@ -377,7 +427,32 @@ export default function PvReunionList() {
                 </select>
               </div>
             </div>
-            <div className="flex justify-end mt-3">
+            <div className="flex flex-wrap justify-between items-center gap-2 mt-4 pt-2 border-t border-gray-100">
+              <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+                <span className="font-medium">Tri rapide :</span>
+                {(['titre', 'statut', 'dateReunion', 'createur'] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => handleSort(k)}
+                    className={`hover:text-blue-600 ${sortConfig?.key === k ? 'text-blue-600 font-semibold' : ''}`}
+                  >
+                    {k === 'dateReunion'
+                      ? 'Date réunion'
+                      : k === 'createur'
+                        ? 'Créé par'
+                        : k === 'titre'
+                          ? 'Titre'
+                          : 'Statut'}
+                    {sortConfig?.key === k ? (sortConfig.direction === 'asc' ? ' ↑' : ' ↓') : ''}
+                  </button>
+                ))}
+                {sortConfig && (
+                  <button type="button" onClick={resetSort} className="text-gray-600 hover:underline ml-2">
+                    Réinitialiser tri
+                  </button>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={() => {
@@ -394,42 +469,32 @@ export default function PvReunionList() {
       </div>
 
       <div className="space-y-4">
-        {loading ? (
-          <p className="p-8 text-center text-gray-500 bg-white rounded-lg shadow border border-gray-100">Chargement…</p>
-        ) : filtered.length === 0 ? (
-          <p className="p-8 text-center text-gray-500 bg-white rounded-lg shadow border border-gray-100">
-            Aucun PV pour le moment.
-          </p>
+        {filtered.length === 0 ? (
+          <div className="text-center py-10 text-gray-400 bg-white rounded-lg shadow">Aucun PV trouvé</div>
         ) : (
           paged.map((r) => {
             const c = r.capabilities || { canModify: false };
             const st = PV_STATUTS.find((x) => x.value === r.statut) || PV_STATUTS[0];
             const rowOpen = isPvExpanded(r.id);
-            const token = localStorage.getItem('token');
             const docHref = r.document?.id
-              ? `${API_BASE_URL}/documents/${r.document.id}/view?token=${token || ''}`
+              ? `${API_BASE_URL}/documents/${r.document.id}/view${tokenQs()}`
               : '';
             return (
-              <div key={r.id} className="bg-white rounded-lg shadow overflow-hidden border border-gray-100">
+              <div key={r.id} className="bg-white rounded-lg shadow overflow-hidden">
                 <button
                   type="button"
                   onClick={() => togglePvRow(r.id)}
                   className="w-full flex flex-wrap items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
                   aria-expanded={rowOpen}
+                  aria-label={
+                    rowOpen ? 'Replier le détail du PV' : 'Afficher le détail et les actions du PV de réunion'
+                  }
                 >
                   <span className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${st.color}`}>{st.label}</span>
                   <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate">{r.titre}</h2>
-                  <span className="text-xs text-gray-500 shrink-0">
-                    💬 {r.nombreCommentaires ?? 0}
+                  <span className="text-sm text-gray-500 font-mono shrink-0">
+                    {r.dateReunion ? new Date(r.dateReunion).toLocaleDateString('fr-FR') : '—'}
                   </span>
-                  <span className="text-xs text-gray-500 shrink-0">
-                    👁 {r.nombreVues ?? 0}
-                  </span>
-                  {r.dateReunion && (
-                    <span className="text-xs text-gray-400 shrink-0 hidden sm:inline">
-                      {new Date(r.dateReunion).toLocaleDateString('fr-FR')}
-                    </span>
-                  )}
                   {rowOpen && (
                     <span className="text-gray-400 shrink-0 ml-auto" aria-hidden>
                       ▼
@@ -440,22 +505,22 @@ export default function PvReunionList() {
                 {rowOpen && (
                   <div className="px-4 sm:px-5 pb-4 pt-0 border-t border-gray-100">
                     <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4 pt-3">
-                      <div className="min-w-0 flex-1 space-y-3 text-sm text-gray-600">
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600">
                           <div>
-                            <span className="font-medium text-gray-700">Commentaires : </span>
+                            <span className="font-medium">Commentaires : </span>
                             <span className="text-blue-700 font-semibold">{r.nombreCommentaires ?? 0}</span>
                           </div>
                           <div>
-                            <span className="font-medium text-gray-700">Vues (journal) : </span>
+                            <span className="font-medium">Vues (journal) : </span>
                             <span className="text-blue-700 font-semibold">{r.nombreVues ?? 0}</span>
                           </div>
                           <div>
-                            <span className="font-medium text-gray-700">Date réunion : </span>
+                            <span className="font-medium">Date réunion : </span>
                             {r.dateReunion ? new Date(r.dateReunion).toLocaleDateString('fr-FR') : '—'}
                           </div>
                           <div>
-                            <span className="font-medium text-gray-700">Créé par : </span>
+                            <span className="font-medium">Créé par : </span>
                             {r.createdBy ? `${r.createdBy.prenom} ${r.createdBy.nom}` : '—'}
                           </div>
                         </div>
@@ -507,7 +572,7 @@ export default function PvReunionList() {
                           </div>
                         </div>
 
-                        <div className="space-y-2 border-t border-gray-100 pt-3">
+                        <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
                           {(r.projets || []).length > 0 && (
                             <div>
                               <p className="text-xs font-medium text-gray-500 uppercase mb-1">Projets</p>
@@ -621,24 +686,10 @@ export default function PvReunionList() {
                       <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
                         <button
                           type="button"
-                          onClick={() => setAccesModalPv({ id: r.id, titre: r.titre || 'PV' })}
-                          className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
-                        >
-                          🔐 Accès
-                        </button>
-                        <button
-                          type="button"
                           onClick={() => navigate(`/pv-reunion/${r.id}`)}
                           className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
                         >
                           👁 Détails
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openHistoriqueModal(r)}
-                          className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
-                        >
-                          📜 Historique
                         </button>
                         {c.canModify && canUseModule && (
                           <button
@@ -649,6 +700,20 @@ export default function PvReunionList() {
                             ✏️ Modifier
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setAccesModalPv({ id: r.id, titre: r.titre || 'PV' })}
+                          className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
+                        >
+                          🔐 Accès
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openHistoriqueModal(r)}
+                          className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                        >
+                          📜 Historique
+                        </button>
                         {c.canModify && canUseModule && (
                           <button
                             type="button"
