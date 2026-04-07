@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
@@ -67,6 +67,7 @@ export default function ClientsFournisseurs() {
   const [items, setItems] = useState<any[]>([]);
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [search, setSearch] = useState('');
+  const [searchIdCf, setSearchIdCf] = useState('');
   const [showFiltres, setShowFiltres] = useState(false);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -138,7 +139,7 @@ export default function ClientsFournisseurs() {
 
   useEffect(() => {
     setPage(1);
-  }, [typeFilter, search]);
+  }, [typeFilter, search, searchIdCf]);
 
   useEffect(() => {
     (async () => {
@@ -330,10 +331,16 @@ export default function ClientsFournisseurs() {
     load();
   };
 
-  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const filteredItems = useMemo(() => {
+    const needle = searchIdCf.trim().toLowerCase();
+    if (!needle) return items;
+    return items.filter((it) => String(it.id).toLowerCase().includes(needle));
+  }, [items, searchIdCf]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const startIdx = (safePage - 1) * pageSize;
-  const pagedItems = items.slice(startIdx, startIdx + pageSize);
+  const pagedItems = filteredItems.slice(startIdx, startIdx + pageSize);
 
   return (
     <div className="p-6">
@@ -358,7 +365,10 @@ export default function ClientsFournisseurs() {
           onClick={() => setShowFiltres(!showFiltres)}
           className="w-full px-4 py-3 flex justify-between items-center text-left text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-t-lg"
         >
-          <span>Filtres</span>
+          <span>
+            Filtres
+            {(search || typeFilter || searchIdCf.trim()) ? ' ●' : ''}
+          </span>
           <span className="text-gray-400">{showFiltres ? '▼' : '▶'}</span>
         </button>
         {showFiltres && (
@@ -372,6 +382,17 @@ export default function ClientsFournisseurs() {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">ID client / fournisseur</label>
+                <input
+                  type="text"
+                  placeholder="Extrait d’UUID…"
+                  value={searchIdCf}
+                  onChange={(e) => setSearchIdCf(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+                  autoComplete="off"
                 />
               </div>
               <div>
@@ -392,6 +413,7 @@ export default function ClientsFournisseurs() {
                 type="button"
                 onClick={() => {
                   setSearch('');
+                  setSearchIdCf('');
                   setTypeFilter('');
                 }}
                 className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
@@ -406,7 +428,7 @@ export default function ClientsFournisseurs() {
       {/* Liste */}
       {loading ? <div className="text-center py-10 text-gray-400">Chargement...</div> : (
         <div className="space-y-4">
-          {items.length === 0 && <div className="text-center py-10 text-gray-400">Aucune fiche trouvée</div>}
+          {filteredItems.length === 0 && <div className="text-center py-10 text-gray-400">Aucune fiche trouvée</div>}
           {pagedItems.map((item) => {
             const rowOpen = isCfRowExpanded(item.id);
             return (
@@ -428,7 +450,13 @@ export default function ClientsFournisseurs() {
                   {item.type === 'client' ? '👤 Client' : '🏭 Fournisseur'}
                 </span>
                 <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate">{item.nom}</h2>
-                <span className="text-sm text-gray-500 font-mono shrink-0">{item.matriculeFiscale || '—'}</span>
+                <span
+                  className="text-[11px] text-gray-400 font-mono shrink-0 max-w-[7rem] sm:max-w-[10rem] truncate"
+                  title={item.id}
+                >
+                  {item.id}
+                </span>
+                <span className="text-sm text-gray-500 font-mono shrink-0 hidden md:inline">{item.matriculeFiscale || '—'}</span>
                 {rowOpen && (
                   <span className="text-gray-400 shrink-0 ml-auto" aria-hidden>
                     ▼
@@ -441,6 +469,10 @@ export default function ClientsFournisseurs() {
                   <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4 pt-3">
                     <div className="min-w-0 flex-1 space-y-2">
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm text-gray-600">
+                    <div className="col-span-2 lg:col-span-4">
+                      <span className="font-medium">ID : </span>
+                      <span className="font-mono text-xs break-all">{item.id}</span>
+                    </div>
                     {item.typeSociete && <div><span className="font-medium">Type : </span>{item.typeSociete.nom}</div>}
                     {item.matriculeFiscale && <div><span className="font-medium">MF/ID : </span>{item.matriculeFiscale}</div>}
                     {item.pays && <div><span className="font-medium">Pays : </span>{item.pays}</div>}
@@ -632,10 +664,10 @@ export default function ClientsFournisseurs() {
             </div>
             );
           })}
-          {items.length > pageSize && (
+          {filteredItems.length > pageSize && (
             <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4 flex-wrap gap-3">
               <div className="text-sm text-gray-700">
-                Affichage {startIdx + 1}-{Math.min(startIdx + pageSize, items.length)} sur {items.length}
+                Affichage {startIdx + 1}-{Math.min(startIdx + pageSize, filteredItems.length)} sur {filteredItems.length}
               </div>
               <div className="flex flex-wrap gap-2">
                 <button

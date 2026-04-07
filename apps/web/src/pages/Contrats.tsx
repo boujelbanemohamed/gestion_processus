@@ -92,6 +92,7 @@ export default function Contrats() {
   const [filtreDateEnregFin, setFiltreDateEnregFin] = useState('');
   const [filtreDateExpDebut, setFiltreDateExpDebut] = useState('');
   const [filtreDateExpFin, setFiltreDateExpFin] = useState('');
+  const [filtreContratId, setFiltreContratId] = useState('');
   const [showFiltres, setShowFiltres] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const [projets, setProjets] = useState<any[]>([]);
@@ -158,7 +159,7 @@ export default function Contrats() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, filtreStatut, filtreProjetIds, filtreParties, filtreDateSignatureDebut, filtreDateSignatureFin, filtreDateEnregDebut, filtreDateEnregFin, filtreDateExpDebut, filtreDateExpFin]);
+  }, [search, filtreStatut, filtreProjetIds, filtreParties, filtreDateSignatureDebut, filtreDateSignatureFin, filtreDateEnregDebut, filtreDateEnregFin, filtreDateExpDebut, filtreDateExpFin, filtreContratId]);
 
   const capModify = (c: any) =>
     c.capabilities?.canModify ??
@@ -417,6 +418,8 @@ export default function Contrats() {
   };
 
   const filtered = contrats.filter((c) => {
+    const idNeedle = filtreContratId.trim().toLowerCase();
+    const matchId = !idNeedle || String(c.id).toLowerCase().includes(idNeedle);
     const matchSearch = c.nom.toLowerCase().includes(search.toLowerCase());
     const matchStatut = !filtreStatut || c.statut === filtreStatut;
     const matchProjets = filtreProjetIds.length === 0 || c.projets?.some((p: any) => filtreProjetIds.includes(p.projetId || p.id));
@@ -432,7 +435,7 @@ export default function Contrats() {
     const dateExp = c.dateExpiration ? new Date(c.dateExpiration) : null;
     const matchExpDebut = !filtreDateExpDebut || (dateExp && dateExp >= new Date(filtreDateExpDebut));
     const matchExpFin = !filtreDateExpFin || (dateExp && dateExp <= new Date(filtreDateExpFin));
-    return matchSearch && matchStatut && matchProjets && matchParties &&
+    return matchId && matchSearch && matchStatut && matchProjets && matchParties &&
       matchSignDebut && matchSignFin && matchEnregDebut && matchEnregFin && matchExpDebut && matchExpFin;
   });
 
@@ -521,7 +524,7 @@ export default function Contrats() {
         >
           <span>
             Filtres
-            {(filtreStatut || filtreProjetIds.length > 0 || filtreParties.length > 0 || filtreDateSignatureDebut || filtreDateSignatureFin || filtreDateEnregDebut || filtreDateEnregFin || filtreDateExpDebut || filtreDateExpFin || search)
+            {(filtreStatut || filtreProjetIds.length > 0 || filtreParties.length > 0 || filtreDateSignatureDebut || filtreDateSignatureFin || filtreDateEnregDebut || filtreDateEnregFin || filtreDateExpDebut || filtreDateExpFin || search || filtreContratId.trim())
               ? ' ●'
               : ''}
           </span>
@@ -537,6 +540,16 @@ export default function Contrats() {
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Rechercher…"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">ID contrat</label>
+                <input
+                  value={filtreContratId}
+                  onChange={(e) => setFiltreContratId(e.target.value)}
+                  placeholder="Saisir un extrait d’UUID…"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+                  autoComplete="off"
                 />
               </div>
             <div>
@@ -606,6 +619,7 @@ export default function Contrats() {
                   setFiltreDateEnregFin('');
                   setFiltreDateExpDebut('');
                   setFiltreDateExpFin('');
+                  setFiltreContratId('');
                 }}
                 className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
@@ -637,7 +651,13 @@ export default function Contrats() {
                   >
                     <span className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${statut?.color}`}>{statut?.label}</span>
                     <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate">{c.nom}</h2>
-                    <span className="text-sm text-gray-500 font-mono shrink-0">
+                    <span
+                      className="text-[11px] text-gray-400 font-mono shrink-0 max-w-[7rem] sm:max-w-[10rem] truncate"
+                      title={c.id}
+                    >
+                      {c.id}
+                    </span>
+                    <span className="text-sm text-gray-500 font-mono shrink-0 hidden md:inline">
                       {c.dateExpiration ? new Date(c.dateExpiration).toLocaleDateString('fr-FR') : '—'}
                     </span>
                     {rowOpen && (
@@ -660,6 +680,10 @@ export default function Contrats() {
                             )}
                           </div>
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600">
+                        <div className="col-span-2 lg:col-span-4">
+                          <span className="font-medium">ID : </span>
+                          <span className="font-mono text-xs break-all">{c.id}</span>
+                        </div>
                         {c.dateSignature && <div><span className="font-medium">Signature : </span>{new Date(c.dateSignature).toLocaleDateString('fr-FR')}</div>}
                         {c.dateEnregistrement && <div><span className="font-medium">Enregistrement : </span>{new Date(c.dateEnregistrement).toLocaleDateString('fr-FR')}</div>}
                         {c.dateExpiration && <div><span className="font-medium">Expiration : </span>{new Date(c.dateExpiration).toLocaleDateString('fr-FR')}</div>}
