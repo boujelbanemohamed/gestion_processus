@@ -616,79 +616,77 @@ export default function Processus() {
 
           return (
             <div key={p.id} className="bg-white rounded-lg shadow overflow-hidden">
-              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 p-4 lg:gap-4">
-                <button
-                  type="button"
-                  onClick={() => toggleProcessusRow(p.id)}
-                  className="flex flex-1 min-w-0 items-start gap-3 text-left rounded-lg hover:bg-gray-50 -m-1 p-1 lg:m-0 lg:p-2 lg:-m-2 transition-colors"
-                  aria-expanded={rowOpen}
-                  aria-label={rowOpen ? 'Replier le détail du processus' : 'Afficher le détail du processus'}
+              <button
+                type="button"
+                onClick={() => toggleProcessusRow(p.id)}
+                className="w-full flex flex-wrap items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                aria-expanded={rowOpen}
+                aria-label={rowOpen ? 'Replier le détail du processus' : 'Afficher le détail et les actions du processus'}
+              >
+                <span
+                  className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${currentStatut?.color || 'bg-gray-100 text-gray-800'}`}
                 >
-                  <span className="text-gray-400 shrink-0 w-5 text-center leading-7" aria-hidden>
-                    {rowOpen ? '▼' : '▶'}
+                  {currentStatut?.label || p.statut}
+                </span>
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate">{p.nom}</h2>
+                <span className="text-sm text-gray-500 font-mono shrink-0">{p.codeProcessus}</span>
+                {rowOpen && (
+                  <span className="text-gray-400 shrink-0 ml-auto" aria-hidden>
+                    ▼
                   </span>
-                  <div className="flex flex-wrap items-center gap-3 min-w-0 flex-1">
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${currentStatut?.color || 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {currentStatut?.label || p.statut}
-                    </span>
-                    <h2 className="text-lg font-semibold text-gray-900">{p.nom}</h2>
-                    <span className="text-sm text-gray-500 font-mono shrink-0">{p.codeProcessus}</span>
-                  </div>
-                </button>
-
-                <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem] pl-8 lg:pl-0">
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/processus/${p.id}`)}
-                    className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
-                  >
-                    👁 Détails
-                  </button>
-                  {capModify(p) && (
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/processus/${p.id}`, { state: { openEdit: true } })}
-                      className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-                    >
-                      ✏️ Modifier
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => onAccesButtonClick(p)}
-                    className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
-                  >
-                    🔐 Accès
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openHistoriqueModal(p)}
-                    className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
-                  >
-                    📜 Historique
-                  </button>
-                  {capDelete(p) && (
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(p.id, p.nom)}
-                      disabled={deletingId === p.id}
-                      className={`px-3 py-1.5 text-xs rounded ${
-                        deletingId === p.id
-                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                          : 'bg-red-100 text-red-700 hover:bg-red-200'
-                      }`}
-                    >
-                      {deletingId === p.id ? '…' : '🗑 Mettre en corbeille'}
-                    </button>
-                  )}
-                </div>
-              </div>
+                )}
+              </button>
 
               {rowOpen && (
                 <div className="px-5 pb-5 pt-0 border-t border-gray-100">
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600 pt-4">
+                  <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem] pt-4">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/processus/${p.id}`)}
+                      className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                    >
+                      👁 Détails
+                    </button>
+                    {capModify(p) && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/processus/${p.id}`, { state: { openEdit: true } })}
+                        className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                      >
+                        ✏️ Modifier
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onAccesButtonClick(p)}
+                      className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
+                    >
+                      🔐 Accès
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openHistoriqueModal(p)}
+                      className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                    >
+                      📜 Historique
+                    </button>
+                    {capDelete(p) && (
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(p.id, p.nom)}
+                        disabled={deletingId === p.id}
+                        className={`px-3 py-1.5 text-xs rounded ${
+                          deletingId === p.id
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'bg-red-100 text-red-700 hover:bg-red-200'
+                        }`}
+                      >
+                        {deletingId === p.id ? '…' : '🗑 Mettre en corbeille'}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600 mt-4">
                     <div>
                       <span className="font-medium">Documents : </span>
                       <span className="text-blue-700 font-semibold">{p.nombreDocuments ?? 0}</span>
