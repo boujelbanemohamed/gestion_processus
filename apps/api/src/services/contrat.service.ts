@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prisma';
+import { LogAction, ResourceType } from '../generated/prisma/enums';
 
 const contratInclude = {
   createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
@@ -434,6 +435,56 @@ export const contratService = {
       include: { createdBy: { select: { id: true, nom: true, prenom: true, email: true } } },
       orderBy: { deletedAt: 'desc' },
     });
+  },
+
+  /** Corbeille depuis la page Contrats : tout pour l’admin, sinon uniquement les contrats créés par l’utilisateur (aligné projets). */
+  async listDeletedForCorbeilleScoped(userId: string, userRole: string) {
+    const where: { deletedAt: { not: null }; createdById?: string } = { deletedAt: { not: null } };
+    if (userRole !== 'admin') {
+      where.createdById = userId;
+    }
+    return prisma.contrat.findMany({
+      where,
+      include: { createdBy: { select: { id: true, nom: true, prenom: true, email: true } } },
+      orderBy: { deletedAt: 'desc' },
+    });
+  },
+
+  /**
+   * Somme des entrées JournalAcces (action lecture) pour chaque document lié au contrat — agrégée par contrat.
+   * Uniquement les contrats visibles par l’utilisateur (même règles que findAll).
+   */
+  async getVuesPiecesJointesByContratId(userId: string, userRole: string): Promise<Record<string, number>> {
+    const contrats = await prisma.contrat.findMany({
+      where: { deletedAt: null },
+      include: contratInclude,
+    });
+    const visibleIds = contrats.filter((c) => canViewContrat(c as ContratAcl, userId, userRole)).map((c) => c.id);
+    if (visibleIds.length === 0) return {};
+
+    const links = await prisma.contratDocument.findMany({
+      where: { contratId: { in: visibleIds } },
+      select: { contratId: true, documentId: true },
+    });
+    const result: Record<string, number> = {};
+    for (const id of visibleIds) result[id] = 0;
+    if (links.length === 0) return result;
+
+    const docIds = [...new Set(links.map((l) => l.documentId))];
+    const groups = await prisma.journalAcces.groupBy({
+      by: ['ressourceId'],
+      where: {
+        ressourceType: ResourceType.document,
+        action: LogAction.lecture,
+        ressourceId: { in: docIds },
+      },
+      _count: { _all: true },
+    });
+    const docToCount = new Map(groups.map((g) => [g.ressourceId, g._count._all]));
+    for (const link of links) {
+      result[link.contratId] += docToCount.get(link.documentId) ?? 0;
+    }
+    return result;
   },
 
   async restoreFromCorbeille(id: string, actorUserId: string) {

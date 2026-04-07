@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, API_BASE_URL } from '../services/api';
 import axios from 'axios';
@@ -72,6 +72,10 @@ function delegationsRows(c: any) {
   return (c.permissions || []).map((p: any) => ({ id: p.id, user: p.user, niveau: p.niveau }));
 }
 
+function sortMapEntriesDesc(m: Map<string, number>) {
+  return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'fr'));
+}
+
 export default function Contrats() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -106,6 +110,11 @@ export default function Contrats() {
   const [histModalContrat, setHistModalContrat] = useState<any | null>(null);
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
+  const [showCorbeilleModal, setShowCorbeilleModal] = useState(false);
+  const [corbeilleContrats, setCorbeilleContrats] = useState<any[]>([]);
+  const [showDashboardModal, setShowDashboardModal] = useState(false);
+  const [vuesPjByContrat, setVuesPjByContrat] = useState<Record<string, number>>({});
+  const [dashboardVuesLoading, setDashboardVuesLoading] = useState(false);
 
   const emptyForm = {
     nom: '', dateSignature: '', dateEnregistrement: '', dateExpiration: '',
@@ -362,6 +371,41 @@ export default function Contrats() {
     }
   };
 
+  const loadCorbeilleContrats = async () => {
+    try {
+      const r = await api.get('/contrats/corbeille');
+      setCorbeilleContrats(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setCorbeilleContrats([]);
+    }
+  };
+
+  const handleRestoreContratFromCorbeille = async (id: string) => {
+    try {
+      await api.post(`/corbeille/contrats/${id}/restaurer`);
+      setShowCorbeilleModal(false);
+      await load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur lors de la restauration');
+    }
+  };
+
+  const canRestoreContratCorbeille = (row: any) =>
+    user?.role === 'admin' || row.createdById === user?.id || row.createdBy?.id === user?.id;
+
+  const openDashboardModal = async () => {
+    setShowDashboardModal(true);
+    setDashboardVuesLoading(true);
+    try {
+      const { data } = await api.get<Record<string, number>>('/contrats/stats-vues-pj');
+      setVuesPjByContrat(data && typeof data === 'object' ? data : {});
+    } catch {
+      setVuesPjByContrat({});
+    } finally {
+      setDashboardVuesLoading(false);
+    }
+  };
+
   const filtered = contrats.filter((c) => {
     const matchSearch = c.nom.toLowerCase().includes(search.toLowerCase());
     const matchStatut = !filtreStatut || c.statut === filtreStatut;
@@ -387,6 +431,24 @@ export default function Contrats() {
   const startIdx = (safePage - 1) * PAGE_SIZE;
   const pageSlice = filtered.slice(startIdx, startIdx + PAGE_SIZE);
 
+  const dashboard = useMemo(() => {
+    const parStatut = new Map<string, number>();
+    for (const c of filtered) {
+      parStatut.set(c.statut, (parStatut.get(c.statut) || 0) + 1);
+    }
+    const plusVus = [...filtered]
+      .map((c) => ({
+        id: c.id,
+        nom: c.nom,
+        statut: c.statut,
+        vues: vuesPjByContrat[c.id] ?? 0,
+        nbDocs: c.documents?.length ?? 0,
+      }))
+      .sort((a, b) => b.vues - a.vues || a.nom.localeCompare(b.nom, 'fr'))
+      .slice(0, 15);
+    return { total: filtered.length, parStatut, plusVus };
+  }, [filtered, vuesPjByContrat]);
+
   const alertes = contrats.filter((c) => c.dateExpiration && joursRestants(c.dateExpiration) <= 30 && joursRestants(c.dateExpiration) > 0);
 
   const droitsAdminLigne = 'droits étendus — gestion des accès partagés réservée au créateur du contrat';
@@ -401,6 +463,23 @@ export default function Contrats() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2 justify-end">
+          <button
+            type="button"
+            onClick={async () => {
+              await loadCorbeilleContrats();
+              setShowCorbeilleModal(true);
+            }}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
+          >
+            🗑 Corbeille
+          </button>
+          <button
+            type="button"
+            onClick={() => void openDashboardModal()}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
+          >
+            📊 Dashboard
+          </button>
           <button
             type="button"
             onClick={openNew}
@@ -1077,6 +1156,131 @@ export default function Contrats() {
             )}
             <div className="flex justify-end mt-4">
               <button type="button" onClick={() => setHistModalContrat(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCorbeilleModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-5 border-b">
+              <h2 className="text-lg font-semibold">🗑 Contrats en corbeille</h2>
+              <button
+                type="button"
+                onClick={() => setShowCorbeilleModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl"
+                aria-label="Fermer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              {corbeilleContrats.length === 0 && <p className="text-sm text-gray-500">Aucun contrat en corbeille.</p>}
+              {corbeilleContrats.map((cc: any) => (
+                <div key={cc.id} className="flex flex-wrap justify-between items-center gap-3 p-3 border rounded-lg bg-gray-50">
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900">{cc.nom}</p>
+                    <p className="text-xs text-gray-500">
+                      Mis en corbeille le {cc.deletedAt ? new Date(cc.deletedAt).toLocaleString('fr-FR') : '—'}
+                      {cc.createdBy && ` · Créé par ${cc.createdBy.prenom} ${cc.createdBy.nom}`}
+                    </p>
+                  </div>
+                  {canRestoreContratCorbeille(cc) ? (
+                    <button
+                      type="button"
+                      onClick={() => handleRestoreContratFromCorbeille(cc.id)}
+                      className="shrink-0 px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700"
+                    >
+                      Restaurer
+                    </button>
+                  ) : (
+                    <span className="text-xs text-gray-400 shrink-0">Restauration : admin ou créateur</span>
+                  )}
+                </div>
+              ))}
+              <p className="text-xs text-gray-400 pt-2">
+                La suppression définitive reste réservée aux administrateurs (corbeille globale).
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDashboardModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-5 border-b sticky top-0 bg-white z-10">
+              <div>
+                <h2 className="text-lg font-semibold">📊 Dashboard contrats</h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  Données basées sur les {dashboard.total} contrat(s) actuellement listés (mêmes filtres que la page). Les vues
+                  comptabilisent les consultations (journal) des pièces jointes liées à chaque contrat.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDashboardModal(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl shrink-0"
+                aria-label="Fermer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-5 space-y-8 text-sm">
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Total</h3>
+                <p className="text-2xl font-bold text-gray-900">{dashboard.total}</p>
+                {dashboardVuesLoading && (
+                  <p className="text-xs text-gray-400 mt-2">Chargement des statistiques de vues…</p>
+                )}
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Par statut</h3>
+                {dashboard.total === 0 ? (
+                  <p className="text-gray-400 italic">Aucun contrat dans la liste filtrée</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {sortMapEntriesDesc(dashboard.parStatut).map(([k, n]) => (
+                      <li key={k} className="flex justify-between">
+                        <span>{STATUTS.find((s) => s.value === k)?.label || k}</span>
+                        <span className="font-medium text-gray-900">{n}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                  Contrats les plus consultés (pièces jointes)
+                </h3>
+                <p className="text-xs text-gray-400 mb-2">
+                  Somme des vues enregistrées pour tous les documents liés au contrat (top 15 de la liste filtrée).
+                </p>
+                {dashboard.plusVus.length === 0 ? (
+                  <p className="text-gray-400 italic">Aucun contrat dans la liste filtrée</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {dashboard.plusVus.map((row, i) => (
+                      <li key={row.id} className="flex flex-wrap justify-between gap-2 border-b border-gray-100 pb-1">
+                        <span>
+                          <span className="text-gray-400 mr-2">{i + 1}.</span>
+                          <span className="font-medium text-gray-900">{row.nom}</span>
+                          <span className="text-gray-500 text-xs ml-2">
+                            {STATUTS.find((s) => s.value === row.statut)?.label || row.statut}
+                            {row.nbDocs > 0 ? ` · ${row.nbDocs} pièce(s) jointe(s)` : ' · sans pièce jointe'}
+                          </span>
+                        </span>
+                        <span className="text-sm font-bold text-blue-600 shrink-0">
+                          {row.vues} vue{row.vues !== 1 ? 's' : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
             </div>
           </div>
         </div>

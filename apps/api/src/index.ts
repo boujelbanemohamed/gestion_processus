@@ -274,8 +274,10 @@ app.delete("/api/v1/clients-fournisseurs/:id/contrats/:contratId", clientFournis
 app.post("/api/v1/clients-fournisseurs/:id/projets", clientFournisseurController.addProjet);
 app.delete("/api/v1/clients-fournisseurs/:id/projets/:projetId", clientFournisseurController.removeProjet);
 
-// Routes Contrats
+// Routes Contrats (chemins statiques avant :id)
 app.get("/api/v1/contrats", contratController.getContrats);
+app.get("/api/v1/contrats/corbeille", contratController.getContratsCorbeille);
+app.get("/api/v1/contrats/stats-vues-pj", contratController.getContratsStatsVuesPj);
 app.get("/api/v1/contrats/:id/acces", contratController.getContratAcces);
 app.get("/api/v1/contrats/:id/historique", contratController.getContratHistorique);
 app.post("/api/v1/contrats/:id/admin-sans-acces", contratController.blockAdminImplicitAccess);

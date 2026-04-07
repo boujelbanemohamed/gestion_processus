@@ -42,6 +42,27 @@ export const getContrats = async (req: Request, res: Response) => {
   }
 };
 
+export const getContratsCorbeille = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const rows = await contratService.listDeletedForCorbeilleScoped(user.userId, user.role);
+    res.json(rows);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+/** Carte contratId → nombre de vues (journal « lecture ») sur les pièces jointes liées. */
+export const getContratsStatsVuesPj = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const map = await contratService.getVuesPiecesJointesByContratId(user.userId, user.role);
+    res.json(map);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
 export const getContrat = async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;

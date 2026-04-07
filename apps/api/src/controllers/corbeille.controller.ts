@@ -238,11 +238,22 @@ export const restaurerContrat = async (req: AuthRequest, res: Response) => {
     if (!req.user?.userId || !req.user?.role) {
       return res.status(401).json({ error: 'Non authentifié' });
     }
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Accès refusé. Seul le super admin peut restaurer des éléments.' });
+    const deleted = await prisma.contrat.findFirst({
+      where: { id: req.params.id, deletedAt: { not: null } },
+      select: { createdById: true },
+    });
+    if (!deleted) {
+      return res.status(400).json({ error: 'Élément introuvable ou non en corbeille' });
+    }
+    const isAdmin = req.user.role === 'admin';
+    const isCreator = deleted.createdById === req.user.userId;
+    if (!isAdmin && !isCreator) {
+      return res.status(403).json({
+        error: 'Accès refusé. Seuls l’administrateur ou le créateur peuvent restaurer ce contrat.',
+      });
     }
     const row = await corbeilleService.restaurerContrat(req.params.id, req.user.userId);
-    await logAccess(req, res, 'modification', 'contrat', row.id, row.nom, { action: 'restauration' });
+    await logAccess(req, res, 'modification', ResourceType.contrat, row.id, row.nom, { action: 'restauration' });
     res.json(row);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
