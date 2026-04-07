@@ -143,6 +143,18 @@ export default function Projets() {
   const [histModalProjet, setHistModalProjet] = useState<any | null>(null);
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
+  const [expandedProjetIds, setExpandedProjetIds] = useState<Set<string>>(() => new Set());
+
+  const toggleProjetRow = (id: string) => {
+    setExpandedProjetIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const isProjetRowExpanded = (id: string) => expandedProjetIds.has(id);
 
   useEffect(() => {
     loadProjets();
@@ -587,21 +599,43 @@ export default function Projets() {
             {pageSlice.map((p) => {
               const c = cap(p);
               const tr = p.tachesResume || { total: 0, parStatut: {}, enRetard: 0, avancementPct: null };
+              const rowOpen = isProjetRowExpanded(p.id);
               return (
-                <div key={p.id} className="bg-white rounded-lg shadow p-5">
-                  <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-2 flex-wrap">
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[p.statut] || 'bg-gray-100 text-gray-700'}`}>
-                          {STATUS_LABELS[p.statut] || p.statut}
-                        </span>
-                        <h2 className="text-lg font-semibold text-gray-900">{p.nom}</h2>
-                        <span className="text-xs text-gray-500 font-mono">{p.codeProjet}</span>
-                        <span className={`px-2 py-0.5 rounded text-xs capitalize ${PRIORITY_COLORS[p.priorite] || 'bg-gray-100 text-gray-700'}`}>
+                <div key={p.id} className="bg-white rounded-lg shadow overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => toggleProjetRow(p.id)}
+                    className="w-full flex flex-wrap items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                    aria-expanded={rowOpen}
+                    aria-label={rowOpen ? 'Replier le détail du projet' : 'Afficher le détail et les actions du projet'}
+                  >
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${STATUS_COLORS[p.statut] || 'bg-gray-100 text-gray-700'}`}
+                    >
+                      {STATUS_LABELS[p.statut] || p.statut}
+                    </span>
+                    <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate">{p.nom}</h2>
+                    <span className="text-sm text-gray-500 font-mono shrink-0">{p.codeProjet}</span>
+                    {rowOpen && (
+                      <span className="text-gray-400 shrink-0 ml-auto" aria-hidden>
+                        ▼
+                      </span>
+                    )}
+                  </button>
+
+                  {rowOpen && (
+                    <div className="px-4 sm:px-5 pb-4 pt-0 border-t border-gray-100">
+                      <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4 pt-3">
+                        <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-medium text-gray-500 uppercase shrink-0">Priorité</span>
+                        <span
+                          className={`px-2 py-0.5 rounded text-xs capitalize ${PRIORITY_COLORS[p.priorite] || 'bg-gray-100 text-gray-700'}`}
+                        >
                           {p.priorite}
                         </span>
                       </div>
-                      {p.nomClient && <p className="text-sm text-gray-600 mb-1">Client : {p.nomClient}</p>}
+                      {p.nomClient && <p className="text-sm text-gray-600">Client : {p.nomClient}</p>}
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600">
                         <div>
                           <span className="font-medium">Début : </span>
@@ -726,7 +760,7 @@ export default function Projets() {
                           ))}
                         </div>
                       </div>
-                    </div>
+                        </div>
 
                     <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
                       {c.canView && (
@@ -771,7 +805,9 @@ export default function Projets() {
                         </button>
                       )}
                     </div>
-                  </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
