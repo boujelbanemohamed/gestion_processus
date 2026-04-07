@@ -94,6 +94,8 @@ export default function Contrats() {
   const [filtreDateExpDebut, setFiltreDateExpDebut] = useState('');
   const [filtreDateExpFin, setFiltreDateExpFin] = useState('');
   const [filtreContratId, setFiltreContratId] = useState('');
+  const [filtreCodeContrat, setFiltreCodeContrat] = useState('');
+  const [filtreTypeContratIds, setFiltreTypeContratIds] = useState<string[]>([]);
   const [showFiltres, setShowFiltres] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const [projets, setProjets] = useState<any[]>([]);
@@ -128,9 +130,18 @@ export default function Contrats() {
   };
   const isContratRowExpanded = (id: string) => expandedContratIds.has(id);
 
+  const [typesContrat, setTypesContrat] = useState<any[]>([]);
+
   const emptyForm = {
-    nom: '', dateSignature: '', dateEnregistrement: '', dateExpiration: '',
-    statut: 'actif', tags: [] as string[], projetIds: [] as string[],
+    nom: '',
+    codeContrat: '',
+    typeContratId: '',
+    dateSignature: '',
+    dateEnregistrement: '',
+    dateExpiration: '',
+    statut: 'actif',
+    tags: [] as string[],
+    projetIds: [] as string[],
     partiesPrenantes: [] as { nom: string; clientFournisseurId?: string }[],
   };
   const [form, setForm] = useState(emptyForm);
@@ -141,16 +152,18 @@ export default function Contrats() {
   const load = async () => {
     setLoading(true);
     try {
-      const [c, u, p, cf] = await Promise.all([
+      const [c, u, p, cf, tc] = await Promise.all([
         api.get('/contrats'),
         api.get('/users'),
         api.get('/projets'),
         api.get('/clients-fournisseurs'),
+        api.get('/types-contrat'),
       ]);
       setContrats(c.data);
       setUsers(u.data);
       setProjets(p.data);
       setClientsFournisseurs(cf.data);
+      setTypesContrat(tc.data || []);
     } finally {
       setLoading(false);
     }
@@ -160,7 +173,21 @@ export default function Contrats() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, filtreStatut, filtreProjetIds, filtreParties, filtreDateSignatureDebut, filtreDateSignatureFin, filtreDateEnregDebut, filtreDateEnregFin, filtreDateExpDebut, filtreDateExpFin, filtreContratId]);
+  }, [
+    search,
+    filtreStatut,
+    filtreProjetIds,
+    filtreParties,
+    filtreDateSignatureDebut,
+    filtreDateSignatureFin,
+    filtreDateEnregDebut,
+    filtreDateEnregFin,
+    filtreDateExpDebut,
+    filtreDateExpFin,
+    filtreContratId,
+    filtreCodeContrat,
+    filtreTypeContratIds,
+  ]);
 
   const capModify = (c: any) =>
     c.capabilities?.canModify ??
@@ -187,6 +214,8 @@ export default function Contrats() {
     setEditing(c);
     setForm({
       nom: c.nom,
+      codeContrat: c.codeContrat || '',
+      typeContratId: c.typeContrat?.id || c.typeContratId || '',
       statut: c.statut,
       dateSignature: c.dateSignature ? c.dateSignature.split('T')[0] : '',
       dateEnregistrement: c.dateEnregistrement ? c.dateEnregistrement.split('T')[0] : '',
@@ -204,7 +233,8 @@ export default function Contrats() {
 
   const handleSave = async () => {
     if (!form.nom.trim()) return alert('Le nom est obligatoire');
-    const payload = {
+    if (!editing && !form.typeContratId.trim()) return alert('Le type de contrat est obligatoire');
+    const payload: Record<string, unknown> = {
       nom: form.nom,
       statut: form.statut,
       dateSignature: form.dateSignature || null,
@@ -213,7 +243,13 @@ export default function Contrats() {
       tags: form.tags,
       projetIds: form.projetIds,
       partiesPrenantes: form.partiesPrenantes,
+      typeContratId: form.typeContratId,
     };
+    if (editing) {
+      payload.codeContrat = form.codeContrat.trim();
+    } else if (form.codeContrat.trim()) {
+      payload.codeContrat = form.codeContrat.trim();
+    }
     try {
       let contratId: string;
       if (editing) {
@@ -421,7 +457,17 @@ export default function Contrats() {
   const filtered = contrats.filter((c) => {
     const idNeedle = filtreContratId.trim().toLowerCase();
     const matchId = !idNeedle || String(c.id).toLowerCase().includes(idNeedle);
-    const matchSearch = c.nom.toLowerCase().includes(search.toLowerCase());
+    const codeFilt = filtreCodeContrat.trim().toLowerCase();
+    const matchCodeFilt =
+      !codeFilt || (c.codeContrat && String(c.codeContrat).toLowerCase().includes(codeFilt));
+    const tid = c.typeContrat?.id || c.typeContratId;
+    const matchTypeFilt =
+      filtreTypeContratIds.length === 0 || (tid && filtreTypeContratIds.includes(tid));
+    const q = search.toLowerCase();
+    const matchSearch =
+      !q ||
+      c.nom.toLowerCase().includes(q) ||
+      (c.codeContrat && String(c.codeContrat).toLowerCase().includes(q));
     const matchStatut = !filtreStatut || c.statut === filtreStatut;
     const matchProjets = filtreProjetIds.length === 0 || c.projets?.some((p: any) => filtreProjetIds.includes(p.projetId || p.id));
     const matchParties = filtreParties.length === 0 || filtreParties.some((fp) =>
@@ -436,8 +482,21 @@ export default function Contrats() {
     const dateExp = c.dateExpiration ? new Date(c.dateExpiration) : null;
     const matchExpDebut = !filtreDateExpDebut || (dateExp && dateExp >= new Date(filtreDateExpDebut));
     const matchExpFin = !filtreDateExpFin || (dateExp && dateExp <= new Date(filtreDateExpFin));
-    return matchId && matchSearch && matchStatut && matchProjets && matchParties &&
-      matchSignDebut && matchSignFin && matchEnregDebut && matchEnregFin && matchExpDebut && matchExpFin;
+    return (
+      matchId &&
+      matchCodeFilt &&
+      matchTypeFilt &&
+      matchSearch &&
+      matchStatut &&
+      matchProjets &&
+      matchParties &&
+      matchSignDebut &&
+      matchSignFin &&
+      matchEnregDebut &&
+      matchEnregFin &&
+      matchExpDebut &&
+      matchExpFin
+    );
   });
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -525,7 +584,19 @@ export default function Contrats() {
         >
           <span>
             Filtres
-            {(filtreStatut || filtreProjetIds.length > 0 || filtreParties.length > 0 || filtreDateSignatureDebut || filtreDateSignatureFin || filtreDateEnregDebut || filtreDateEnregFin || filtreDateExpDebut || filtreDateExpFin || search || filtreContratId.trim())
+            {(filtreStatut ||
+              filtreProjetIds.length > 0 ||
+              filtreParties.length > 0 ||
+              filtreTypeContratIds.length > 0 ||
+              filtreDateSignatureDebut ||
+              filtreDateSignatureFin ||
+              filtreDateEnregDebut ||
+              filtreDateEnregFin ||
+              filtreDateExpDebut ||
+              filtreDateExpFin ||
+              search ||
+              filtreContratId.trim() ||
+              filtreCodeContrat.trim())
               ? ' ●'
               : ''}
           </span>
@@ -535,20 +606,30 @@ export default function Contrats() {
           <div className="px-4 pb-4 pt-0 border-t border-gray-100">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
               <div className="md:col-span-2 lg:col-span-3">
-                <label className="block text-xs font-medium text-gray-600 mb-1">Nom / recherche</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Nom, code ou texte libre</label>
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Rechercher…"
+                  placeholder="Nom du contrat ou extrait de code…"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">ID contrat</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Code contrat</label>
+                <input
+                  value={filtreCodeContrat}
+                  onChange={(e) => setFiltreCodeContrat(e.target.value)}
+                  placeholder="Contient…"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+                  autoComplete="off"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">ID technique (UUID)</label>
                 <input
                   value={filtreContratId}
                   onChange={(e) => setFiltreContratId(e.target.value)}
-                  placeholder="Saisir un extrait d’UUID…"
+                  placeholder="Extrait d’UUID…"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
                   autoComplete="off"
                 />
@@ -580,6 +661,30 @@ export default function Contrats() {
                   <label key={cf.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded">
                     <input type="checkbox" checked={filtreParties.includes(cf.id)} onChange={(e) => setFiltreParties(e.target.checked ? [...filtreParties, cf.id] : filtreParties.filter((id) => id !== cf.id))} className="rounded" />
                     {cf.nom}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Types de contrat</label>
+              <div className="border border-gray-300 rounded-md max-h-28 overflow-y-auto p-2 space-y-1 bg-white">
+                {typesContrat.length === 0 && <span className="text-xs text-gray-400">Aucun type (Configuration)</span>}
+                {typesContrat.map((tc: any) => (
+                  <label key={tc.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded">
+                    <input
+                      type="checkbox"
+                      checked={filtreTypeContratIds.includes(tc.id)}
+                      onChange={(e) =>
+                        setFiltreTypeContratIds(
+                          e.target.checked
+                            ? [...filtreTypeContratIds, tc.id]
+                            : filtreTypeContratIds.filter((id) => id !== tc.id)
+                        )
+                      }
+                      className="rounded"
+                    />
+                    <span className="font-mono text-[11px]">{tc.code}</span>
+                    <span>{tc.libelle}</span>
                   </label>
                 ))}
               </div>
@@ -621,6 +726,8 @@ export default function Contrats() {
                   setFiltreDateExpDebut('');
                   setFiltreDateExpFin('');
                   setFiltreContratId('');
+                  setFiltreCodeContrat('');
+                  setFiltreTypeContratIds([]);
                 }}
                 className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
@@ -651,6 +758,14 @@ export default function Contrats() {
                     aria-label={rowOpen ? 'Replier le détail du contrat' : 'Afficher le détail et les actions du contrat'}
                   >
                     <span className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${statut?.color}`}>{statut?.label}</span>
+                    {c.codeContrat && (
+                      <span
+                        className="px-2 py-0.5 rounded text-xs font-mono bg-slate-100 text-slate-800 shrink-0 max-w-[14rem] truncate"
+                        title={c.codeContrat}
+                      >
+                        {c.codeContrat}
+                      </span>
+                    )}
                     <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate">{c.nom}</h2>
                     <span
                       className="text-[11px] text-gray-400 font-mono shrink-0 max-w-[7rem] sm:max-w-[10rem] truncate"
@@ -681,6 +796,21 @@ export default function Contrats() {
                             )}
                           </div>
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600">
+                        {c.codeContrat && (
+                          <div className="col-span-2 lg:col-span-4">
+                            <span className="font-medium">Code contrat : </span>
+                            <span className="font-mono text-xs">{c.codeContrat}</span>
+                          </div>
+                        )}
+                        {c.typeContrat && (
+                          <div className="col-span-2 lg:col-span-2">
+                            <span className="font-medium">Type : </span>
+                            <span>
+                              {c.typeContrat.libelle}{' '}
+                              <span className="text-gray-500 font-mono text-xs">({c.typeContrat.code})</span>
+                            </span>
+                          </div>
+                        )}
                         <div className="col-span-2 lg:col-span-4">
                           <span className="font-medium">ID : </span>
                           <span className="font-mono text-xs break-all">{c.id}</span>
@@ -845,6 +975,49 @@ export default function Contrats() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nom du contrat *</label>
                 <input value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm" placeholder="Ex: Contrat de prestation ABC" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Type de contrat *</label>
+                <select
+                  value={form.typeContratId}
+                  onChange={(e) => setForm({ ...form, typeContratId: e.target.value })}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  required
+                >
+                  <option value="">— Choisir —</option>
+                  {typesContrat.map((tc: any) => (
+                    <option key={tc.id} value={tc.id}>
+                      {tc.code} — {tc.libelle}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Définissez les types dans <strong>Configuration → Types de contrat</strong>.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Code contrat</label>
+                <input
+                  value={form.codeContrat}
+                  onChange={(e) => setForm({ ...form, codeContrat: e.target.value })}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono"
+                  placeholder={
+                    editing
+                      ? 'Code unique du contrat'
+                      : 'Optionnel — laisser vide pour génération automatique'
+                  }
+                />
+                {!editing && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Si vide : format{' '}
+                    <code className="bg-gray-100 px-1 rounded text-[11px]">[TYPE]-[ANNÉE]-[CLIENT]-[SÉQ]</code> selon le
+                    type, les dates et la première partie prenante liée à un client/fournisseur (sinon « NA » pour le
+                    segment client).
+                  </p>
+                )}
+                {editing && (
+                  <p className="text-xs text-gray-500 mt-1">Modifiable par le créateur ou un utilisateur avec droit de modification.</p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

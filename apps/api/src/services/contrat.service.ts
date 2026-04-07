@@ -3,12 +3,55 @@ import { LogAction, ResourceType } from '../generated/prisma/enums';
 
 const contratInclude = {
   createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+  typeContrat: { select: { id: true, code: true, libelle: true } },
   partiesPrenantes: true,
   projets: { include: { projet: { select: { id: true, nom: true, codeProjet: true } } } },
   documents: { include: { document: { select: { id: true, nom: true, fichierUrl: true, estConfidentiel: true } } } },
   permissions: { include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } } },
   adminSansAcces: { select: { userId: true } },
 } as const;
+
+function sanitizeTypeCode(code: string): string {
+  const s = String(code || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+  return s.slice(0, 12) || 'GEN';
+}
+
+function clientKeyFromParties(parties: { clientFournisseurId?: string | null }[]): string {
+  const first = parties.find((p) => p.clientFournisseurId);
+  if (!first?.clientFournisseurId) return 'NA';
+  const raw = first.clientFournisseurId.replace(/-/g, '').toUpperCase();
+  return raw.slice(-8) || 'NA';
+}
+
+export function normalizeContratCode(input: string): string {
+  const t = String(input || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^A-Z0-9-]/g, '');
+  if (!t) throw new Error('Code contrat invalide');
+  if (t.length > 80) throw new Error('Code contrat trop long (max. 80 caractères)');
+  return t;
+}
+
+async function nextSequentialContratCode(typeCode: string, year: number, clientKey: string): Promise<string> {
+  const prefix = `${typeCode}-${year}-${clientKey}-`;
+  const rows = await prisma.contrat.findMany({
+    where: { codeContrat: { startsWith: prefix } },
+    select: { codeContrat: true },
+  });
+  let max = 0;
+  for (const r of rows) {
+    if (!r.codeContrat.startsWith(prefix)) continue;
+    const suf = r.codeContrat.slice(prefix.length);
+    const n = parseInt(suf, 10);
+    if (!Number.isNaN(n)) max = Math.max(max, n);
+  }
+  return `${prefix}${String(max + 1).padStart(3, '0')}`;
+}
 
 type ContratAcl = {
   id: string;
@@ -192,28 +235,71 @@ export const contratService = {
   },
 
   async create(data: any, userId: string, userRole: string) {
-    const { partiesPrenantes, projetIds, tags, ...rest } = data;
-    const row = await prisma.contrat.create({
-      data: {
-        ...rest,
-        tags: tags ? JSON.stringify(tags) : null,
-        createdBy: { connect: { id: userId } },
-        partiesPrenantes: partiesPrenantes?.length
-          ? {
-              create: partiesPrenantes.map((p: any) => ({
-                nom: p.nom,
-                clientFournisseurId: p.clientFournisseurId || null,
-              })),
-            }
-          : undefined,
-        projets: projetIds?.length
-          ? { create: projetIds.map((projetId: string) => ({ projetId })) }
-          : undefined,
-      },
-      include: contratInclude,
-    });
-    await logContratHistorique(row.id, userId, 'creation', `Contrat créé : ${row.nom}`);
-    return mapWithCapsAndAcces(row as any, userId, userRole);
+    const { partiesPrenantes, projetIds, tags, codeContrat: rawCode, typeContratId, ...rest } = data;
+    if (!typeContratId || String(typeContratId).trim() === '') {
+      throw new Error('Le type de contrat est obligatoire');
+    }
+    const typeRow = await prisma.typeContrat.findUnique({ where: { id: String(typeContratId) } });
+    if (!typeRow) throw new Error('Type de contrat inconnu');
+
+    const refDate = rest.dateSignature || rest.dateEnregistrement || new Date();
+    const year = new Date(refDate as Date).getFullYear();
+    const typeCode = sanitizeTypeCode(typeRow.code);
+    const clientKey = clientKeyFromParties(partiesPrenantes || []);
+
+    let fixedCode: string | null = null;
+    if (typeof rawCode === 'string' && rawCode.trim()) {
+      fixedCode = normalizeContratCode(rawCode);
+      const dup = await prisma.contrat.findFirst({ where: { codeContrat: fixedCode } });
+      if (dup) throw new Error('Ce code contrat est déjà utilisé');
+    }
+
+    const nomTrim = String(rest.nom || '').trim();
+    if (!nomTrim) throw new Error('Le nom du contrat est obligatoire');
+
+    const createPayload = {
+      nom: nomTrim,
+      statut: rest.statut ?? 'actif',
+      dateSignature: rest.dateSignature ?? null,
+      dateEnregistrement: rest.dateEnregistrement ?? null,
+      dateExpiration: rest.dateExpiration ?? null,
+      tags: tags ? JSON.stringify(tags) : null,
+      typeContratId: typeRow.id,
+      createdById: userId,
+      partiesPrenantes: partiesPrenantes?.length
+        ? {
+            create: partiesPrenantes.map((p: any) => ({
+              nom: p.nom,
+              clientFournisseurId: p.clientFournisseurId || null,
+            })),
+          }
+        : undefined,
+      projets: projetIds?.length
+        ? { create: projetIds.map((projetId: string) => ({ projetId })) }
+        : undefined,
+    };
+
+    const maxAttempts = 10;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const code = fixedCode ?? (await nextSequentialContratCode(typeCode, year, clientKey));
+      try {
+        const row = await prisma.contrat.create({
+          data: { ...createPayload, codeContrat: code },
+          include: contratInclude,
+        });
+        await logContratHistorique(row.id, userId, 'creation', `Contrat créé : ${row.nom}`, {
+          codeContrat: code,
+          typeContratId: typeRow.id,
+        });
+        return mapWithCapsAndAcces(row as any, userId, userRole);
+      } catch (e: any) {
+        lastErr = e;
+        if (e?.code === 'P2002' && !fixedCode && attempt < maxAttempts - 1) continue;
+        throw e;
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error('Impossible de générer un code contrat unique');
   },
 
   async update(id: string, data: any, actorUserId: string, actorRole: string) {
@@ -225,7 +311,35 @@ export const contratService = {
     const caps = capabilitiesContrat(existing, actorUserId, actorRole);
     if (!caps.canModify) throw new Error('FORBIDDEN');
 
-    const { partiesPrenantes, projetIds, tags, ...rest } = data;
+    const { partiesPrenantes, projetIds, tags, codeContrat: rawCodeContrat, typeContratId, ...rest } = data;
+
+    const dataUpdate: Record<string, unknown> = {};
+    for (const k of ['nom', 'statut', 'dateSignature', 'dateEnregistrement', 'dateExpiration'] as const) {
+      if (rest[k] !== undefined) dataUpdate[k] = rest[k];
+    }
+
+    if (rawCodeContrat !== undefined) {
+      const trimmed = String(rawCodeContrat).trim();
+      if (!trimmed) throw new Error('Le code contrat ne peut pas être vide');
+      const normalized = normalizeContratCode(trimmed);
+      if (normalized !== existing.codeContrat) {
+        const dup = await prisma.contrat.findFirst({
+          where: { codeContrat: normalized, NOT: { id } },
+        });
+        if (dup) throw new Error('Ce code contrat est déjà utilisé');
+      }
+      dataUpdate.codeContrat = normalized;
+    }
+
+    if (typeContratId !== undefined) {
+      if (typeContratId === null || typeContratId === '') {
+        throw new Error('Le type de contrat est obligatoire');
+      }
+      const t = await prisma.typeContrat.findUnique({ where: { id: String(typeContratId) } });
+      if (!t) throw new Error('Type de contrat inconnu');
+      dataUpdate.typeContratId = t.id;
+    }
+
     if (projetIds !== undefined) {
       await prisma.contratProjet.deleteMany({ where: { contratId: id } });
       if (projetIds.length > 0) {
@@ -247,18 +361,32 @@ export const contratService = {
         });
       }
     }
-    const row = await prisma.contrat.update({
-      where: { id },
-      data: { ...rest, tags: tags !== undefined ? JSON.stringify(tags) : undefined },
-      include: contratInclude,
-    });
+    const prismaData: Record<string, unknown> = {};
+    for (const k of ['nom', 'statut', 'dateSignature', 'dateEnregistrement', 'dateExpiration'] as const) {
+      if (dataUpdate[k] !== undefined) prismaData[k] = dataUpdate[k];
+    }
+    if (dataUpdate.codeContrat !== undefined) prismaData.codeContrat = dataUpdate.codeContrat;
+    if (dataUpdate.typeContratId !== undefined) prismaData.typeContratId = dataUpdate.typeContratId;
+    if (tags !== undefined) prismaData.tags = JSON.stringify(tags);
+
+    const row =
+      Object.keys(prismaData).length > 0
+        ? await prisma.contrat.update({
+            where: { id },
+            data: prismaData as any,
+            include: contratInclude,
+          })
+        : await prisma.contrat.findFirstOrThrow({
+            where: { id, deletedAt: null },
+            include: contratInclude,
+          });
 
     const changes: Record<string, { avant: unknown; apres: unknown }> = {};
-    const keys = ['nom', 'statut', 'dateSignature', 'dateEnregistrement', 'dateExpiration'] as const;
+    const keys = ['nom', 'statut', 'dateSignature', 'dateEnregistrement', 'dateExpiration', 'codeContrat', 'typeContratId'] as const;
     for (const k of keys) {
-      if (rest[k] !== undefined) {
+      if (dataUpdate[k] !== undefined) {
         const avant = (existing as any)[k];
-        const apres = rest[k];
+        const apres = dataUpdate[k];
         if (String(avant) !== String(apres)) changes[k] = { avant, apres };
       }
     }

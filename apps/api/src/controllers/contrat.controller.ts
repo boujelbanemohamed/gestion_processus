@@ -26,9 +26,18 @@ function handleContratErr(res: Response, e: any) {
     msg.startsWith('Les administrateurs') ||
     msg.startsWith('Le créateur') ||
     msg.startsWith('Seuls les comptes administrateur') ||
+    msg.startsWith('Le type de contrat') ||
+    msg.startsWith('Type de contrat') ||
+    msg.startsWith('Ce code contrat') ||
+    msg.startsWith('Code contrat') ||
+    msg.startsWith('Le code contrat') ||
+    msg.startsWith('Le nom du contrat') ||
     msg === 'Utilisateur introuvable'
   ) {
     return res.status(400).json({ error: msg });
+  }
+  if (e?.code === 'P2002') {
+    return res.status(400).json({ error: 'Ce code contrat est déjà utilisé' });
   }
   return res.status(500).json({ error: msg });
 }

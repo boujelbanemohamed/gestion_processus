@@ -27,6 +27,7 @@ import * as epicController from "./controllers/epic.controller";
 import * as notificationController from "./controllers/notification.controller";
 import * as licenceController from "./controllers/licence.controller";
 import * as typeLicenceController from "./controllers/type-licence.controller";
+import * as typeContratController from "./controllers/type-contrat.controller";
 import * as deviseController from "./controllers/devise.controller";
 import * as pvReunionController from "./controllers/pv-reunion.controller";
 
@@ -407,6 +408,11 @@ app.get("/api/v1/types-licence", typeLicenceController.getTypesLicence);
 app.post("/api/v1/types-licence", typeLicenceController.createTypeLicence);
 app.put("/api/v1/types-licence/:id", typeLicenceController.updateTypeLicence);
 app.delete("/api/v1/types-licence/:id", typeLicenceController.deleteTypeLicence);
+
+app.get("/api/v1/types-contrat", typeContratController.getTypesContrat);
+app.post("/api/v1/types-contrat", typeContratController.createTypeContrat);
+app.put("/api/v1/types-contrat/:id", typeContratController.updateTypeContrat);
+app.delete("/api/v1/types-contrat/:id", typeContratController.deleteTypeContrat);
 
 // Devises (configuration licences)
 app.get("/api/v1/devises", deviseController.getDevises);

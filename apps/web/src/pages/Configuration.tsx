@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
 
-type TabType = 'categories' | 'smtp' | 'typesSociete' | 'typesLicence' | 'devises' | 'notifications';
+type TabType = 'categories' | 'smtp' | 'typesSociete' | 'typesLicence' | 'typesContrat' | 'devises' | 'notifications';
 
 
 function NotificationsTab() {
@@ -213,6 +213,11 @@ export default function Configuration() {
   const [showTlModal, setShowTlModal] = useState(false);
   const [editingTl, setEditingTl] = useState<any>(null);
   const [tlForm, setTlForm] = useState({ nom: '' });
+  const [typesContratList, setTypesContratList] = useState<any[]>([]);
+  const [tcLoading, setTcLoading] = useState(false);
+  const [showTcModal, setShowTcModal] = useState(false);
+  const [editingTc, setEditingTc] = useState<any>(null);
+  const [tcForm, setTcForm] = useState({ code: '', libelle: '' });
   const [devisesList, setDevisesList] = useState<any[]>([]);
   const [devLoading, setDevLoading] = useState(false);
   const [showDevModal, setShowDevModal] = useState(false);
@@ -242,6 +247,8 @@ export default function Configuration() {
       loadTypesSociete();
     } else if (activeTab === 'typesLicence') {
       loadTypesLicence();
+    } else if (activeTab === 'typesContrat') {
+      loadTypesContrat();
     } else if (activeTab === 'devises') {
       loadDevises();
     } else if (activeTab === 'smtp') {
@@ -293,6 +300,38 @@ export default function Configuration() {
     try {
       await api.delete(`/types-licence/${id}`);
       loadTypesLicence();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur');
+    }
+  };
+
+  const loadTypesContrat = async () => {
+    setTcLoading(true);
+    try {
+      const r = await api.get('/types-contrat');
+      setTypesContratList(r.data);
+    } catch (e) {
+      console.error(e);
+    }
+    setTcLoading(false);
+  };
+  const handleSaveTc = async () => {
+    try {
+      if (editingTc) await api.put(`/types-contrat/${editingTc.id}`, tcForm);
+      else await api.post('/types-contrat', tcForm);
+      setShowTcModal(false);
+      setEditingTc(null);
+      setTcForm({ code: '', libelle: '' });
+      loadTypesContrat();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur');
+    }
+  };
+  const handleDeleteTc = async (id: string, libelle: string) => {
+    if (!confirm(`Supprimer le type de contrat « ${libelle} » ?`)) return;
+    try {
+      await api.delete(`/types-contrat/${id}`);
+      loadTypesContrat();
     } catch (e: any) {
       alert(e?.response?.data?.error || 'Erreur');
     }
@@ -577,6 +616,16 @@ export default function Configuration() {
             }`}
           >
             Types de licence
+          </button>
+          <button
+            onClick={() => setActiveTab('typesContrat')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+              activeTab === 'typesContrat'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Types de contrat
           </button>
           <button
             onClick={() => setActiveTab('devises')}
@@ -1300,6 +1349,117 @@ export default function Configuration() {
                   </button>
                   <button
                     onClick={handleSaveTl}
+                    className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    Enregistrer
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'typesContrat' && (
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Types de contrat</h2>
+            <button
+              onClick={() => {
+                setEditingTc(null);
+                setTcForm({ code: '', libelle: '' });
+                setShowTcModal(true);
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+            >
+              + Ajouter
+            </button>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Le <span className="font-medium">code</span> sert de préfixe dans la nomenclature automatique des codes contrat :{' '}
+            <code className="text-xs bg-gray-100 px-1 rounded">[CODE]-[ANNÉE]-[CLIENT]-[SÉQ]</code>. Ex. code « MS » →{' '}
+            <code className="text-xs bg-gray-100 px-1 rounded">MS-2026-A1B2C3D4-001</code>.
+          </p>
+          {tcLoading ? (
+            <div className="text-gray-400">Chargement...</div>
+          ) : (
+            <div className="space-y-2">
+              {typesContratList.length === 0 && (
+                <div className="text-gray-400 text-sm">Aucun type de contrat défini</div>
+              )}
+              {typesContratList.map((tc) => (
+                <div
+                  key={tc.id}
+                  className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-4 py-3"
+                >
+                  <div>
+                    <span className="font-mono font-semibold text-gray-900">{tc.code}</span>
+                    <span className="ml-3 text-gray-700">{tc.libelle}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingTc(tc);
+                        setTcForm({ code: tc.code, libelle: tc.libelle });
+                        setShowTcModal(true);
+                      }}
+                      className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                    >
+                      ✏️ Modifier
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTc(tc.id, tc.libelle)}
+                      className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                    >
+                      🗑 Supprimer
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {showTcModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-4">
+                  {editingTc ? '✏️ Modifier' : '+ Ajouter'} un type de contrat
+                </h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Code *</label>
+                    <input
+                      type="text"
+                      value={tcForm.code}
+                      onChange={(e) => setTcForm({ ...tcForm, code: e.target.value })}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono uppercase"
+                      placeholder="Ex. MS, PREST, SAAS"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Lettres et chiffres uniquement (normalisé en majuscules).</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Libellé *</label>
+                    <input
+                      type="text"
+                      value={tcForm.libelle}
+                      onChange={(e) => setTcForm({ ...tcForm, libelle: e.target.value })}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      placeholder="Ex. Maintenance, Prestation intellectuelle…"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowTcModal(false)}
+                    className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveTc}
                     className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
                   >
                     Enregistrer

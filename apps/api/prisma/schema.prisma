@@ -727,9 +727,22 @@ model ClientFournisseurProjet {
   @@unique([clientFournisseurId, projetId])
 }
 
+/// Types de contrat (configuration) — le « code » sert de préfixe dans la nomenclature [TYPE]-[ANNÉE]-[CLIENT]-[SÉQ].
+model TypeContrat {
+  id        String    @id @default(uuid())
+  code      String    @unique
+  libelle   String
+  createdAt DateTime  @default(now())
+  contrats  Contrat[]
+}
+
 model Contrat {
   id                String   @id @default(uuid())
   nom               String
+  /// Code métier unique (saisi ou généré : TYPE-ANNÉE-CLIENT-SÉQ)
+  codeContrat       String   @unique
+  typeContratId     String?
+  typeContrat       TypeContrat? @relation(fields: [typeContratId], references: [id], onDelete: Restrict)
   dateSignature     DateTime?
   dateEnregistrement DateTime?
   dateExpiration    DateTime?
@@ -748,6 +761,8 @@ model Contrat {
   licenceLiens      LicenceContrat[]
   historique        ContratHistorique[]
   pvReunions        PvReunionContrat[]
+
+  @@index([typeContratId])
 }
 
 model ContratAdminSansAcces {
