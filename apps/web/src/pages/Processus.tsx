@@ -638,55 +638,56 @@ export default function Processus() {
               </button>
 
               {rowOpen && (
-                <div className="px-5 pb-5 pt-0 border-t border-gray-100">
-                  <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem] pt-4">
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/processus/${p.id}`)}
-                      className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
-                    >
-                      👁 Détails
-                    </button>
-                    {capModify(p) && (
+                <div className="px-4 sm:px-5 pb-4 pt-0 border-t border-gray-100">
+                  <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-stretch sm:items-start pt-3">
+                    <div className="flex flex-col gap-1.5 shrink-0 w-full sm:w-[9.25rem]">
                       <button
                         type="button"
-                        onClick={() => navigate(`/processus/${p.id}`, { state: { openEdit: true } })}
-                        className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                        onClick={() => navigate(`/processus/${p.id}`)}
+                        className="w-full flex justify-start items-center gap-1.5 text-left px-2.5 py-1 text-xs font-medium rounded-md border border-gray-200 bg-gray-50/80 text-gray-800 hover:bg-gray-100"
                       >
-                        ✏️ Modifier
+                        👁 Détails
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => onAccesButtonClick(p)}
-                      className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
-                    >
-                      🔐 Accès
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openHistoriqueModal(p)}
-                      className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
-                    >
-                      📜 Historique
-                    </button>
-                    {capDelete(p) && (
+                      {capModify(p) && (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/processus/${p.id}`, { state: { openEdit: true } })}
+                          className="w-full flex justify-start items-center gap-1.5 text-left px-2.5 py-1 text-xs font-medium rounded-md border border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100"
+                        >
+                          ✏️ Modifier
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={() => handleDelete(p.id, p.nom)}
-                        disabled={deletingId === p.id}
-                        className={`px-3 py-1.5 text-xs rounded ${
-                          deletingId === p.id
-                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : 'bg-red-100 text-red-700 hover:bg-red-200'
-                        }`}
+                        onClick={() => onAccesButtonClick(p)}
+                        className="w-full flex justify-start items-center gap-1.5 text-left px-2.5 py-1 text-xs font-medium rounded-md border border-gray-200 bg-gray-50/80 text-gray-800 hover:bg-gray-100"
                       >
-                        {deletingId === p.id ? '…' : '🗑 Mettre en corbeille'}
+                        🔐 Accès
                       </button>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600 mt-4">
+                      <button
+                        type="button"
+                        onClick={() => openHistoriqueModal(p)}
+                        className="w-full flex justify-start items-center gap-1.5 text-left px-2.5 py-1 text-xs font-medium rounded-md border border-gray-200 bg-gray-50/80 text-gray-800 hover:bg-gray-100"
+                      >
+                        📜 Historique
+                      </button>
+                      {capDelete(p) && (
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(p.id, p.nom)}
+                          disabled={deletingId === p.id}
+                          className={`w-full flex justify-start items-center gap-1.5 text-left px-2.5 py-1 text-xs font-medium rounded-md border ${
+                            deletingId === p.id
+                              ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
+                              : 'border-red-200 bg-red-50 text-red-800 hover:bg-red-100'
+                          }`}
+                        >
+                          {deletingId === p.id ? '…' : '🗑 Mettre en corbeille'}
+                        </button>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-2">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-sm text-gray-600">
                     <div>
                       <span className="font-medium">Documents : </span>
                       <span className="text-blue-700 font-semibold">{p.nombreDocuments ?? 0}</span>
@@ -854,6 +855,8 @@ export default function Processus() {
                           <span className="text-gray-500 italic block sm:inline sm:ml-1">({r.label})</span>
                         </div>
                       ))}
+                    </div>
+                  </div>
                     </div>
                   </div>
                 </div>
