@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
@@ -38,6 +38,64 @@ function isAccesRestreintEntite(e: any) {
 }
 
 const droitsAdminLigne = 'modification + suppression + gestion des accès + lecture';
+
+const ENTITE_TYPES = [
+  { value: 'direction', label: 'Direction' },
+  { value: 'departement', label: 'Département' },
+  { value: 'service', label: 'Service' },
+  { value: 'cellule', label: 'Cellule' },
+  { value: 'division', label: 'Division' },
+  { value: 'equipe', label: 'Équipe' },
+] as const;
+
+function countEntitesInTree(nodes: any[]): number {
+  if (!nodes?.length) return 0;
+  return nodes.reduce((acc, n) => acc + 1 + countEntitesInTree(n.children || []), 0);
+}
+
+function EntiteTreeNodes({
+  nodes,
+  depth,
+  typeOptions,
+  navigate,
+}: {
+  nodes: any[];
+  depth: number;
+  typeOptions: readonly { value: string; label: string }[];
+  navigate: (to: string) => void;
+}) {
+  if (!nodes?.length) return null;
+  return (
+    <ul className={depth === 0 ? 'space-y-0.5' : 'mt-0.5 ml-3 pl-3 border-l border-gray-200 space-y-0.5'}>
+      {nodes.map((node) => {
+        const typeLabel = typeOptions.find((t) => t.value === node.type)?.label || node.type;
+        const children = node.children as any[] | undefined;
+        const hasChildren = Array.isArray(children) && children.length > 0;
+        return (
+          <li key={node.id}>
+            <div className="flex flex-wrap items-center gap-2 py-1.5 pr-2 rounded-md hover:bg-slate-50 text-sm group">
+              <span className="px-2 py-0.5 bg-blue-50 text-blue-800 rounded text-xs font-medium shrink-0">{typeLabel}</span>
+              <button
+                type="button"
+                onClick={() => navigate(`/entites/${node.id}`)}
+                className="font-medium text-gray-900 hover:text-blue-600 text-left"
+              >
+                {node.nom}
+              </button>
+              <span className="text-gray-500 font-mono text-xs">{node.code}</span>
+              {node.responsable && (
+                <span className="text-xs text-gray-500">
+                  · {node.responsable.prenom} {node.responsable.nom}
+                </span>
+              )}
+            </div>
+            {hasChildren ? <EntiteTreeNodes nodes={children!} depth={depth + 1} typeOptions={typeOptions} navigate={navigate} /> : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 export default function Entites() {
   const navigate = useNavigate();
@@ -83,6 +141,9 @@ export default function Entites() {
   const [expandedEntiteIds, setExpandedEntiteIds] = useState<Set<string>>(() => new Set());
   const [showCorbeilleModal, setShowCorbeilleModal] = useState(false);
   const [corbeilleEntites, setCorbeilleEntites] = useState<any[]>([]);
+  const [viewMode, setViewMode] = useState<'liste' | 'hierarchie'>('liste');
+  const [entiteTree, setEntiteTree] = useState<any[]>([]);
+  const [treeLoading, setTreeLoading] = useState(false);
   const toggleEntiteRow = (id: string) => {
     setExpandedEntiteIds((prev) => {
       const next = new Set(prev);
@@ -106,6 +167,24 @@ export default function Entites() {
   useEffect(() => {
     setPage(1);
   }, [filters.search, filters.type, filters.parentId, filters.responsableId, sortConfig]);
+
+  const loadEntiteTree = useCallback(async () => {
+    setTreeLoading(true);
+    try {
+      const r = await api.get('/entites/tree');
+      setEntiteTree(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setEntiteTree([]);
+    } finally {
+      setTreeLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (viewMode === 'hierarchie') {
+      void loadEntiteTree();
+    }
+  }, [viewMode, loadEntiteTree]);
 
   const loadCorbeilleEntites = async () => {
     try {
@@ -319,6 +398,7 @@ export default function Entites() {
         description: '',
       });
       loadEntites();
+      if (viewMode === 'hierarchie') void loadEntiteTree();
     } catch (err: any) {
       setError(err.response?.data?.error || `Erreur lors de ${isEditing ? 'la modification' : 'la création'}`);
     } finally {
@@ -374,6 +454,7 @@ export default function Entites() {
     try {
       await api.delete(`/entites/${id}`);
       loadEntites();
+      if (viewMode === 'hierarchie') void loadEntiteTree();
     } catch (err: any) {
       alert(err?.response?.data?.error || err?.message || 'Erreur');
     }
@@ -383,15 +464,6 @@ export default function Entites() {
   const safePage = Math.min(page, totalPages);
   const startIdx = (safePage - 1) * pageSize;
   const pagedEntites = entites.slice(startIdx, startIdx + pageSize);
-
-  const entiteTypes = [
-    { value: 'direction', label: 'Direction' },
-    { value: 'departement', label: 'Département' },
-    { value: 'service', label: 'Service' },
-    { value: 'cellule', label: 'Cellule' },
-    { value: 'division', label: 'Division' },
-    { value: 'equipe', label: 'Équipe' },
-  ];
 
   if (loading) {
     return (
@@ -403,12 +475,49 @@ export default function Entites() {
 
   return (
     <div className="p-6">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Entités</h1>
-          <p className="text-sm text-gray-500 mt-1">{entites.length} entité(s)</p>
-        </div>
-        <div className="flex flex-wrap gap-2 justify-end">
+      <div className="flex flex-col gap-4 mb-6">
+        <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4 flex-1 min-w-0">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Entités</h1>
+              <p className="text-sm text-gray-500 mt-1">
+                {viewMode === 'liste'
+                  ? `${entites.length} entité(s) — vue liste`
+                  : treeLoading
+                    ? 'Chargement de l’arborescence…'
+                    : `${countEntitesInTree(entiteTree)} entité(s) — arborescence parent / enfant`}
+              </p>
+            </div>
+            <div
+              className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-100/90 shrink-0"
+              role="group"
+              aria-label="Mode d’affichage"
+            >
+              <button
+                type="button"
+                onClick={() => setViewMode('liste')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  viewMode === 'liste'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Vue liste
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('hierarchie')}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  viewMode === 'hierarchie'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Vue hiérarchie
+              </button>
+            </div>
+          </div>
+        <div className="flex flex-wrap gap-2 justify-end lg:shrink-0">
           <button
             type="button"
             onClick={async () => {
@@ -441,8 +550,10 @@ export default function Entites() {
             </button>
           )}
         </div>
+        </div>
       </div>
 
+      {viewMode === 'liste' && (
       <div className="bg-white rounded-lg shadow mb-6">
         <button
           type="button"
@@ -476,7 +587,7 @@ export default function Entites() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                 >
                   <option value="">Tous</option>
-                  {entiteTypes.map((t) => (
+                  {ENTITE_TYPES.map((t) => (
                     <option key={t.value} value={t.value}>
                       {t.label}
                     </option>
@@ -548,6 +659,27 @@ export default function Entites() {
           </div>
         )}
       </div>
+      )}
+
+      {viewMode === 'hierarchie' && (
+        <div className="bg-white rounded-lg shadow mb-6 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 bg-slate-50/80">
+            <p className="text-sm font-medium text-gray-800">Relations entre entités</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Chaque niveau représente une entité enfant rattachée à son parent. Les filtres de la vue liste ne s’appliquent pas ici — toutes les entités auxquelles vous avez accès sont affichées.
+            </p>
+          </div>
+          <div className="p-4 sm:p-5 max-h-[min(70vh,720px)] overflow-y-auto">
+            {treeLoading ? (
+              <p className="text-sm text-gray-500 py-6 text-center">Chargement de l’arborescence…</p>
+            ) : entiteTree.length === 0 ? (
+              <p className="text-sm text-gray-500 py-6 text-center">Aucune entité racine ou aucune entité accessible.</p>
+            ) : (
+              <EntiteTreeNodes nodes={entiteTree} depth={0} typeOptions={ENTITE_TYPES} navigate={navigate} />
+            )}
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto py-4 p-4">
@@ -601,7 +733,7 @@ export default function Entites() {
                     onChange={(ev) => setFormData({ ...formData, type: ev.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                   >
-                    {entiteTypes.map((type) => (
+                    {ENTITE_TYPES.map((type) => (
                       <option key={type.value} value={type.value}>
                         {type.label}
                       </option>
@@ -674,13 +806,15 @@ export default function Entites() {
         </div>
       )}
 
+      {viewMode === 'liste' && (
+      <Fragment>
       <div className="space-y-4">
         {entites.length === 0 && (
           <div className="text-center py-10 text-gray-400 bg-white rounded-lg shadow">Aucune entité</div>
         )}
         {pagedEntites.map((e) => {
           const c = cap(e);
-          const typeLabel = entiteTypes.find((t) => t.value === e.type)?.label || e.type;
+          const typeLabel = ENTITE_TYPES.find((t) => t.value === e.type)?.label || e.type;
           const rowOpen = isEntiteRowExpanded(e.id);
           return (
             <div key={e.id} className="bg-white rounded-lg shadow overflow-hidden">
@@ -871,6 +1005,8 @@ export default function Entites() {
             </button>
           </div>
         </div>
+      )}
+      </Fragment>
       )}
 
       {accesModalEntite && (
