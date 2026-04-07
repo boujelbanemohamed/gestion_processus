@@ -38,6 +38,36 @@ function clientFournisseurLabel(x: any) {
   return n || x?.id || '—';
 }
 
+/** Jour local YYYY-MM-DD pour comparer à des champs date HTML. */
+function dateReunionDay(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return null;
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const d = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function pvPresentUserIds(r: any): string[] {
+  return (r.presentsUser || [])
+    .map((p: any) => p.user?.id || p.userId)
+    .filter(Boolean) as string[];
+}
+
+function pvPresentCfIds(r: any): string[] {
+  return (r.presentsClientFournisseur || [])
+    .map((p: any) => p.clientFournisseur?.id || p.clientFournisseurId)
+    .filter(Boolean) as string[];
+}
+
+function pvLinkedIds(r: any, key: string, fk: string, nestedKey: string) {
+  const arr = r[key] || [];
+  return arr
+    .map((x: any) => x[fk] || x[nestedKey]?.id)
+    .filter(Boolean) as string[];
+}
+
 const uploadApi = axios.create({ baseURL: API_BASE_URL });
 uploadApi.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
@@ -159,6 +189,16 @@ export default function PvReunionList() {
   const [accesModalPv, setAccesModalPv] = useState<{ id: string; titre: string } | null>(null);
   const [showFiltres, setShowFiltres] = useState(false);
   const [filtreStatut, setFiltreStatut] = useState('');
+  const [filtreDateDebut, setFiltreDateDebut] = useState('');
+  const [filtreDateFin, setFiltreDateFin] = useState('');
+  const [filtrePresentUserIds, setFiltrePresentUserIds] = useState<string[]>([]);
+  const [filtrePresentCfIds, setFiltrePresentCfIds] = useState<string[]>([]);
+  const [filtreProjetIds, setFiltreProjetIds] = useState<string[]>([]);
+  const [filtreTacheIds, setFiltreTacheIds] = useState<string[]>([]);
+  const [filtreUserStoryIds, setFiltreUserStoryIds] = useState<string[]>([]);
+  const [filtreEpicIds, setFiltreEpicIds] = useState<string[]>([]);
+  const [filtreContratIds, setFiltreContratIds] = useState<string[]>([]);
+  const [filtreProcessusIds, setFiltreProcessusIds] = useState<string[]>([]);
   const [expandedPvIds, setExpandedPvIds] = useState<Set<string>>(() => new Set());
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
@@ -219,6 +259,7 @@ export default function PvReunionList() {
 
   useEffect(() => {
     load();
+    loadRefs();
   }, []);
 
   useEffect(() => {
@@ -234,7 +275,21 @@ export default function PvReunionList() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, filtreStatut, sortConfig]);
+  }, [
+    search,
+    filtreStatut,
+    filtreDateDebut,
+    filtreDateFin,
+    filtrePresentUserIds,
+    filtrePresentCfIds,
+    filtreProjetIds,
+    filtreTacheIds,
+    filtreUserStoryIds,
+    filtreEpicIds,
+    filtreContratIds,
+    filtreProcessusIds,
+    sortConfig,
+  ]);
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -351,17 +406,63 @@ export default function PvReunionList() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const hasDateBounds = !!(filtreDateDebut || filtreDateFin);
+
     const base = rows.filter((r) => {
-      const matchStatut = !filtreStatut || r.statut === filtreStatut;
-      if (!q) return matchStatut;
-      const matchText =
-        r.titre?.toLowerCase().includes(q) ||
-        r.createdBy?.nom?.toLowerCase().includes(q) ||
-        r.createdBy?.prenom?.toLowerCase().includes(q) ||
-        String(r.id || '')
-          .toLowerCase()
-          .includes(q);
-      return matchStatut && matchText;
+      if (filtreStatut && r.statut !== filtreStatut) return false;
+
+      if (q) {
+        const matchText =
+          r.titre?.toLowerCase().includes(q) ||
+          r.createdBy?.nom?.toLowerCase().includes(q) ||
+          r.createdBy?.prenom?.toLowerCase().includes(q) ||
+          String(r.id || '')
+            .toLowerCase()
+            .includes(q);
+        if (!matchText) return false;
+      }
+
+      if (hasDateBounds) {
+        const day = dateReunionDay(r.dateReunion);
+        if (!day) return false;
+        if (filtreDateDebut && day < filtreDateDebut) return false;
+        if (filtreDateFin && day > filtreDateFin) return false;
+      }
+
+      if (filtrePresentUserIds.length > 0) {
+        const set = new Set(pvPresentUserIds(r));
+        if (!filtrePresentUserIds.some((id) => set.has(id))) return false;
+      }
+      if (filtrePresentCfIds.length > 0) {
+        const set = new Set(pvPresentCfIds(r));
+        if (!filtrePresentCfIds.some((id) => set.has(id))) return false;
+      }
+      if (filtreProjetIds.length > 0) {
+        const set = new Set(pvLinkedIds(r, 'projets', 'projetId', 'projet'));
+        if (!filtreProjetIds.some((id) => set.has(id))) return false;
+      }
+      if (filtreTacheIds.length > 0) {
+        const set = new Set(pvLinkedIds(r, 'taches', 'tacheId', 'tache'));
+        if (!filtreTacheIds.some((id) => set.has(id))) return false;
+      }
+      if (filtreUserStoryIds.length > 0) {
+        const set = new Set(pvLinkedIds(r, 'userStories', 'userStoryId', 'userStory'));
+        if (!filtreUserStoryIds.some((id) => set.has(id))) return false;
+      }
+      if (filtreEpicIds.length > 0) {
+        const set = new Set(pvLinkedIds(r, 'epics', 'epicId', 'epic'));
+        if (!filtreEpicIds.some((id) => set.has(id))) return false;
+      }
+      if (filtreContratIds.length > 0) {
+        const set = new Set(pvLinkedIds(r, 'contrats', 'contratId', 'contrat'));
+        if (!filtreContratIds.some((id) => set.has(id))) return false;
+      }
+      if (filtreProcessusIds.length > 0) {
+        const set = new Set(pvLinkedIds(r, 'processus', 'processusId', 'processus'));
+        if (!filtreProcessusIds.some((id) => set.has(id))) return false;
+      }
+
+      return true;
     });
     if (!sortConfig) return base;
     const dir = sortConfig.direction === 'asc' ? 1 : -1;
@@ -384,12 +485,44 @@ export default function PvReunionList() {
       }
       return 0;
     });
-  }, [rows, search, filtreStatut, sortConfig]);
+  }, [
+    rows,
+    search,
+    filtreStatut,
+    filtreDateDebut,
+    filtreDateFin,
+    filtrePresentUserIds,
+    filtrePresentCfIds,
+    filtreProjetIds,
+    filtreTacheIds,
+    filtreUserStoryIds,
+    filtreEpicIds,
+    filtreContratIds,
+    filtreProcessusIds,
+    sortConfig,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const startIdx = (safePage - 1) * PAGE_SIZE;
   const paged = filtered.slice(startIdx, startIdx + PAGE_SIZE);
+
+  const usersActifsFiltre = useMemo(
+    () => users.filter((u: any) => !u.statut || u.statut === 'actif'),
+    [users]
+  );
+
+  const filtresAvancesActifs =
+    !!filtreDateDebut ||
+    !!filtreDateFin ||
+    filtrePresentUserIds.length > 0 ||
+    filtrePresentCfIds.length > 0 ||
+    filtreProjetIds.length > 0 ||
+    filtreTacheIds.length > 0 ||
+    filtreUserStoryIds.length > 0 ||
+    filtreEpicIds.length > 0 ||
+    filtreContratIds.length > 0 ||
+    filtreProcessusIds.length > 0;
 
   if (loading) {
     return (
@@ -437,14 +570,14 @@ export default function PvReunionList() {
         >
           <span>
             Filtres
-            {(search.trim() || filtreStatut) ? ' ●' : ''}
+            {search.trim() || filtreStatut || filtresAvancesActifs ? ' ●' : ''}
           </span>
           <span className="text-gray-400">{showFiltres ? '▼' : '▶'}</span>
         </button>
         {showFiltres && (
           <div className="px-4 pb-4 pt-0 border-t border-gray-100">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
-              <div className="md:col-span-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-4">
+              <div className="md:col-span-2 lg:col-span-3">
                 <label className="block text-xs font-medium text-gray-600 mb-1">Titre, créateur ou ID</label>
                 <input
                   type="text"
@@ -469,6 +602,95 @@ export default function PvReunionList() {
                   ))}
                 </select>
               </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Date réunion — début</label>
+                <input
+                  type="date"
+                  value={filtreDateDebut}
+                  onChange={(e) => setFiltreDateDebut(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Date réunion — fin</label>
+                <input
+                  type="date"
+                  value={filtreDateFin}
+                  onChange={(e) => setFiltreDateFin(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Plage de dates : borne inclusive. Les PV <span className="font-medium">sans date de réunion</span> sont exclus
+              dès qu’au moins une date est renseignée.
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              Présents et rattachements : dans chaque bloc, la sélection est en <span className="font-medium">OU</span> (au
+              moins un critère coché doit correspondre). Les blocs actifs se combinent en <span className="font-medium">ET</span>.
+            </p>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+              <IdChips
+                label="Présents (utilisateurs)"
+                options={usersActifsFiltre}
+                selected={filtrePresentUserIds}
+                onChange={setFiltrePresentUserIds}
+                renderLabel={(u: any) => `${u.prenom} ${u.nom} (${u.email || u.id})`}
+              />
+              <IdChips
+                label="Présents (clients / fournisseurs)"
+                options={clientsFournisseurs}
+                selected={filtrePresentCfIds}
+                onChange={setFiltrePresentCfIds}
+                renderLabel={(cf: any) => clientFournisseurLabel(cf)}
+              />
+              <IdChips
+                label="Projet(s) lié(s)"
+                options={projets}
+                selected={filtreProjetIds}
+                onChange={setFiltreProjetIds}
+                renderLabel={(p: any) =>
+                  `${p.nom || p.id}${p.codeProjet ? ` (${p.codeProjet})` : ''}`
+                }
+              />
+              <IdChips
+                label="Tâche(s) liée(s)"
+                options={taches}
+                selected={filtreTacheIds}
+                onChange={setFiltreTacheIds}
+                renderLabel={(t: any) => t.nom || t.id}
+              />
+              <IdChips
+                label="User story / stories"
+                options={userStories}
+                selected={filtreUserStoryIds}
+                onChange={setFiltreUserStoryIds}
+                renderLabel={(us: any) => usLabel(us)}
+              />
+              <IdChips
+                label="Epic(s)"
+                options={epics}
+                selected={filtreEpicIds}
+                onChange={setFiltreEpicIds}
+                renderLabel={(ep: any) => ep.nom || ep.id}
+              />
+              <IdChips
+                label="Contrat(s)"
+                options={contrats}
+                selected={filtreContratIds}
+                onChange={setFiltreContratIds}
+                renderLabel={(c: any) =>
+                  `${c.codeContrat ? `${c.codeContrat} — ` : ''}${c.nom || c.id}`
+                }
+              />
+              <IdChips
+                label="Processus"
+                options={processusList}
+                selected={filtreProcessusIds}
+                onChange={setFiltreProcessusIds}
+                renderLabel={(pr: any) => pr.nom || pr.id}
+              />
             </div>
             <div className="flex flex-wrap justify-between items-center gap-2 mt-4 pt-2 border-t border-gray-100">
               <div className="flex flex-wrap gap-2 text-xs text-gray-500">
@@ -501,6 +723,16 @@ export default function PvReunionList() {
                 onClick={() => {
                   setSearch('');
                   setFiltreStatut('');
+                  setFiltreDateDebut('');
+                  setFiltreDateFin('');
+                  setFiltrePresentUserIds([]);
+                  setFiltrePresentCfIds([]);
+                  setFiltreProjetIds([]);
+                  setFiltreTacheIds([]);
+                  setFiltreUserStoryIds([]);
+                  setFiltreEpicIds([]);
+                  setFiltreContratIds([]);
+                  setFiltreProcessusIds([]);
                 }}
                 className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
