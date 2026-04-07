@@ -1214,6 +1214,8 @@ model LicenceNotification {
 model PvReunion {
   id               String    @id @default(uuid())
   titre            String
+  /// brouillon | en_revision | valide | archive
+  statut           String    @default("brouillon")
   documentId       String
   document         Document  @relation("PvReunionDocumentPrincipal", fields: [documentId], references: [id], onDelete: Restrict)
   dateReunion      DateTime?

@@ -9,6 +9,19 @@ import { PvReunionAccesModal } from '../components/PvReunionAccesModal';
 
 const PAGE_SIZE = 15;
 
+const PV_STATUTS = [
+  { value: 'brouillon', label: 'Brouillon', color: 'bg-gray-100 text-gray-800' },
+  { value: 'en_revision', label: 'En révision', color: 'bg-amber-100 text-amber-900' },
+  { value: 'valide', label: 'Validé', color: 'bg-green-100 text-green-800' },
+  { value: 'archive', label: 'Archivé', color: 'bg-slate-200 text-slate-700' },
+];
+
+function usLabel(us: { description?: string; id?: string }) {
+  const d = String(us?.description || '').trim();
+  if (!d) return us?.id || '—';
+  return d.length > 72 ? `${d.slice(0, 72)}…` : d;
+}
+
 const ACTION_JOURNAL: Record<string, string> = {
   connexion: 'Connexion',
   deconnexion: 'Déconnexion',
@@ -106,8 +119,21 @@ export default function PvReunionList() {
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
   const [accesModalPv, setAccesModalPv] = useState<{ id: string; titre: string } | null>(null);
+  const [showFiltres, setShowFiltres] = useState(false);
+  const [filtreStatut, setFiltreStatut] = useState('');
+  const [expandedPvIds, setExpandedPvIds] = useState<Set<string>>(() => new Set());
 
   const canUseModule = canModifyModule(user?.uiModules, 'pv_reunion');
+
+  const togglePvRow = (id: string) => {
+    setExpandedPvIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const isPvExpanded = (id: string) => expandedPvIds.has(id);
 
   const load = async () => {
     setLoading(true);
@@ -152,7 +178,7 @@ export default function PvReunionList() {
 
   useEffect(() => {
     setPage(1);
-  }, [search]);
+  }, [search, filtreStatut]);
 
   useEffect(() => {
     if (showForm) loadRefs();
@@ -202,6 +228,7 @@ export default function PvReunionList() {
 
   const resetForm = () => {
     setTitre('');
+    setStatutForm('brouillon');
     setDateReunion('');
     setFichier(null);
     setPresentUserIds([]);
@@ -230,6 +257,7 @@ export default function PvReunionList() {
     try {
       const fd = new FormData();
       fd.append('titre', titre.trim());
+      fd.append('statut', statutForm);
       if (dateReunion) fd.append('dateReunion', new Date(dateReunion).toISOString());
       fd.append('fichier', fichier);
       fd.append('presentUserIds', JSON.stringify(presentUserIds));
@@ -257,17 +285,19 @@ export default function PvReunionList() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
-      (r) =>
+    return rows.filter((r) => {
+      const matchStatut = !filtreStatut || r.statut === filtreStatut;
+      if (!q) return matchStatut;
+      const matchText =
         r.titre?.toLowerCase().includes(q) ||
         r.createdBy?.nom?.toLowerCase().includes(q) ||
         r.createdBy?.prenom?.toLowerCase().includes(q) ||
         String(r.id || '')
           .toLowerCase()
-          .includes(q)
-    );
-  }, [rows, search]);
+          .includes(q);
+      return matchStatut && matchText;
+    });
+  }, [rows, search, filtreStatut]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -306,14 +336,61 @@ export default function PvReunionList() {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow border border-gray-100 p-4 mb-4">
-        <input
-          type="search"
-          placeholder="Rechercher par titre, créateur ou ID…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-        />
+      <div className="bg-white rounded-lg shadow mb-6 border border-gray-100">
+        <button
+          type="button"
+          onClick={() => setShowFiltres(!showFiltres)}
+          className="w-full px-4 py-3 flex justify-between items-center text-left text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-t-lg"
+        >
+          <span>
+            Filtres
+            {(search.trim() || filtreStatut) ? ' ●' : ''}
+          </span>
+          <span className="text-gray-400">{showFiltres ? '▼' : '▶'}</span>
+        </button>
+        {showFiltres && (
+          <div className="px-4 pb-4 pt-0 border-t border-gray-100">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Recherche</label>
+                <input
+                  type="search"
+                  placeholder="Titre, créateur ou ID…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Statut</label>
+                <select
+                  value={filtreStatut}
+                  onChange={(e) => setFiltreStatut(e.target.value)}
+                  className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+                >
+                  <option value="">Tous les statuts</option>
+                  {PV_STATUTS.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end mt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  setFiltreStatut('');
+                }}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              >
+                Réinitialiser
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="space-y-4">
@@ -326,90 +403,273 @@ export default function PvReunionList() {
         ) : (
           paged.map((r) => {
             const c = r.capabilities || { canModify: false };
+            const st = PV_STATUTS.find((x) => x.value === r.statut) || PV_STATUTS[0];
+            const rowOpen = isPvExpanded(r.id);
+            const token = localStorage.getItem('token');
+            const docHref = r.document?.id
+              ? `${API_BASE_URL}/documents/${r.document.id}/view?token=${token || ''}`
+              : '';
             return (
-              <div key={r.id} className="bg-white rounded-lg shadow border border-gray-100 p-5">
-                <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
-                  <div className="flex-1 min-w-0">
-                    <h2 className="text-lg font-semibold text-gray-900 mb-1">{r.titre}</h2>
-                    <p className="text-[11px] font-mono text-gray-400 break-all mb-2" title={r.id}>
-                      ID : {r.id}
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600">
-                      <div>
-                        <span className="font-medium text-gray-700">Date réunion : </span>
-                        {r.dateReunion ? new Date(r.dateReunion).toLocaleDateString('fr-FR') : '—'}
+              <div key={r.id} className="bg-white rounded-lg shadow overflow-hidden border border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => togglePvRow(r.id)}
+                  className="w-full flex flex-wrap items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                  aria-expanded={rowOpen}
+                >
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${st.color}`}>{st.label}</span>
+                  <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate">{r.titre}</h2>
+                  <span className="text-xs text-gray-500 shrink-0">
+                    💬 {r.nombreCommentaires ?? 0}
+                  </span>
+                  <span className="text-xs text-gray-500 shrink-0">
+                    👁 {r.nombreVues ?? 0}
+                  </span>
+                  {r.dateReunion && (
+                    <span className="text-xs text-gray-400 shrink-0 hidden sm:inline">
+                      {new Date(r.dateReunion).toLocaleDateString('fr-FR')}
+                    </span>
+                  )}
+                  {rowOpen && (
+                    <span className="text-gray-400 shrink-0 ml-auto" aria-hidden>
+                      ▼
+                    </span>
+                  )}
+                </button>
+
+                {rowOpen && (
+                  <div className="px-4 sm:px-5 pb-4 pt-0 border-t border-gray-100">
+                    <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4 pt-3">
+                      <div className="min-w-0 flex-1 space-y-3 text-sm text-gray-600">
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                          <div>
+                            <span className="font-medium text-gray-700">Commentaires : </span>
+                            <span className="text-blue-700 font-semibold">{r.nombreCommentaires ?? 0}</span>
+                          </div>
+                          <div>
+                            <span className="font-medium text-gray-700">Vues (journal) : </span>
+                            <span className="text-blue-700 font-semibold">{r.nombreVues ?? 0}</span>
+                          </div>
+                          <div>
+                            <span className="font-medium text-gray-700">Date réunion : </span>
+                            {r.dateReunion ? new Date(r.dateReunion).toLocaleDateString('fr-FR') : '—'}
+                          </div>
+                          <div>
+                            <span className="font-medium text-gray-700">Créé par : </span>
+                            {r.createdBy ? `${r.createdBy.prenom} ${r.createdBy.nom}` : '—'}
+                          </div>
+                        </div>
+                        <div className="text-[11px] font-mono text-gray-400 break-all">
+                          <span className="font-medium text-gray-600">ID : </span>
+                          {r.id}
+                        </div>
+
+                        <div>
+                          <p className="text-xs font-medium text-gray-500 uppercase mb-1">Pièce jointe principale</p>
+                          {r.document?.id ? (
+                            <a
+                              href={docHref}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-600 hover:underline font-medium"
+                            >
+                              📎 {r.document.nom || r.document.fichierNomOriginal}
+                            </a>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </div>
+
+                        <div>
+                          <p className="text-xs font-medium text-gray-500 uppercase mb-1">Présents (utilisateurs)</p>
+                          <div className="flex flex-wrap gap-1">
+                            {(r.presentsUser || []).length === 0 && (
+                              <span className="text-gray-400 text-xs">Aucun</span>
+                            )}
+                            {(r.presentsUser || []).map((p: any) => (
+                              <span key={p.user?.id || p.userId} className="px-2 py-0.5 bg-gray-100 rounded text-xs">
+                                {p.user ? `${p.user.prenom} ${p.user.nom}` : p.userId}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-gray-500 uppercase mb-1">Présents (clients / fournisseurs)</p>
+                          <div className="flex flex-wrap gap-1">
+                            {(r.presentsClientFournisseur || []).length === 0 && (
+                              <span className="text-gray-400 text-xs">Aucun</span>
+                            )}
+                            {(r.presentsClientFournisseur || []).map((p: any) => (
+                              <span key={p.clientFournisseur?.id || p.clientFournisseurId} className="px-2 py-0.5 bg-amber-50 rounded text-xs">
+                                {clientFournisseurLabel(p.clientFournisseur)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 border-t border-gray-100 pt-3">
+                          {(r.projets || []).length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-gray-500 uppercase mb-1">Projets</p>
+                              <div className="flex flex-wrap gap-1">
+                                {(r.projets || []).map((x: any) => (
+                                  <button
+                                    key={x.projetId}
+                                    type="button"
+                                    onClick={() => navigate(`/projets/${x.projet?.id || x.projetId}`)}
+                                    className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs hover:bg-purple-200"
+                                  >
+                                    📁 {x.projet?.nom || x.projetId}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {(r.taches || []).length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-gray-500 uppercase mb-1">Tâches</p>
+                              <div className="flex flex-wrap gap-1">
+                                {(r.taches || []).map((x: any) => (
+                                  <button
+                                    key={x.tacheId}
+                                    type="button"
+                                    onClick={() => navigate(`/taches/${x.tache?.id || x.tacheId}`)}
+                                    className="px-2 py-0.5 bg-cyan-100 text-cyan-900 rounded text-xs hover:bg-cyan-200"
+                                  >
+                                    ✓ {x.tache?.nom || x.tacheId}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {(r.userStories || []).length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-gray-500 uppercase mb-1">User stories</p>
+                              <div className="flex flex-wrap gap-1">
+                                {(r.userStories || []).map((x: any) => (
+                                  <span
+                                    key={x.userStoryId}
+                                    className="px-2 py-0.5 bg-indigo-50 text-indigo-900 rounded text-xs max-w-full"
+                                  >
+                                    📋 {usLabel(x.userStory || {})}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {(r.epics || []).length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-gray-500 uppercase mb-1">Epics</p>
+                              <div className="flex flex-wrap gap-1">
+                                {(r.epics || []).map((x: any) => (
+                                  <span
+                                    key={x.epicId}
+                                    className="px-2 py-0.5 bg-violet-100 text-violet-900 rounded text-xs"
+                                  >
+                                    🎯 {x.epic?.nom || x.epicId}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {(r.contrats || []).length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-gray-500 uppercase mb-1">Contrats</p>
+                              <div className="flex flex-wrap gap-1">
+                                {(r.contrats || []).map((x: any) => (
+                                  <button
+                                    key={x.contratId}
+                                    type="button"
+                                    onClick={() => navigate(`/contrats`)}
+                                    className="px-2 py-0.5 bg-emerald-50 text-emerald-900 rounded text-xs hover:bg-emerald-100"
+                                  >
+                                    📄 {x.contrat?.codeContrat ? `${x.contrat.codeContrat} — ` : ''}
+                                    {x.contrat?.nom || x.contratId}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {(r.processus || []).length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-gray-500 uppercase mb-1">Processus</p>
+                              <div className="flex flex-wrap gap-1">
+                                {(r.processus || []).map((x: any) => (
+                                  <button
+                                    key={x.processusId}
+                                    type="button"
+                                    onClick={() => navigate(`/processus/${x.processus?.id || x.processusId}`)}
+                                    className="px-2 py-0.5 bg-teal-100 text-teal-900 rounded text-xs hover:bg-teal-200"
+                                  >
+                                    ⚙ {x.processus?.nom || x.processusId}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {!(r.projets || []).length &&
+                            !(r.taches || []).length &&
+                            !(r.userStories || []).length &&
+                            !(r.epics || []).length &&
+                            !(r.contrats || []).length &&
+                            !(r.processus || []).length && (
+                              <p className="text-xs text-gray-400 italic">Aucun rattachement explicite</p>
+                            )}
+                        </div>
                       </div>
-                      <div>
-                        <span className="font-medium text-gray-700">Créé par : </span>
-                        {r.createdBy ? `${r.createdBy.prenom} ${r.createdBy.nom}` : '—'}
-                      </div>
-                      <div className="sm:col-span-2">
-                        <span className="font-medium text-gray-700">Document : </span>
-                        {r.document?.id ? (
-                          <a
-                            href={`${API_BASE_URL}/documents/${r.document.id}/view?token=${localStorage.getItem('token')}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-blue-600 hover:underline"
+
+                      <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
+                        <button
+                          type="button"
+                          onClick={() => setAccesModalPv({ id: r.id, titre: r.titre || 'PV' })}
+                          className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
+                        >
+                          🔐 Accès
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/pv-reunion/${r.id}`)}
+                          className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                        >
+                          👁 Détails
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openHistoriqueModal(r)}
+                          className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                        >
+                          📜 Historique
+                        </button>
+                        {c.canModify && canUseModule && (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/pv-reunion/${r.id}`, { state: { openEdit: true } })}
+                            className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
                           >
-                            {r.document.nom || r.document.fichierNomOriginal}
-                          </a>
-                        ) : (
-                          '—'
+                            ✏️ Modifier
+                          </button>
+                        )}
+                        {c.canModify && canUseModule && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!window.confirm(`Mettre le PV « ${r.titre} » en corbeille ?`)) return;
+                              try {
+                                await api.delete(`/pv-reunions/${r.id}`);
+                                await load();
+                              } catch (e: any) {
+                                alert(e?.response?.data?.error || 'Erreur');
+                              }
+                            }}
+                            className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                          >
+                            🗑 Mettre en corbeille
+                          </button>
                         )}
                       </div>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
-                    <button
-                      type="button"
-                      onClick={() => setAccesModalPv({ id: r.id, titre: r.titre || 'PV' })}
-                      className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
-                    >
-                      🔐 Accès
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/pv-reunion/${r.id}`)}
-                      className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
-                    >
-                      👁 Détails
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openHistoriqueModal(r)}
-                      className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
-                    >
-                      📜 Historique
-                    </button>
-                    {c.canModify && canUseModule && (
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/pv-reunion/${r.id}`, { state: { openEdit: true } })}
-                        className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-                      >
-                        ✏️ Modifier
-                      </button>
-                    )}
-                    {c.canModify && canUseModule && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!window.confirm(`Mettre le PV « ${r.titre} » en corbeille ?`)) return;
-                          try {
-                            await api.delete(`/pv-reunions/${r.id}`);
-                            await load();
-                          } catch (e: any) {
-                            alert(e?.response?.data?.error || 'Erreur');
-                          }
-                        }}
-                        className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
-                      >
-                        🗑 Mettre en corbeille
-                      </button>
-                    )}
-                  </div>
-                </div>
+                )}
               </div>
             );
           })
@@ -581,6 +841,20 @@ export default function PvReunionList() {
                   onChange={(e) => setTitre(e.target.value)}
                   required
                 />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Statut</label>
+                <select
+                  className="w-full border border-gray-200 rounded-md px-3 py-2"
+                  value={statutForm}
+                  onChange={(e) => setStatutForm(e.target.value)}
+                >
+                  {PV_STATUTS.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Date de la réunion</label>

@@ -6,6 +6,13 @@ import { useAuth } from '../store/auth';
 import { canModifyModule } from '../utils/uiModuleRoute';
 import { PvReunionAccesModal, type PvReunionAccesDetail } from '../components/PvReunionAccesModal';
 
+const PV_STATUTS = [
+  { value: 'brouillon', label: 'Brouillon', color: 'bg-gray-100 text-gray-800' },
+  { value: 'en_revision', label: 'En révision', color: 'bg-amber-100 text-amber-900' },
+  { value: 'valide', label: 'Validé', color: 'bg-green-100 text-green-800' },
+  { value: 'archive', label: 'Archivé', color: 'bg-slate-200 text-slate-700' },
+];
+
 const ACTION_JOURNAL: Record<string, string> = {
   connexion: 'Connexion',
   deconnexion: 'Déconnexion',
@@ -91,6 +98,7 @@ export default function PvReunionDetail() {
   const [processusList, setProcessusList] = useState<any[]>([]);
 
   const [titre, setTitre] = useState('');
+  const [statutPv, setStatutPv] = useState('brouillon');
   const [dateReunion, setDateReunion] = useState('');
   const [presentUserIds, setPresentUserIds] = useState<string[]>([]);
   const [presentCfIds, setPresentCfIds] = useState<string[]>([]);
@@ -180,6 +188,7 @@ export default function PvReunionDetail() {
   useEffect(() => {
     if (!pv) return;
     setTitre(pv.titre || '');
+    setStatutPv(pv.statut || 'brouillon');
     setDateReunion(pv.dateReunion ? pv.dateReunion.slice(0, 10) : '');
     setPresentUserIds(pv.presentsUser?.map((x: any) => x.userId || x.user?.id) || []);
     setPresentCfIds(
@@ -211,6 +220,7 @@ export default function PvReunionDetail() {
     try {
       await api.put(`/pv-reunions/${id}`, {
         titre: titre.trim(),
+        statut: statutPv,
         dateReunion: dateReunion ? new Date(dateReunion).toISOString() : null,
         presentUserIds,
         presentClientFournisseurIds: presentCfIds,
@@ -341,13 +351,29 @@ export default function PvReunionDetail() {
       <div className="bg-white rounded-lg shadow p-5 mb-6">
         <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
           <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">{pv.titre}</h2>
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <h2 className="text-lg font-semibold text-gray-900">{pv.titre}</h2>
+              {(() => {
+                const st = PV_STATUTS.find((s) => s.value === pv.statut) || PV_STATUTS[0];
+                return (
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${st.color}`}>{st.label}</span>
+                );
+              })()}
+            </div>
             <p className="text-[11px] font-mono text-gray-400 break-all mb-3" title={pv.id}>
               ID : {pv.id}
             </p>
 
         {!editMode ? (
           <div className="grid md:grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="text-gray-500">Commentaires : </span>
+              <span className="font-semibold text-blue-700">{pv.nombreCommentaires ?? 0}</span>
+            </div>
+            <div>
+              <span className="text-gray-500">Vues (journal) : </span>
+              <span className="font-semibold text-blue-700">{pv.nombreVues ?? 0}</span>
+            </div>
             <div>
               <span className="text-gray-500">Date de réunion : </span>
               <span className="font-medium">
@@ -385,6 +411,20 @@ export default function PvReunionDetail() {
                 value={titre}
                 onChange={(e) => setTitre(e.target.value)}
               />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Statut</label>
+              <select
+                className="w-full border border-gray-200 rounded-md px-3 py-2"
+                value={statutPv}
+                onChange={(e) => setStatutPv(e.target.value)}
+              >
+                {PV_STATUTS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Date de réunion</label>

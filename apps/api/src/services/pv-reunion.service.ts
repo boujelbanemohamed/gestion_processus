@@ -1,6 +1,15 @@
 import { prisma } from '../utils/prisma';
-import { DocType, RefType, Role, UserStatus } from '../generated/prisma/enums';
+import { DocType, LogAction, RefType, ResourceType, Role, UserStatus } from '../generated/prisma/enums';
 import { NotificationService } from './notification.service';
+
+export const PV_REUNION_STATUTS = ['brouillon', 'en_revision', 'valide', 'archive'] as const;
+export type PvReunionStatut = (typeof PV_REUNION_STATUTS)[number];
+
+export function normalizePvStatut(input: unknown): PvReunionStatut | null {
+  const s = String(input || '').trim().toLowerCase();
+  if (!s) return null;
+  return (PV_REUNION_STATUTS as readonly string[]).includes(s) ? (s as PvReunionStatut) : null;
+}
 
 export type LiensExplicites = {
   projetIds: string[];
@@ -166,7 +175,7 @@ const pvIncludeDetail = {
   taches: { include: { tache: { select: { id: true, nom: true, statut: true } } } },
   userStories: { include: { userStory: { select: { id: true, description: true } } } },
   epics: { include: { epic: { select: { id: true, nom: true } } } },
-  contrats: { include: { contrat: { select: { id: true, nom: true } } } },
+  contrats: { include: { contrat: { select: { id: true, nom: true, codeContrat: true } } } },
   processus: { include: { processus: { select: { id: true, nom: true } } } },
   commentaires: {
     orderBy: { createdAt: 'asc' as const },
@@ -184,6 +193,26 @@ const pvIncludeDetail = {
       },
     },
   },
+} as const;
+
+/** Données enrichies pour la liste (cartes dépliables). */
+const pvIncludeList = {
+  document: { select: { id: true, nom: true, fichierNomOriginal: true } },
+  createdBy: { select: { id: true, nom: true, prenom: true } },
+  permissions: {
+    include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
+  },
+  adminSansAcces: { select: { userId: true } },
+  presentsUser: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
+  presentsClientFournisseur: {
+    include: { clientFournisseur: { select: { id: true, nom: true, type: true } } },
+  },
+  projets: { include: { projet: { select: { id: true, nom: true, codeProjet: true } } } },
+  taches: { include: { tache: { select: { id: true, nom: true, statut: true } } } },
+  userStories: { include: { userStory: { select: { id: true, description: true } } } },
+  epics: { include: { epic: { select: { id: true, nom: true } } } },
+  contrats: { include: { contrat: { select: { id: true, nom: true, codeContrat: true } } } },
+  processus: { include: { processus: { select: { id: true, nom: true } } } },
 } as const;
 
 function mapPvWithCaps<T extends object>(pv: T, userId: string, role: string) {
@@ -343,19 +372,40 @@ export class PvReunionService {
       where: { deletedAt: null },
       orderBy: { createdAt: 'desc' },
       include: {
-        document: {
-          select: { id: true, nom: true, fichierNomOriginal: true },
-        },
-        createdBy: { select: { id: true, nom: true, prenom: true } },
-        permissions: {
-          include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
-        },
-        adminSansAcces: { select: { userId: true } },
+        ...pvIncludeList,
+        _count: { select: { commentaires: true } },
       },
     });
-    return list
-      .filter((pv) => canViewPvReunion(toPvAcl(pv), userId, role))
-      .map((pv) => mapPvWithCaps(pv, userId, role));
+    const visible = list.filter((pv) => canViewPvReunion(toPvAcl(pv), userId, role));
+    const ids = visible.map((p) => p.id);
+    const vueRows =
+      ids.length > 0
+        ? await prisma.journalAcces.groupBy({
+            by: ['ressourceId'],
+            where: {
+              ressourceType: ResourceType.pvReunion,
+              action: LogAction.lecture,
+              ressourceId: { in: ids },
+            },
+            _count: { _all: true },
+          })
+        : [];
+    const vueMap = new Map<string, number>();
+    for (const r of vueRows) {
+      if (r.ressourceId) vueMap.set(r.ressourceId, r._count._all);
+    }
+    return visible.map((row) => {
+      const { _count, ...pv } = row as typeof row & { _count: { commentaires: number } };
+      return mapPvWithCaps(
+        {
+          ...pv,
+          nombreCommentaires: _count?.commentaires ?? 0,
+          nombreVues: vueMap.get(pv.id) ?? 0,
+        },
+        userId,
+        role
+      );
+    });
   }
 
   async findOne(id: string, userId: string, role: string) {
@@ -365,7 +415,17 @@ export class PvReunionService {
     });
     if (!pv) return null;
     if (!canViewPvReunion(toPvAcl(pv), userId, role)) return null;
-    return mapPvWithCaps(pv, userId, role);
+    const [nombreCommentaires, nombreVues] = await Promise.all([
+      prisma.pvReunionCommentaire.count({ where: { pvReunionId: id } }),
+      prisma.journalAcces.count({
+        where: {
+          ressourceType: ResourceType.pvReunion,
+          action: LogAction.lecture,
+          ressourceId: id,
+        },
+      }),
+    ]);
+    return mapPvWithCaps({ ...pv, nombreCommentaires, nombreVues }, userId, role);
   }
 
   async create(
@@ -373,6 +433,7 @@ export class PvReunionService {
     role: string,
     data: {
       titre: string;
+      statut?: string | null;
       dateReunion?: Date | null;
       presentUserIds: string[];
       presentClientFournisseurIds: string[];
@@ -397,9 +458,15 @@ export class PvReunionService {
       },
     });
 
+    const st = normalizePvStatut(data.statut);
+    if (data.statut != null && String(data.statut).trim() && !st) {
+      throw new Error('Statut PV invalide (brouillon, en_revision, valide, archive)');
+    }
+
     const pv = await prisma.pvReunion.create({
       data: {
         titre: data.titre.trim(),
+        statut: st ?? 'brouillon',
         documentId: doc.id,
         dateReunion: data.dateReunion ?? null,
         createdById: userId,
@@ -443,6 +510,7 @@ export class PvReunionService {
     role: string,
     data: {
       titre?: string;
+      statut?: string | null;
       dateReunion?: Date | null;
       presentUserIds?: string[];
       presentClientFournisseurIds?: string[];
@@ -466,10 +534,18 @@ export class PvReunionService {
       : (existing.liensExplicites as object);
     const expanded = data.liens ? await expandLiens(data.liens) : null;
 
+    let statutUpdate: string | undefined;
+    if (data.statut !== undefined && data.statut !== null) {
+      const st = normalizePvStatut(data.statut);
+      if (!st) throw new Error('Statut PV invalide (brouillon, en_revision, valide, archive)');
+      statutUpdate = st;
+    }
+
     await prisma.pvReunion.update({
       where: { id },
       data: {
         ...(data.titre != null ? { titre: data.titre.trim() } : {}),
+        ...(statutUpdate !== undefined ? { statut: statutUpdate } : {}),
         ...(data.dateReunion !== undefined ? { dateReunion: data.dateReunion } : {}),
         ...(data.liens ? { liensExplicites: liensExplicites as any } : {}),
       },

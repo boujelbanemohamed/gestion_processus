@@ -52,6 +52,7 @@ function handleErr(res: Response, e: unknown) {
     msg.startsWith('Les administrateurs') ||
     msg.startsWith('Le créateur') ||
     msg.startsWith('Seuls les comptes administrateur') ||
+    msg.startsWith('Statut PV') ||
     msg === 'Utilisateur introuvable'
   ) {
     return res.status(400).json({ error: msg });
@@ -156,6 +157,7 @@ export const createPvReunion = async (req: AuthRequest, res: Response) => {
     const liens = parseLiensFromBody(req.body);
     const pv = await pvReunionService.create(req.user!.userId, req.user!.role, {
       titre,
+      statut: req.body.statut != null ? String(req.body.statut) : undefined,
       dateReunion,
       presentUserIds: parseIdArrayFromBody(req.body.presentUserIds),
       presentClientFournisseurIds: parseIdArrayFromBody(req.body.presentClientFournisseurIds),
@@ -175,6 +177,7 @@ export const updatePvReunion = async (req: AuthRequest, res: Response) => {
     const body = req.body as Record<string, unknown>;
     const data: {
       titre?: string;
+      statut?: string | null;
       dateReunion?: Date | null;
       presentUserIds?: string[];
       presentClientFournisseurIds?: string[];
@@ -182,6 +185,9 @@ export const updatePvReunion = async (req: AuthRequest, res: Response) => {
       liens?: LiensExplicites;
     } = {};
     if (body.titre != null) data.titre = String(body.titre).trim();
+    if (body.statut !== undefined) {
+      data.statut = body.statut === null || body.statut === '' ? null : String(body.statut);
+    }
     if (body.dateReunion !== undefined) {
       data.dateReunion =
         body.dateReunion === null || body.dateReunion === ''
