@@ -101,6 +101,30 @@ PMO Hub` },
 [Si piece jointe : mention de l annexe]
 
 PMO Hub` },
+    {
+      id: 'licence_alerte',
+      icon: '🔔',
+      pages: ['Licences'],
+      titre: 'Alerte licence (échéance / récurrence)',
+      description:
+        'Envoyee aux destinataires choisis sur la fiche licence, selon une date avant fin de validite ou une date fixe avec recurrence (semaine, mois, an). Arretee si la licence est au statut Cloturee. Execution cote serveur : verification environ toutes les heures.',
+      destinataire: 'Utilisateurs selectionnes sur l alerte',
+      declencheur: 'Job serveur + regles definies dans le detail licence',
+      sujet: 'Alerte licence : [Nom licence]',
+      template: `Bonjour [Prenom Nom],
+
+Ceci est une alerte concernant la licence suivante :
+• Nom : [Nom licence]
+• Reference : [Reference]
+• Type : [Type licence]
+• Date de debut : [Date debut]
+• Date de fin : [Date fin]
+• Contexte : [Contexte alerte]
+
+Consultez l application pour plus de details : [Lien application]
+
+— PMO Hub`,
+    },
   ];
 
   return (

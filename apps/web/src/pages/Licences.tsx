@@ -15,7 +15,15 @@ const STATUTS = [
   { value: 'active', label: '✅ Active', color: 'bg-green-100 text-green-700' },
   { value: 'expiree', label: '⏰ Expirée', color: 'bg-red-100 text-red-700' },
   { value: 'suspendue', label: '⏸ Suspendue', color: 'bg-yellow-100 text-yellow-700' },
+  { value: 'cloturee', label: '🔒 Clôturée', color: 'bg-slate-200 text-slate-800' },
 ];
+
+const RECURRENCE_ALERTE_LABELS: Record<string, string> = {
+  none: 'Une seule fois',
+  weekly: 'Chaque semaine',
+  monthly: 'Chaque mois',
+  yearly: 'Chaque année',
+};
 
 const NIVEAUX = [
   { value: 'lecture', label: '👁 Lecture' },
@@ -97,7 +105,13 @@ export default function Licences() {
   const [showDetailModal, setShowDetailModal] = useState<any>(null);
   const [detailTab, setDetailTab] = useState<'info'|'historique'|'docs'|'comments'|'notifs'|'acces'>('info');
   const [commentForm, setCommentForm] = useState({ contenu: '', assigneA: '' });
-  const [notifForm, setNotifForm] = useState({ joursAvant: 30, destinataires: [] as string[] });
+  const [notifForm, setNotifForm] = useState({
+    mode: 'before_end' as 'before_end' | 'date_recurrence',
+    joursAvant: 30,
+    dateAlerte: '',
+    recurrence: 'none' as 'none' | 'weekly' | 'monthly' | 'yearly',
+    destinataires: [] as string[],
+  });
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [showCorbeilleModal, setShowCorbeilleModal] = useState(false);
   const [corbeilleLicences, setCorbeilleLicences] = useState<any[]>([]);
@@ -248,11 +262,14 @@ export default function Licences() {
 
   const handleSubmit = async () => {
     try {
-      const statutAuto = (form.dateDebut || form.dateFin) ? getStatutAuto(form.dateDebut, form.dateFin) : form.statut;
+      let statutFinal = form.statut;
+      if (form.statut !== 'cloturee' && (form.dateDebut || form.dateFin)) {
+        statutFinal = getStatutAuto(form.dateDebut, form.dateFin);
+      }
       const data: any = {
         ...form,
         reference: form.reference || genRef(),
-        statut: statutAuto,
+        statut: statutFinal,
         nombreSieges: form.nombreSieges ? parseInt(form.nombreSieges as string) : null,
         cout: form.cout ? parseFloat(form.cout as string) : null,
         dateDebut: form.dateDebut || null, dateFin: form.dateFin || null,
@@ -322,9 +339,42 @@ export default function Licences() {
   };
 
   const handleSetNotif = async () => {
-    await api.post(`/licences/${showDetailModal.id}/notifications`, notifForm);
-    const res = await api.get(`/licences/${showDetailModal.id}`);
-    setShowDetailModal(res.data); loadAll();
+    try {
+      await api.post(`/licences/${showDetailModal.id}/notifications`, {
+        mode: notifForm.mode,
+        joursAvant: notifForm.mode === 'before_end' ? notifForm.joursAvant : undefined,
+        dateAlerte:
+          notifForm.mode === 'date_recurrence' && notifForm.dateAlerte
+            ? new Date(notifForm.dateAlerte + 'T12:00:00').toISOString()
+            : undefined,
+        recurrence: notifForm.mode === 'date_recurrence' ? notifForm.recurrence : undefined,
+        destinataires: notifForm.destinataires,
+      });
+      setNotifForm({
+        mode: 'before_end',
+        joursAvant: 30,
+        dateAlerte: '',
+        recurrence: 'none',
+        destinataires: [],
+      });
+      const res = await api.get(`/licences/${showDetailModal.id}`);
+      setShowDetailModal(res.data);
+      loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleDeleteNotif = async (nid: string) => {
+    if (!showDetailModal?.id || !window.confirm('Supprimer cette alerte ?')) return;
+    try {
+      await api.delete(`/licences/${showDetailModal.id}/notifications/${nid}`);
+      const res = await api.get(`/licences/${showDetailModal.id}`);
+      setShowDetailModal(res.data);
+      loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
   };
 
   const uploadDetailDocs = async (fileList: FileList | null) => {
@@ -359,7 +409,13 @@ export default function Licences() {
   const startIdx = (safePage - 1) * pageSize;
   const pagedFiltered = filtered.slice(startIdx, startIdx + pageSize);
 
-  const alertes = licences.filter(l => l.dateFin && joursRestants(l.dateFin) <= 30 && joursRestants(l.dateFin) > 0);
+  const alertes = licences.filter(
+    (l) =>
+      l.statut !== 'cloturee' &&
+      l.dateFin &&
+      joursRestants(l.dateFin) <= 30 &&
+      joursRestants(l.dateFin) > 0,
+  );
 
   return (
     <div className="p-6">
@@ -717,14 +773,40 @@ export default function Licences() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Date de début</label>
-                  <input type="date" value={form.dateDebut} onChange={e => setForm({...form, dateDebut: e.target.value, statut: getStatutAuto(e.target.value, form.dateFin)})} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm" />
+                  <input
+                    type="date"
+                    value={form.dateDebut}
+                    onChange={(e) => {
+                      const dateDebut = e.target.value;
+                      const next: any = { ...form, dateDebut };
+                      if (form.statut !== 'cloturee') {
+                        next.statut = getStatutAuto(dateDebut, form.dateFin);
+                      }
+                      setForm(next);
+                    }}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Date de fin</label>
-                  <input type="date" value={form.dateFin} onChange={e => setForm({...form, dateFin: e.target.value, statut: getStatutAuto(form.dateDebut, e.target.value)})} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm" />
+                  <input
+                    type="date"
+                    value={form.dateFin}
+                    onChange={(e) => {
+                      const dateFin = e.target.value;
+                      const next: any = { ...form, dateFin };
+                      if (form.statut !== 'cloturee') {
+                        next.statut = getStatutAuto(form.dateDebut, dateFin);
+                      }
+                      setForm(next);
+                    }}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Statut (auto selon dates)</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Statut (auto selon dates, sauf si « Clôturée » — les alertes email s’arrêtent en clôturé)
+                  </label>
                   <select value={form.statut} onChange={e => setForm({...form, statut: e.target.value})} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm">
                     {STATUTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
@@ -1190,31 +1272,147 @@ export default function Licences() {
               )}
               {detailTab === 'notifs' && (
                 <div className="space-y-4">
-                  {showDetailModal.notifications?.map((n: any) => (
-                    <div key={n.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg text-sm">
-                      <span>🔔 {n.joursAvant} jour(s) avant expiration</span>
-                      <span className="text-gray-500">{n.destinataires?.length} destinataire(s)</span>
-                      <span className={`px-2 py-0.5 rounded text-xs ${n.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{n.active ? 'Actif' : 'Inactif'}</span>
-                    </div>
-                  ))}
-                  <div className="border-t pt-3 space-y-3">
-                    <p className="text-sm font-medium text-gray-700">Ajouter une alerte d'expiration</p>
-                    <div className="flex gap-2 items-center">
-                      <label className="text-sm text-gray-600">Alerter</label>
-                      <input type="number" value={notifForm.joursAvant} onChange={e => setNotifForm({...notifForm, joursAvant: parseInt(e.target.value)})} className="w-20 border border-gray-300 rounded-md px-2 py-1 text-sm" min={1} />
-                      <label className="text-sm text-gray-600">jours avant expiration</label>
-                    </div>
-                    <div className="border border-gray-300 rounded-md max-h-32 overflow-y-auto p-2 space-y-1">
-                      {users.map((u: any) => (
-                        <label key={u.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded">
-                          <input type="checkbox" checked={notifForm.destinataires.includes(u.id)}
-                            onChange={e => setNotifForm({...notifForm, destinataires: e.target.checked ? [...notifForm.destinataires, u.id] : notifForm.destinataires.filter(id => id !== u.id)})} />
-                          {u.prenom} {u.nom} ({u.email})
+                  <p className="text-xs text-gray-500">
+                    Les emails partent selon le modèle défini en Configuration → Notifications (alerte licence). Les envois
+                    s’arrêtent si le statut de la licence est <strong>Clôturée</strong>.
+                  </p>
+                  {showDetailModal.statut === 'cloturee' && (
+                    <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-3 py-2">
+                      Cette licence est clôturée : aucune alerte ne sera envoyée.
+                    </p>
+                  )}
+                  {showDetailModal.notifications?.map((n: any) => {
+                    const mode = n.mode === 'date_recurrence' ? 'date_recurrence' : 'before_end';
+                    const desc =
+                      mode === 'before_end'
+                        ? `${n.joursAvant} jour(s) avant la date de fin`
+                        : `Date / récurrence : ${n.dateAlerte ? new Date(n.dateAlerte).toLocaleDateString('fr-FR') : '—'} — ${RECURRENCE_ALERTE_LABELS[n.recurrence] || n.recurrence || '—'}`;
+                    return (
+                      <div key={n.id} className="flex flex-wrap items-center justify-between gap-2 p-3 bg-gray-50 rounded-lg text-sm">
+                        <div className="min-w-0">
+                          <span className="font-medium text-gray-800">🔔 {desc}</span>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {n.destinataires?.length || 0} destinataire(s)
+                            {n.lastSentAt ? ` · Dernier envoi : ${new Date(n.lastSentAt).toLocaleString('fr-FR')}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`px-2 py-0.5 rounded text-xs ${n.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                            {n.active ? 'Actif' : 'Inactif'}
+                          </span>
+                          {canEditLicence(showDetailModal) && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteNotif(n.id)}
+                              className="px-2 py-1 text-xs bg-red-50 text-red-700 rounded hover:bg-red-100"
+                            >
+                              Supprimer
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {canEditLicence(showDetailModal) && showDetailModal.statut !== 'cloturee' && (
+                    <div className="border-t pt-4 space-y-4">
+                      <p className="text-sm font-medium text-gray-800">Nouvelle alerte</p>
+                      <div className="space-y-2">
+                        <label className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input
+                            type="radio"
+                            name="alerte-mode"
+                            checked={notifForm.mode === 'before_end'}
+                            onChange={() => setNotifForm((f) => ({ ...f, mode: 'before_end' }))}
+                          />
+                          Avant fin de validité (si la date de fin est renseignée)
                         </label>
-                      ))}
+                        <label className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input
+                            type="radio"
+                            name="alerte-mode"
+                            checked={notifForm.mode === 'date_recurrence'}
+                            onChange={() => setNotifForm((f) => ({ ...f, mode: 'date_recurrence' }))}
+                          />
+                          Date fixe avec récurrence éventuelle
+                        </label>
+                      </div>
+                      {notifForm.mode === 'before_end' && (
+                        <div className="flex flex-wrap gap-2 items-center">
+                          <label className="text-sm text-gray-600">Notifier</label>
+                          <input
+                            type="number"
+                            value={notifForm.joursAvant}
+                            onChange={(e) =>
+                              setNotifForm((f) => ({ ...f, joursAvant: Math.max(1, parseInt(e.target.value, 10) || 30) }))
+                            }
+                            className="w-20 border border-gray-300 rounded-md px-2 py-1 text-sm"
+                            min={1}
+                          />
+                          <span className="text-sm text-gray-600">jour(s) avant la date de fin</span>
+                          {!showDetailModal.dateFin && (
+                            <span className="text-xs text-amber-600 w-full">Renseignez une date de fin sur la licence pour utiliser ce mode.</span>
+                          )}
+                        </div>
+                      )}
+                      {notifForm.mode === 'date_recurrence' && (
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Date de l’alerte</label>
+                            <input
+                              type="date"
+                              value={notifForm.dateAlerte}
+                              onChange={(e) => setNotifForm((f) => ({ ...f, dateAlerte: e.target.value }))}
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Récurrence</label>
+                            <select
+                              value={notifForm.recurrence}
+                              onChange={(e) =>
+                                setNotifForm((f) => ({
+                                  ...f,
+                                  recurrence: e.target.value as 'none' | 'weekly' | 'monthly' | 'yearly',
+                                }))
+                              }
+                              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                            >
+                              {(Object.keys(RECURRENCE_ALERTE_LABELS) as (keyof typeof RECURRENCE_ALERTE_LABELS)[]).map((k) => (
+                                <option key={k} value={k}>
+                                  {RECURRENCE_ALERTE_LABELS[k]}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-xs font-medium text-gray-600 mb-2">Destinataires (email)</p>
+                        <div className="border border-gray-300 rounded-md max-h-40 overflow-y-auto p-2 space-y-1">
+                          {users.map((u: any) => (
+                            <label key={u.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-gray-50 px-1 py-0.5 rounded">
+                              <input
+                                type="checkbox"
+                                checked={notifForm.destinataires.includes(u.id)}
+                                onChange={(e) =>
+                                  setNotifForm((f) => ({
+                                    ...f,
+                                    destinataires: e.target.checked
+                                      ? [...f.destinataires, u.id]
+                                      : f.destinataires.filter((id) => id !== u.id),
+                                  }))
+                                }
+                              />
+                              {u.prenom} {u.nom} ({u.email})
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      <button type="button" onClick={handleSetNotif} className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm">
+                        Enregistrer l’alerte
+                      </button>
                     </div>
-                    <button onClick={handleSetNotif} className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm">Enregistrer l'alerte</button>
-                  </div>
+                  )}
                 </div>
               )}
               {detailTab === 'acces' && (

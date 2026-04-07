@@ -169,16 +169,39 @@ export const addCommentaire = async (req: AuthRequest, res: Response) => {
 export const setNotification = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
-    const { joursAvant, destinataires } = req.body;
+    const body = req.body || {};
+    const mode = body.mode === 'date_recurrence' ? 'date_recurrence' : 'before_end';
     const l = await licenceService.setNotification(req.params.id, req.user.userId, req.user.role, {
-      joursAvant: Number(joursAvant) || 30,
-      destinataires: Array.isArray(destinataires) ? destinataires : [],
+      mode,
+      joursAvant: body.joursAvant != null ? Number(body.joursAvant) : undefined,
+      dateAlerte: body.dateAlerte ?? null,
+      recurrence: body.recurrence,
+      destinataires: Array.isArray(body.destinataires) ? body.destinataires : [],
     });
     if (!l) return res.status(404).json({ error: 'Licence non trouvée' });
     await logAccess(req, res, 'modification', 'licence', l.id, l.nom, { action: 'notification_expiration' });
     res.json(l);
   } catch (e: any) {
     const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const deleteLicenceNotification = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const l = await licenceService.deleteNotification(
+      req.params.id,
+      req.params.notificationId,
+      req.user.userId,
+      req.user.role,
+    );
+    if (!l) return res.status(404).json({ error: 'Licence non trouvée' });
+    await logAccess(req, res, 'modification', 'licence', l.id, l.nom, { action: 'notification_suppression' });
+    res.json(l);
+  } catch (e: any) {
+    const code =
+      e.message === 'Accès refusé' ? 403 : e.message === 'Alerte introuvable' ? 404 : 400;
     res.status(code).json({ error: e.message });
   }
 };

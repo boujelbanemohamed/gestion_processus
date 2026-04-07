@@ -57,7 +57,19 @@ export function canManagePermissions(userId: string, role: string, licence: { cr
   return role === 'admin' || licence.createdById === userId;
 }
 
-async function enrichNotifications(notifications: { id: string; joursAvant: number; active: boolean; destinataireIds: string[]; createdAt: Date }[]) {
+async function enrichNotifications(
+  notifications: {
+    id: string;
+    mode: string;
+    joursAvant: number;
+    dateAlerte: Date | null;
+    recurrence: string;
+    active: boolean;
+    destinataireIds: string[];
+    lastSentAt: Date | null;
+    createdAt: Date;
+  }[],
+) {
   const allIds = [...new Set(notifications.flatMap((n) => n.destinataireIds || []))];
   if (allIds.length === 0) {
     return notifications.map((n) => ({ ...n, destinataires: [] as { id: string; nom: string; prenom: string; email: string }[] }));
@@ -399,21 +411,80 @@ export class LicenceService {
     return this.findOne(licenceId, auteurId, role);
   }
 
-  async setNotification(licenceId: string, actorId: string, role: string, body: { joursAvant: number; destinataires: string[] }) {
+  async setNotification(
+    licenceId: string,
+    actorId: string,
+    role: string,
+    body: {
+      mode?: string;
+      joursAvant?: number;
+      dateAlerte?: string | null;
+      recurrence?: string;
+      destinataires: string[];
+    },
+  ) {
     const licence = await prisma.licence.findUnique({
       where: { id: licenceId },
       include: { permissions: true },
     });
     if (!licence || licence.deletedAt) throw new Error('Licence non trouvée');
     if (!canEditLicenceContent(actorId, role, licence)) throw new Error('Accès refusé');
-    await prisma.licenceNotification.create({
-      data: {
-        licenceId,
-        joursAvant: body.joursAvant,
-        active: true,
-        destinataireIds: body.destinataires || [],
-      },
+
+    const mode = body.mode === 'date_recurrence' ? 'date_recurrence' : 'before_end';
+    const dest = Array.isArray(body.destinataires) ? body.destinataires.filter((x) => typeof x === 'string' && x.trim()) : [];
+    if (dest.length === 0) throw new Error('Sélectionnez au moins un destinataire.');
+
+    if (mode === 'before_end') {
+      if (!licence.dateFin) {
+        throw new Error('Une date de fin est requise pour une alerte « X jours avant échéance ».');
+      }
+      const j = Math.max(1, parseInt(String(body.joursAvant ?? 30), 10));
+      await prisma.licenceNotification.create({
+        data: {
+          licenceId,
+          mode: 'before_end',
+          joursAvant: j,
+          dateAlerte: null,
+          recurrence: 'none',
+          active: true,
+          destinataireIds: dest,
+        },
+      });
+    } else {
+      if (!body.dateAlerte || !String(body.dateAlerte).trim()) {
+        throw new Error('La date de l’alerte est requise pour le mode date / récurrence.');
+      }
+      const recRaw = (body.recurrence || 'none').toLowerCase();
+      const recurrence = ['none', 'weekly', 'monthly', 'yearly'].includes(recRaw) ? recRaw : 'none';
+      const d = new Date(body.dateAlerte);
+      if (Number.isNaN(d.getTime())) throw new Error('Date d’alerte invalide.');
+      await prisma.licenceNotification.create({
+        data: {
+          licenceId,
+          mode: 'date_recurrence',
+          joursAvant: 0,
+          dateAlerte: d,
+          recurrence,
+          active: true,
+          destinataireIds: dest,
+        },
+      });
+    }
+    return this.findOne(licenceId, actorId, role);
+  }
+
+  async deleteNotification(licenceId: string, notificationId: string, actorId: string, role: string) {
+    const licence = await prisma.licence.findUnique({
+      where: { id: licenceId },
+      include: { permissions: true },
     });
+    if (!licence || licence.deletedAt) throw new Error('Licence non trouvée');
+    if (!canEditLicenceContent(actorId, role, licence)) throw new Error('Accès refusé');
+    const n = await prisma.licenceNotification.findFirst({
+      where: { id: notificationId, licenceId },
+    });
+    if (!n) throw new Error('Alerte introuvable');
+    await prisma.licenceNotification.delete({ where: { id: notificationId } });
     return this.findOne(licenceId, actorId, role);
   }
 

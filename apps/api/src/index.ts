@@ -30,6 +30,7 @@ import * as typeLicenceController from "./controllers/type-licence.controller";
 import * as typeContratController from "./controllers/type-contrat.controller";
 import * as deviseController from "./controllers/devise.controller";
 import * as pvReunionController from "./controllers/pv-reunion.controller";
+import { runLicenceAlertDispatch } from "./services/licence-alert-dispatch.service";
 
 const app = express();
 app.use(helmet());
@@ -438,3 +439,11 @@ const port = process.env.PORT || 4000;
 app.listen(port, () => {
   console.log(`API listening on http://localhost:${port}`);
 });
+
+const LICENCE_ALERT_MS = 60 * 60 * 1000;
+setInterval(() => {
+  runLicenceAlertDispatch().catch((err) => console.error("[LICENCE_ALERT]", err));
+}, LICENCE_ALERT_MS);
+setTimeout(() => {
+  runLicenceAlertDispatch().catch(() => {});
+}, 25_000);
