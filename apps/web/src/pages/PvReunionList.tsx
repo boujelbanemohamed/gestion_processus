@@ -50,6 +50,38 @@ function tokenQs() {
   return t ? `?token=${encodeURIComponent(t)}` : '';
 }
 
+/** Libellés des niveaux PvReunionPermission (alignés sur la page Processus). */
+const PV_NIVEAU_LABELS: Record<string, string> = {
+  lecture: 'Consultation',
+  modification: 'Modification',
+  suppression: 'Suppression',
+  gestion: 'Gestion des accès',
+};
+
+const DROITS_ADMIN_LIGNE_PV =
+  'consultation, modification, mise en corbeille, gestion des accès';
+
+function isAccesRestreintPv(p: any) {
+  const dels = p.accesApercu?.delegations?.length ?? p.permissions?.length ?? 0;
+  return dels > 0 || !!p.createdById;
+}
+
+function delegationsRowsForPv(p: any) {
+  const d = p.accesApercu?.delegations;
+  if (d?.length) {
+    return d.map((row: any) => ({
+      key: `${row.user?.id || ''}-${row.niveau || ''}`,
+      user: row.user,
+      label: PV_NIVEAU_LABELS[row.niveau] || row.niveau,
+    }));
+  }
+  return (p.permissions || []).map((perm: any) => ({
+    key: perm.id,
+    user: perm.user,
+    label: PV_NIVEAU_LABELS[perm.niveau] || perm.niveau,
+  }));
+}
+
 function IdChips({
   label,
   options,
@@ -187,6 +219,17 @@ export default function PvReunionList() {
 
   useEffect(() => {
     load();
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const u = await api.get('/users');
+        setUsers(u.data || []);
+      } catch {
+        /* silencieux */
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -479,6 +522,9 @@ export default function PvReunionList() {
             const docHref = r.document?.id
               ? `${API_BASE_URL}/documents/${r.document.id}/view${tokenQs()}`
               : '';
+            const accesRows = delegationsRowsForPv(r);
+            const actifAdmins = users.filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'));
+            const creatorId = r.createdById || r.createdBy?.id;
             return (
               <div key={r.id} className="bg-white rounded-lg shadow overflow-hidden">
                 <button
@@ -492,8 +538,14 @@ export default function PvReunionList() {
                 >
                   <span className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${st.color}`}>{st.label}</span>
                   <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate">{r.titre}</h2>
-                  <span className="text-sm text-gray-500 font-mono shrink-0">
-                    {r.dateReunion ? new Date(r.dateReunion).toLocaleDateString('fr-FR') : '—'}
+                  <span
+                    className="text-xs sm:text-sm text-gray-500 font-mono shrink-0 text-right max-w-[min(100%,14rem)]"
+                    title={`${r.id}\n${r.dateReunion ? new Date(r.dateReunion).toLocaleDateString('fr-FR') : '—'}`}
+                  >
+                    <span className="block truncate">
+                      {r.dateReunion ? new Date(r.dateReunion).toLocaleDateString('fr-FR') : '—'}
+                    </span>
+                    <span className="block truncate text-[11px] sm:text-xs text-gray-400">{r.id}</span>
                   </span>
                   {rowOpen && (
                     <span className="text-gray-400 shrink-0 ml-auto" aria-hidden>
@@ -680,6 +732,70 @@ export default function PvReunionList() {
                             !(r.processus || []).length && (
                               <p className="text-xs text-gray-400 italic">Aucun rattachement explicite</p>
                             )}
+                        </div>
+
+                        <div className="mt-3 space-y-2">
+                          <p className="text-[11px] text-gray-500 leading-snug">
+                            <span className="font-medium text-gray-600">Détail du PV</span> et{' '}
+                            <span className="font-medium text-gray-600">document principal</span> : mêmes règles
+                            d’accès (consultation, modification selon les droits ci-dessous).
+                          </p>
+                          <div className="flex flex-wrap items-start gap-2 sm:gap-3 text-xs text-gray-700 border border-slate-100 rounded-lg px-3 py-2.5 bg-slate-50/90">
+                            <span className="font-semibold text-gray-600 uppercase shrink-0 pt-0.5">Accès :</span>
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 min-w-0 flex-1">
+                              {isAccesRestreintPv(r) ? (
+                                <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-red-50 border border-red-100 text-red-900 shrink-0">
+                                  <span className="text-sm leading-none" aria-hidden>
+                                    🔒
+                                  </span>
+                                  <span className="text-[10px] font-semibold leading-tight mt-0.5 text-center">
+                                    Accès restreint
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="inline-flex flex-col items-center justify-center px-2 py-1 rounded-md bg-green-50 border border-green-100 text-green-900 shrink-0">
+                                  <span className="text-[10px] font-semibold leading-tight text-center">
+                                    Accès élargi
+                                  </span>
+                                </div>
+                              )}
+                              {actifAdmins.map((a: any) => {
+                                const isCreator = creatorId === a.id;
+                                return (
+                                  <div key={`adm-${r.id}-${a.id}`} className="min-w-0">
+                                    <span className="font-medium text-gray-900">
+                                      {a.prenom} {a.nom}
+                                    </span>
+                                    <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                      {isCreator
+                                        ? `(Administrateur et créateur : ${DROITS_ADMIN_LIGNE_PV})`
+                                        : `(Admin : ${DROITS_ADMIN_LIGNE_PV})`}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                              {r.createdBy && creatorId && !actifAdmins.some((a: any) => a.id === creatorId) && (
+                                <div className="min-w-0">
+                                  <span className="font-medium text-gray-900">
+                                    {r.createdBy.prenom} {r.createdBy.nom}
+                                  </span>
+                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                    (Créateur : {DROITS_ADMIN_LIGNE_PV})
+                                  </span>
+                                </div>
+                              )}
+                              {accesRows.map((row: { key: string; user: any; label: string }) => (
+                                <div key={row.key} className="min-w-0">
+                                  <span className="font-medium text-gray-900">
+                                    {row.user?.prenom} {row.user?.nom}
+                                  </span>
+                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                    ({row.label})
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         </div>
                       </div>
 
