@@ -37,7 +37,16 @@ const processQueue = (error: any, token: string | null = null) => {
 
 // Intercepteur pour gérer les erreurs et le rafraîchissement du token
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const d = response.data;
+    if (typeof d === 'string' && /^\s*</.test(d)) {
+      console.error(
+        '[api] Réponse HTML reçue au lieu de JSON — vérifiez nginx (proxy /api/ vers l’API) ou VITE_API_URL.'
+      );
+      return Promise.reject(new Error('Réponse invalide (HTML au lieu de JSON)'));
+    }
+    return response;
+  },
   async (error) => {
     const originalRequest = error.config;
 

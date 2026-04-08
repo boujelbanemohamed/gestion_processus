@@ -50,7 +50,7 @@ export default function NotificationBell() {
   const loadNotifications = async () => {
     try {
       const res = await api.get('/notifications');
-      setNotifications(res.data);
+      setNotifications(Array.isArray(res.data) ? res.data : []);
     } catch {
       // silencieux
     }
