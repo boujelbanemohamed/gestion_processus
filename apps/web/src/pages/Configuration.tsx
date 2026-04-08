@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api';
 
-type TabType = 'categories' | 'smtp' | 'typesSociete' | 'typesLicence' | 'typesContrat' | 'devises' | 'notifications';
+type TabType =
+  | 'categories'
+  | 'smtp'
+  | 'typesSociete'
+  | 'typesLicence'
+  | 'typesContrat'
+  | 'typesEntite'
+  | 'devises'
+  | 'notifications';
 
 
 function NotificationsTab() {
@@ -242,6 +250,11 @@ export default function Configuration() {
   const [showTcModal, setShowTcModal] = useState(false);
   const [editingTc, setEditingTc] = useState<any>(null);
   const [tcForm, setTcForm] = useState({ code: '', libelle: '' });
+  const [typesEntiteList, setTypesEntiteList] = useState<any[]>([]);
+  const [teLoading, setTeLoading] = useState(false);
+  const [showTeModal, setShowTeModal] = useState(false);
+  const [editingTe, setEditingTe] = useState<any>(null);
+  const [teForm, setTeForm] = useState({ code: '', libelle: '', ordre: 0, actif: true });
   const [devisesList, setDevisesList] = useState<any[]>([]);
   const [devLoading, setDevLoading] = useState(false);
   const [showDevModal, setShowDevModal] = useState(false);
@@ -273,6 +286,8 @@ export default function Configuration() {
       loadTypesLicence();
     } else if (activeTab === 'typesContrat') {
       loadTypesContrat();
+    } else if (activeTab === 'typesEntite') {
+      loadTypesEntite();
     } else if (activeTab === 'devises') {
       loadDevises();
     } else if (activeTab === 'smtp') {
@@ -356,6 +371,44 @@ export default function Configuration() {
     try {
       await api.delete(`/types-contrat/${id}`);
       loadTypesContrat();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur');
+    }
+  };
+
+  const loadTypesEntite = async () => {
+    setTeLoading(true);
+    try {
+      const r = await api.get('/types-entite');
+      setTypesEntiteList(r.data);
+    } catch (e) {
+      console.error(e);
+    }
+    setTeLoading(false);
+  };
+  const handleSaveTe = async () => {
+    try {
+      const payload = {
+        code: teForm.code,
+        libelle: teForm.libelle,
+        ordre: Number(teForm.ordre) || 0,
+        actif: teForm.actif,
+      };
+      if (editingTe) await api.put(`/types-entite/${editingTe.id}`, payload);
+      else await api.post('/types-entite', payload);
+      setShowTeModal(false);
+      setEditingTe(null);
+      setTeForm({ code: '', libelle: '', ordre: 0, actif: true });
+      loadTypesEntite();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Erreur');
+    }
+  };
+  const handleDeleteTe = async (id: string, libelle: string) => {
+    if (!confirm(`Supprimer le type d'entité « ${libelle} » ?`)) return;
+    try {
+      await api.delete(`/types-entite/${id}`);
+      loadTypesEntite();
     } catch (e: any) {
       alert(e?.response?.data?.error || 'Erreur');
     }
@@ -650,6 +703,16 @@ export default function Configuration() {
             }`}
           >
             Types de contrat
+          </button>
+          <button
+            onClick={() => setActiveTab('typesEntite')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+              activeTab === 'typesEntite'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Types d'entité
           </button>
           <button
             onClick={() => setActiveTab('devises')}
@@ -1484,6 +1547,141 @@ export default function Configuration() {
                   <button
                     type="button"
                     onClick={handleSaveTc}
+                    className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    Enregistrer
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'typesEntite' && (
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Types d'entité</h2>
+            <button
+              onClick={() => {
+                setEditingTe(null);
+                setTeForm({ code: '', libelle: '', ordre: 0, actif: true });
+                setShowTeModal(true);
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+            >
+              + Ajouter
+            </button>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Ces types alimentent la liste <span className="font-medium">Type</span> lors de la création ou modification d'une entité. Un type désactivé n'est plus proposé pour les nouvelles entités.
+          </p>
+          {teLoading ? (
+            <div className="text-gray-400">Chargement...</div>
+          ) : (
+            <div className="space-y-2">
+              {typesEntiteList.length === 0 && (
+                <div className="text-gray-400 text-sm">Aucun type d'entité défini</div>
+              )}
+              {typesEntiteList.map((te) => (
+                <div
+                  key={te.id}
+                  className="flex flex-wrap items-center justify-between gap-2 bg-white border border-gray-200 rounded-lg px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <span className="font-mono font-semibold text-gray-900">{te.code}</span>
+                    <span className="ml-3 text-gray-700">{te.libelle}</span>
+                    <span className="ml-2 text-xs text-gray-400">ordre {te.ordre ?? 0}</span>
+                    {!te.actif && (
+                      <span className="ml-2 px-2 py-0.5 text-xs rounded bg-amber-100 text-amber-800">Inactif</span>
+                    )}
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingTe(te);
+                        setTeForm({
+                          code: te.code,
+                          libelle: te.libelle,
+                          ordre: te.ordre ?? 0,
+                          actif: te.actif !== false,
+                        });
+                        setShowTeModal(true);
+                      }}
+                      className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                    >
+                      ✏️ Modifier
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTe(te.id, te.libelle)}
+                      className="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                    >
+                      🗑 Supprimer
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {showTeModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-4">
+                  {editingTe ? '✏️ Modifier' : '+ Ajouter'} un type d'entité
+                </h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Code *</label>
+                    <input
+                      type="text"
+                      value={teForm.code}
+                      onChange={(e) => setTeForm({ ...teForm, code: e.target.value })}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm font-mono"
+                      placeholder="Ex. direction, service"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Normalisé en minuscules et underscores.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Libellé *</label>
+                    <input
+                      type="text"
+                      value={teForm.libelle}
+                      onChange={(e) => setTeForm({ ...teForm, libelle: e.target.value })}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      placeholder="Ex. Direction, Service"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Ordre d'affichage</label>
+                    <input
+                      type="number"
+                      value={teForm.ordre}
+                      onChange={(e) => setTeForm({ ...teForm, ordre: Number(e.target.value) })}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={teForm.actif}
+                      onChange={(e) => setTeForm({ ...teForm, actif: e.target.checked })}
+                    />
+                    Actif (proposé à la création d'entité)
+                  </label>
+                </div>
+                <div className="flex justify-end gap-2 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowTeModal(false)}
+                    className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveTe}
                     className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
                   >
                     Enregistrer

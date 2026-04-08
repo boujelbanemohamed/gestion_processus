@@ -23,9 +23,10 @@ export default function EntiteDetail() {
     total: 0,
     totalPages: 0,
   });
+  const [typesEntite, setTypesEntite] = useState<any[]>([]);
   const [editData, setEditData] = useState({
     nom: '',
-    type: 'service',
+    typeEntiteId: '',
     parentId: '',
     responsableId: '',
     description: '',
@@ -39,6 +40,14 @@ export default function EntiteDetail() {
       loadEntite();
       loadEntites();
       loadUsers();
+      void (async () => {
+        try {
+          const r = await api.get('/types-entite');
+          setTypesEntite(Array.isArray(r.data) ? r.data : []);
+        } catch {
+          setTypesEntite([]);
+        }
+      })();
       loadProcessus();
       loadHistory(1);
     } else {
@@ -51,7 +60,7 @@ export default function EntiteDetail() {
     if (entite) {
       setEditData({
         nom: entite.nom || '',
-        type: entite.type || 'service',
+        typeEntiteId: entite.typeEntiteId || entite.typeEntite?.id || '',
         parentId: entite.parentId || '',
         responsableId: entite.responsableId || '',
         description: entite.description || '',
@@ -133,8 +142,9 @@ export default function EntiteDetail() {
       if (editData.nom !== (entite.nom || '')) {
         updateData.nom = editData.nom;
       }
-      if (editData.type !== (entite.type || '')) {
-        updateData.type = editData.type;
+      const curTypeId = entite.typeEntiteId || entite.typeEntite?.id || '';
+      if (editData.typeEntiteId !== curTypeId) {
+        updateData.typeEntiteId = editData.typeEntiteId;
       }
       if (editData.parentId !== (entite.parentId || '')) {
         updateData.parentId = editData.parentId || null;
@@ -166,15 +176,6 @@ export default function EntiteDetail() {
       setSaving(false);
     }
   };
-
-  const entiteTypes = [
-    { value: 'direction', label: 'Direction' },
-    { value: 'departement', label: 'Département' },
-    { value: 'service', label: 'Service' },
-    { value: 'cellule', label: 'Cellule' },
-    { value: 'division', label: 'Division' },
-    { value: 'equipe', label: 'Équipe' },
-  ];
 
   if (loading) return <div className="p-6">Chargement...</div>;
   if (error && !entite) {
@@ -230,7 +231,7 @@ export default function EntiteDetail() {
                   if (entite) {
                     setEditData({
                       nom: entite.nom || '',
-                      type: entite.type || 'service',
+                      typeEntiteId: entite.typeEntiteId || entite.typeEntite?.id || '',
                       parentId: entite.parentId || '',
                       responsableId: entite.responsableId || '',
                       description: entite.description || '',
@@ -280,15 +281,18 @@ export default function EntiteDetail() {
               </label>
               <select
                 required
-                value={editData.type}
-                onChange={(e) => setEditData({ ...editData, type: e.target.value })}
+                value={editData.typeEntiteId}
+                onChange={(e) => setEditData({ ...editData, typeEntiteId: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               >
-                {entiteTypes.map((type) => (
-                  <option key={type.value} value={type.value}>
-                    {type.label}
-                  </option>
-                ))}
+                {typesEntite
+                  .filter((t) => t.actif || t.id === editData.typeEntiteId)
+                  .map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.libelle}
+                      {!t.actif ? ' (inactif)' : ''}
+                    </option>
+                  ))}
               </select>
             </div>
             <div>
@@ -305,7 +309,7 @@ export default function EntiteDetail() {
                   .filter((e) => e.id !== id)
                   .map((entite) => (
                     <option key={entite.id} value={entite.id}>
-                      {entite.nom} ({entite.code}) - {entite.type}
+                      {entite.nom} ({entite.code}) - {entite.typeEntite?.libelle || entite.typeEntite?.code || '—'}
                     </option>
                   ))}
               </select>
@@ -369,7 +373,7 @@ export default function EntiteDetail() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="text-sm font-medium text-gray-500">Type</label>
-              <p className="mt-1 text-sm capitalize">{entite.type}</p>
+              <p className="mt-1 text-sm">{entite.typeEntite?.libelle || entite.typeEntite?.code || '—'}</p>
             </div>
             <div>
               <label className="text-sm font-medium text-gray-500">Entité parente</label>

@@ -16,10 +16,10 @@ export const getAllEntites = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);
     if (!auth) return res.status(401).json({ error: 'Non authentifié' });
-    const { parentId, type, search, responsableId, sortBy, sortOrder } = req.query;
+    const { parentId, typeEntiteId, search, responsableId, sortBy, sortOrder } = req.query;
     const entites = await entiteService.findAll(auth, {
       parentId: parentId as string,
-      type: type as any,
+      typeEntiteId: typeEntiteId as string,
       search: search as string,
       responsableId: responsableId as string,
       sortBy: sortBy as string,
@@ -153,7 +153,7 @@ export const updateEntite = async (req: AuthRequest, res: Response) => {
       if (updateData.nom && updateData.nom !== oldEntite.nom) {
         details.changementNom = updateData.nom;
       }
-      if (updateData.type && updateData.type !== oldEntite.type) {
+      if (updateData.typeEntiteId && updateData.typeEntiteId !== oldEntite.typeEntiteId) {
         details.changementType = true;
       }
       if (updateData.responsableId !== undefined && updateData.responsableId !== oldEntite.responsableId) {

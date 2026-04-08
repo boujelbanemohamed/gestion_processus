@@ -1,12 +1,18 @@
 import { prisma } from '../utils/prisma';
-import { EntiteType, PermissionType } from '../generated/prisma/enums';
+import { PermissionType } from '../generated/prisma/enums';
 
 const entiteIncludeList = {
+  typeEntite: { select: { id: true, code: true, libelle: true } },
   responsable: {
     select: { id: true, email: true, nom: true, prenom: true },
   },
   parent: {
-    select: { id: true, nom: true, code: true, type: true },
+    select: {
+      id: true,
+      nom: true,
+      code: true,
+      typeEntite: { select: { id: true, code: true, libelle: true } },
+    },
   },
   createdBy: { select: { id: true, email: true, nom: true, prenom: true } },
   membres: {
@@ -138,7 +144,7 @@ export class EntiteService {
     auth: EntiteAuth,
     filters?: {
       parentId?: string;
-      type?: EntiteType;
+      typeEntiteId?: string;
       search?: string;
       responsableId?: string;
       sortBy?: string;
@@ -148,7 +154,7 @@ export class EntiteService {
     const extraWhere = await this.buildVisibilityWhere(auth);
     const where: any = { deletedAt: null, ...extraWhere };
     if (filters?.parentId !== undefined && filters.parentId !== '') where.parentId = filters.parentId;
-    if (filters?.type) where.type = filters.type;
+    if (filters?.typeEntiteId) where.typeEntiteId = filters.typeEntiteId;
     if (filters?.responsableId) where.responsableId = filters.responsableId;
     if (filters?.search) {
       where.AND = [
@@ -174,7 +180,7 @@ export class EntiteService {
           orderBy = { code: sortOrder };
           break;
         case 'type':
-          orderBy = { type: sortOrder };
+          orderBy = { typeEntite: { libelle: sortOrder } };
           break;
         case 'responsable':
           orderBy = { responsable: { nom: sortOrder } };
@@ -248,6 +254,7 @@ export class EntiteService {
         children: {
           where: { deletedAt: null },
           include: {
+            typeEntite: { select: { id: true, code: true, libelle: true } },
             responsable: { select: { id: true, nom: true, prenom: true } },
             _count: { select: { membres: true } },
           },
@@ -356,7 +363,7 @@ export class EntiteService {
   async create(
     data: {
       nom: string;
-      type: EntiteType;
+      typeEntiteId: string;
       code: string;
       parentId?: string;
       responsableId?: string;
@@ -365,10 +372,17 @@ export class EntiteService {
     },
     auth: EntiteAuth
   ) {
-    const { membreIds, ...entiteData } = data;
+    const te = await prisma.typeEntite.findFirst({
+      where: { id: data.typeEntiteId, actif: true },
+      select: { id: true },
+    });
+    if (!te) throw new Error("Type d'entité invalide ou inactif");
+
+    const { membreIds, typeEntiteId, ...rest } = data;
     return prisma.entite.create({
       data: {
-        ...entiteData,
+        ...rest,
+        typeEntiteId,
         createdById: auth.userId,
         membres:
           membreIds && membreIds.length > 0
@@ -380,6 +394,7 @@ export class EntiteService {
             : undefined,
       },
       include: {
+        typeEntite: { select: { id: true, code: true, libelle: true } },
         responsable: { select: { id: true, nom: true, prenom: true } },
         parent: { select: { id: true, nom: true } },
         createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
@@ -396,7 +411,7 @@ export class EntiteService {
     id: string,
     data: {
       nom?: string;
-      type?: EntiteType;
+      typeEntiteId?: string;
       code?: string;
       parentId?: string;
       responsableId?: string;
@@ -411,7 +426,18 @@ export class EntiteService {
     if (!canModifyEntite({ createdById: existing.createdById, responsableId: existing.responsableId }, auth, permTypes)) {
       throw new Error('Accès refusé');
     }
-    const { membreIds, ...updateData } = data;
+    const { membreIds, typeEntiteId, ...updateData } = data;
+    if (typeEntiteId !== undefined) {
+      const te = await prisma.typeEntite.findUnique({
+        where: { id: typeEntiteId },
+        select: { id: true, actif: true },
+      });
+      if (!te) throw new Error("Type d'entité introuvable");
+      if (!te.actif && te.id !== existing.typeEntiteId) {
+        throw new Error("Ce type n'est plus actif ; sélectionnez un autre type d'entité");
+      }
+      (updateData as any).typeEntiteId = typeEntiteId;
+    }
     if (membreIds !== undefined) {
       await prisma.userEntite.deleteMany({ where: { entiteId: id } });
       if (membreIds.length > 0) {
@@ -424,6 +450,7 @@ export class EntiteService {
       where: { id },
       data: updateData,
       include: {
+        typeEntite: { select: { id: true, code: true, libelle: true } },
         responsable: { select: { id: true, nom: true, prenom: true } },
         parent: { select: { id: true, nom: true } },
         createdBy: { select: { id: true, nom: true, prenom: true, email: true } },

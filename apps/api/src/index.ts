@@ -28,6 +28,7 @@ import * as notificationController from "./controllers/notification.controller";
 import * as licenceController from "./controllers/licence.controller";
 import * as typeLicenceController from "./controllers/type-licence.controller";
 import * as typeContratController from "./controllers/type-contrat.controller";
+import * as typeEntiteController from "./controllers/type-entite.controller";
 import * as deviseController from "./controllers/devise.controller";
 import * as pvReunionController from "./controllers/pv-reunion.controller";
 import { runLicenceAlertDispatch } from "./services/licence-alert-dispatch.service";
@@ -420,6 +421,11 @@ app.get("/api/v1/types-contrat", typeContratController.getTypesContrat);
 app.post("/api/v1/types-contrat", typeContratController.createTypeContrat);
 app.put("/api/v1/types-contrat/:id", typeContratController.updateTypeContrat);
 app.delete("/api/v1/types-contrat/:id", typeContratController.deleteTypeContrat);
+
+app.get("/api/v1/types-entite", typeEntiteController.getTypesEntite);
+app.post("/api/v1/types-entite", typeEntiteController.createTypeEntite);
+app.put("/api/v1/types-entite/:id", typeEntiteController.updateTypeEntite);
+app.delete("/api/v1/types-entite/:id", typeEntiteController.deleteTypeEntite);
 
 // Devises (configuration licences)
 app.get("/api/v1/devises", deviseController.getDevises);

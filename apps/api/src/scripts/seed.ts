@@ -23,13 +23,19 @@ async function main() {
 
   console.log('✅ Admin:', admin.email, '(mot de passe: admin123)');
 
+  const typeDirection =
+    (await prisma.typeEntite.findFirst({ where: { code: 'direction' } })) ||
+    (await prisma.typeEntite.create({
+      data: { code: 'direction', libelle: 'Direction', ordre: 0, actif: true },
+    }));
+
   const direction = await prisma.entite.upsert({
     where: { code: 'DIR-001' },
     update: {},
     create: {
       nom: 'Direction Générale',
       code: 'DIR-001',
-      type: 'direction',
+      typeEntiteId: typeDirection.id,
       description: 'Direction principale',
       responsableId: admin.id,
     },

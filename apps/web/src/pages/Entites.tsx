@@ -39,36 +39,17 @@ function isAccesRestreintEntite(e: any) {
 
 const droitsAdminLigne = 'modification + suppression + gestion des accès + lecture';
 
-const ENTITE_TYPES = [
-  { value: 'direction', label: 'Direction' },
-  { value: 'departement', label: 'Département' },
-  { value: 'service', label: 'Service' },
-  { value: 'cellule', label: 'Cellule' },
-  { value: 'division', label: 'Division' },
-  { value: 'equipe', label: 'Équipe' },
-] as const;
-
 function countEntitesInTree(nodes: any[]): number {
   if (!nodes?.length) return 0;
   return nodes.reduce((acc, n) => acc + 1 + countEntitesInTree(n.children || []), 0);
 }
 
-function EntiteTreeNodes({
-  nodes,
-  depth,
-  typeOptions,
-  navigate,
-}: {
-  nodes: any[];
-  depth: number;
-  typeOptions: readonly { value: string; label: string }[];
-  navigate: (to: string) => void;
-}) {
+function EntiteTreeNodes({ nodes, depth, navigate }: { nodes: any[]; depth: number; navigate: (to: string) => void }) {
   if (!nodes?.length) return null;
   return (
     <ul className={depth === 0 ? 'space-y-0.5' : 'mt-0.5 ml-3 pl-3 border-l border-gray-200 space-y-0.5'}>
       {nodes.map((node) => {
-        const typeLabel = typeOptions.find((t) => t.value === node.type)?.label || node.type;
+        const typeLabel = node.typeEntite?.libelle || node.typeEntite?.code || '—';
         const children = node.children as any[] | undefined;
         const hasChildren = Array.isArray(children) && children.length > 0;
         return (
@@ -89,7 +70,7 @@ function EntiteTreeNodes({
                 </span>
               )}
             </div>
-            {hasChildren ? <EntiteTreeNodes nodes={children!} depth={depth + 1} typeOptions={typeOptions} navigate={navigate} /> : null}
+            {hasChildren ? <EntiteTreeNodes nodes={children!} depth={depth + 1} navigate={navigate} /> : null}
           </li>
         );
       })}
@@ -108,10 +89,11 @@ export default function Entites() {
   const [showModal, setShowModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [typesEntite, setTypesEntite] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     nom: '',
     code: '',
-    type: 'service',
+    typeEntiteId: '',
     parentId: '',
     responsableId: '',
     description: '',
@@ -120,7 +102,7 @@ export default function Entites() {
   const [error, setError] = useState('');
   const [filters, setFilters] = useState({
     search: '',
-    type: '',
+    typeEntiteId: '',
     parentId: '',
     responsableId: '',
   });
@@ -157,16 +139,24 @@ export default function Entites() {
   useEffect(() => {
     loadEntites();
     loadUsers();
+    void (async () => {
+      try {
+        const r = await api.get('/types-entite');
+        setTypesEntite(Array.isArray(r.data) ? r.data : []);
+      } catch {
+        setTypesEntite([]);
+      }
+    })();
   }, []);
 
   useEffect(() => {
     loadEntites();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.type, filters.parentId, filters.responsableId, sortConfig]);
+  }, [filters.search, filters.typeEntiteId, filters.parentId, filters.responsableId, sortConfig]);
 
   useEffect(() => {
     setPage(1);
-  }, [filters.search, filters.type, filters.parentId, filters.responsableId, sortConfig]);
+  }, [filters.search, filters.typeEntiteId, filters.parentId, filters.responsableId, sortConfig]);
 
   const loadEntiteTree = useCallback(async () => {
     setTreeLoading(true);
@@ -297,7 +287,7 @@ export default function Entites() {
     try {
       const params: any = {};
       if (filters.search) params.search = filters.search;
-      if (filters.type) params.type = filters.type;
+      if (filters.typeEntiteId) params.typeEntiteId = filters.typeEntiteId;
       if (filters.parentId) params.parentId = filters.parentId;
       if (filters.responsableId) params.responsableId = filters.responsableId;
       if (sortConfig) {
@@ -360,8 +350,8 @@ export default function Entites() {
     setSubmitting(true);
 
     try {
-      if (!formData.nom || !formData.code) {
-        setError('Le nom et le code sont obligatoires');
+      if (!formData.nom || !formData.code || !formData.typeEntiteId) {
+        setError('Le nom, le code et le type d’entité sont obligatoires');
         return;
       }
 
@@ -369,7 +359,7 @@ export default function Entites() {
         await api.put(`/entites/${editingId}`, {
           nom: formData.nom,
           code: formData.code.toUpperCase(),
-          type: formData.type,
+          typeEntiteId: formData.typeEntiteId,
           parentId: formData.parentId || undefined,
           responsableId: formData.responsableId || undefined,
           description: formData.description || undefined,
@@ -378,7 +368,7 @@ export default function Entites() {
         await api.post('/entites', {
           nom: formData.nom,
           code: formData.code.toUpperCase(),
-          type: formData.type,
+          typeEntiteId: formData.typeEntiteId,
           parentId: formData.parentId || undefined,
           responsableId: formData.responsableId || undefined,
           description: formData.description || undefined,
@@ -392,7 +382,7 @@ export default function Entites() {
       setFormData({
         nom: '',
         code: '',
-        type: 'service',
+        typeEntiteId: typesEntite.find((t) => t.actif)?.id || '',
         parentId: '',
         responsableId: '',
         description: '',
@@ -414,7 +404,7 @@ export default function Entites() {
       setFormData({
         nom: entite.nom || '',
         code: entite.code || '',
-        type: entite.type || 'service',
+        typeEntiteId: entite.typeEntiteId || entite.typeEntite?.id || '',
         parentId: entite.parentId || '',
         responsableId: entite.responsableId || '',
         description: entite.description || '',
@@ -437,7 +427,7 @@ export default function Entites() {
     setFormData({
       nom: '',
       code: '',
-      type: 'service',
+      typeEntiteId: typesEntite.find((t) => t.actif)?.id || '',
       parentId: '',
       responsableId: '',
       description: '',
@@ -537,7 +527,7 @@ export default function Entites() {
                 setFormData({
                   nom: '',
                   code: '',
-                  type: 'service',
+                  typeEntiteId: typesEntite.find((t) => t.actif)?.id || '',
                   parentId: '',
                   responsableId: '',
                   description: '',
@@ -562,7 +552,7 @@ export default function Entites() {
         >
           <span>
             Filtres
-            {(filters.search || filters.type || filters.parentId || filters.responsableId) ? ' ●' : ''}
+            {(filters.search || filters.typeEntiteId || filters.parentId || filters.responsableId) ? ' ●' : ''}
           </span>
           <span className="text-gray-400">{showFiltres ? '▼' : '▶'}</span>
         </button>
@@ -582,14 +572,15 @@ export default function Entites() {
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
                 <select
-                  value={filters.type}
-                  onChange={(ev) => setFilters({ ...filters, type: ev.target.value })}
+                  value={filters.typeEntiteId}
+                  onChange={(ev) => setFilters({ ...filters, typeEntiteId: ev.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                 >
                   <option value="">Tous</option>
-                  {ENTITE_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
+                  {typesEntite.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.libelle}
+                      {!t.actif ? ' (inactif)' : ''}
                     </option>
                   ))}
                 </select>
@@ -650,7 +641,7 @@ export default function Entites() {
               </div>
               <button
                 type="button"
-                onClick={() => setFilters({ search: '', type: '', parentId: '', responsableId: '' })}
+                onClick={() => setFilters({ search: '', typeEntiteId: '', parentId: '', responsableId: '' })}
                 className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
                 Réinitialiser
@@ -675,7 +666,7 @@ export default function Entites() {
             ) : entiteTree.length === 0 ? (
               <p className="text-sm text-gray-500 py-6 text-center">Aucune entité racine ou aucune entité accessible.</p>
             ) : (
-              <EntiteTreeNodes nodes={entiteTree} depth={0} typeOptions={ENTITE_TYPES} navigate={navigate} />
+              <EntiteTreeNodes nodes={entiteTree} depth={0} navigate={navigate} />
             )}
           </div>
         </div>
@@ -729,16 +720,21 @@ export default function Entites() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
                   <select
                     required
-                    value={formData.type}
-                    onChange={(ev) => setFormData({ ...formData, type: ev.target.value })}
+                    value={formData.typeEntiteId}
+                    onChange={(ev) => setFormData({ ...formData, typeEntiteId: ev.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                   >
-                    {ENTITE_TYPES.map((type) => (
-                      <option key={type.value} value={type.value}>
-                        {type.label}
-                      </option>
-                    ))}
+                    {typesEntite
+                      .filter((t) => t.actif || t.id === formData.typeEntiteId)
+                      .map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.libelle}
+                        </option>
+                      ))}
                   </select>
+                  {typesEntite.filter((t) => t.actif || t.id === formData.typeEntiteId).length === 0 && (
+                    <p className="text-xs text-amber-700 mt-1">Aucun type disponible : configurez-en dans Configuration → Types d'entité.</p>
+                  )}
                 </div>
 
                 <div>
@@ -753,7 +749,7 @@ export default function Entites() {
                       .filter((entite) => !isEditing || entite.id !== editingId)
                       .map((entite) => (
                         <option key={entite.id} value={entite.id}>
-                          {entite.nom} ({entite.code}) — {entite.type}
+                          {entite.nom} ({entite.code}) — {entite.typeEntite?.libelle || entite.typeEntite?.code || '—'}
                         </option>
                       ))}
                   </select>
@@ -814,7 +810,7 @@ export default function Entites() {
         )}
         {pagedEntites.map((e) => {
           const c = cap(e);
-          const typeLabel = ENTITE_TYPES.find((t) => t.value === e.type)?.label || e.type;
+          const typeLabel = e.typeEntite?.libelle || e.typeEntite?.code || '—';
           const rowOpen = isEntiteRowExpanded(e.id);
           return (
             <div key={e.id} className="bg-white rounded-lg shadow overflow-hidden">

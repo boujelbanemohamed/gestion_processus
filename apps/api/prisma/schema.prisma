@@ -23,15 +23,6 @@ enum UserStatus {
   suspendu
 }
 
-enum EntiteType {
-  direction
-  departement
-  service
-  cellule
-  division
-  equipe
-}
-
 enum ProcessusStatut {
   brouillon
   en_revision
@@ -224,10 +215,23 @@ model UserUiModuleAccess {
   @@index([userId])
 }
 
+/// Types d'entité organisationnelle (configuration) — alimentent la liste « Type » lors de la création / modification d'entité.
+model TypeEntite {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  libelle   String
+  ordre     Int      @default(0)
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  entites   Entite[]
+}
+
 model Entite {
   id                String      @id @default(uuid())
   nom               String
-  type              EntiteType
+  typeEntiteId      String
+  typeEntite        TypeEntite  @relation(fields: [typeEntiteId], references: [id], onDelete: Restrict)
   parentId          String?
   parent            Entite?     @relation("EntiteHierarchie", fields: [parentId], references: [id], onDelete: Cascade)
   children          Entite[]    @relation("EntiteHierarchie")
@@ -252,6 +256,7 @@ model Entite {
   @@index([code])
   @@index([deletedAt])
   @@index([createdById])
+  @@index([typeEntiteId])
 }
 
 model UserEntite {
