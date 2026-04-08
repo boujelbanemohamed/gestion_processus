@@ -69,7 +69,7 @@ export default function Dashboard() {
           title="Aller à la liste des processus"
         >
           <div className="text-sm text-blue-600">Processus total</div>
-          <div className="text-2xl font-bold text-blue-600">{kpis?.processus.total || 0}</div>
+          <div className="text-2xl font-bold text-blue-600">{kpis?.processus?.total ?? 0}</div>
         </button>
         <button
           type="button"
@@ -97,7 +97,7 @@ export default function Dashboard() {
           title="Aller à la liste des documents"
         >
           <div className="text-sm text-blue-600">Documents récents</div>
-          <div className="text-2xl font-bold text-blue-600">{kpis?.documentsRecents.length || 0}</div>
+          <div className="text-2xl font-bold text-blue-600">{kpis?.documentsRecents?.length ?? 0}</div>
         </button>
       </div>
 
@@ -142,7 +142,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {kpis && Object.keys(kpis.processus.parStatut).length > 0 && (
+      {kpis?.processus?.parStatut && Object.keys(kpis.processus.parStatut).length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white p-4 rounded-lg shadow">
             <h2 className="text-lg font-semibold mb-4">Processus par statut</h2>
@@ -169,7 +169,7 @@ export default function Dashboard() {
           </div>
         </div>
       )}
-      {kpis && kpis.projets.parStatut && Object.keys(kpis.projets.parStatut).length > 0 && (
+      {kpis?.projets?.parStatut && Object.keys(kpis.projets.parStatut).length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
           <div className="bg-white p-4 rounded-lg shadow">
             <h2 className="text-lg font-semibold mb-4">Projets par statut</h2>
