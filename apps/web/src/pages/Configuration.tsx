@@ -1,15 +1,31 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 
 type TabType =
   | 'categories'
   | 'smtp'
   | 'typesSociete'
+  | 'typesEntite'
   | 'typesLicence'
   | 'typesContrat'
-  | 'typesEntite'
   | 'devises'
   | 'notifications';
+
+const VALID_TABS: TabType[] = [
+  'categories',
+  'smtp',
+  'typesSociete',
+  'typesEntite',
+  'typesLicence',
+  'typesContrat',
+  'devises',
+  'notifications',
+];
+
+function isTabType(s: string): s is TabType {
+  return VALID_TABS.includes(s as TabType);
+}
 
 
 function NotificationsTab() {
@@ -214,8 +230,29 @@ Consultez l application pour plus de details : [Lien application]
 }
 
 export default function Configuration() {
-  const [activeTab, setActiveTab] = useState<TabType>('categories');
-  
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    const t = searchParams.get('tab');
+    return t && isTabType(t) ? t : 'categories';
+  });
+
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t && isTabType(t)) setActiveTab(t);
+  }, [searchParams]);
+
+  const selectTab = (tab: TabType) => {
+    setActiveTab(tab);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', tab);
+        return next;
+      },
+      { replace: true }
+    );
+  };
+
   // Catégories
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -649,13 +686,26 @@ export default function Configuration() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Configuration</h1>
+      <h1 className="text-2xl font-bold mb-2">Configuration</h1>
+      <p className="text-sm text-gray-600 mb-4 max-w-3xl">
+        <strong>Types d'entité</strong> (Direction, Service, etc., pour la page Entités) :{' '}
+        <button
+          type="button"
+          onClick={() => selectTab('typesEntite')}
+          className="text-blue-600 font-medium underline hover:text-blue-800"
+        >
+          ouvrir cet onglet
+        </button>
+        {' · '}
+        Lien direct :{' '}
+        <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">/configuration?tab=typesEntite</code>
+      </p>
 
-      {/* Onglets : retour à la ligne pour que tous restent visibles (évite l’onglet caché hors scroll horizontal) */}
+      {/* Onglets : retour à la ligne pour que tous restent visibles */}
       <div className="border-b border-gray-200 mb-6">
         <nav className="-mb-px flex flex-wrap gap-x-6 gap-y-2">
           <button
-            onClick={() => setActiveTab('categories')}
+            onClick={() => selectTab('categories')}
             className={`py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'categories'
                 ? 'border-blue-500 text-blue-600'
@@ -665,7 +715,7 @@ export default function Configuration() {
             Catégories
           </button>
           <button
-            onClick={() => setActiveTab('smtp')}
+            onClick={() => selectTab('smtp')}
             className={`py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'smtp'
                 ? 'border-blue-500 text-blue-600'
@@ -675,7 +725,7 @@ export default function Configuration() {
             Configuration SMTP
           </button>
           <button
-            onClick={() => setActiveTab('typesSociete')}
+            onClick={() => selectTab('typesSociete')}
             className={`py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'typesSociete'
                 ? 'border-blue-500 text-blue-600'
@@ -685,27 +735,7 @@ export default function Configuration() {
             Types de société
           </button>
           <button
-            onClick={() => setActiveTab('typesLicence')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
-              activeTab === 'typesLicence'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Types de licence
-          </button>
-          <button
-            onClick={() => setActiveTab('typesContrat')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
-              activeTab === 'typesContrat'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Types de contrat
-          </button>
-          <button
-            onClick={() => setActiveTab('typesEntite')}
+            onClick={() => selectTab('typesEntite')}
             className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
               activeTab === 'typesEntite'
                 ? 'border-blue-500 text-blue-600'
@@ -715,7 +745,27 @@ export default function Configuration() {
             Types d'entité
           </button>
           <button
-            onClick={() => setActiveTab('devises')}
+            onClick={() => selectTab('typesLicence')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+              activeTab === 'typesLicence'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Types de licence
+          </button>
+          <button
+            onClick={() => selectTab('typesContrat')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+              activeTab === 'typesContrat'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Types de contrat
+          </button>
+          <button
+            onClick={() => selectTab('devises')}
             className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
               activeTab === 'devises'
                 ? 'border-blue-500 text-blue-600'
@@ -725,7 +775,7 @@ export default function Configuration() {
             Devises
           </button>
           <button
-            onClick={() => setActiveTab('notifications')}
+            onClick={() => selectTab('notifications')}
             className={`py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'notifications'
                 ? 'border-blue-500 text-blue-600'
