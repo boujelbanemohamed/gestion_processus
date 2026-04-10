@@ -46,6 +46,58 @@ function permSummaryLine(perms: string[]) {
   return perms.map((p) => LABEL_PERM_ROW[p] || p).join(' + ');
 }
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function isValidIsoDate(s: string): boolean {
+  const t = s.trim();
+  if (!ISO_DATE_RE.test(t)) return false;
+  const d = new Date(`${t}T12:00:00`);
+  return !Number.isNaN(d.getTime());
+}
+
+/** Saisie libre AAAA-MM-JJ + zone calendrier (input date en overlay) pour clic court sur mobile. */
+function ProjetDateField({
+  value,
+  onChange,
+  id,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  id: string;
+}) {
+  const iso = value.trim();
+  const pickerValue = ISO_DATE_RE.test(iso) ? iso : '';
+  return (
+    <div className="flex gap-2 items-stretch">
+      <input
+        id={id}
+        type="text"
+        className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-md text-sm font-mono"
+        placeholder="AAAA-MM-JJ"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <span
+        className="relative shrink-0 flex items-center justify-center min-w-[2.75rem] px-2 py-2 border border-gray-300 rounded-md text-sm bg-gray-50 hover:bg-gray-100"
+        title="Calendrier"
+      >
+        <span className="pointer-events-none select-none" aria-hidden>
+          📅
+        </span>
+        <input
+          type="date"
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          aria-label="Ouvrir le calendrier"
+          value={pickerValue}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </span>
+    </div>
+  );
+}
+
 function isAccesRestreintProjet(p: any) {
   return !!p.createdById || (p.accesApercu?.delegations?.length ?? 0) > 0;
 }
@@ -146,7 +198,8 @@ function projetAccesDelegationsRows(p: any): ProjetDelegRow[] {
       label: (row.permissions || []).map((x: string) => PROJ_PERM_LABELS[x] || x).join(' + '),
     }));
   }
-  return (p?.permissions || []).map((perm: any) => ({
+  const permsList = Array.isArray(p?.permissions) ? p.permissions : [];
+  return permsList.map((perm: any) => ({
     key: perm.id,
     userId: perm.userId ?? perm.user?.id,
     nom: perm.user ? `${perm.user.prenom} ${perm.user.nom}` : '—',
@@ -658,7 +711,7 @@ export default function ProjetDetail() {
     if (projet.createdById === currentUser.id) return true;
     if (projet.createdById == null) return true;
     if (isProjetGovernanceMember(currentUser.id)) return true;
-    return (projet.permissions || []).some((perm: any) => perm.userId === currentUser.id);
+    return Array.isArray(projet.permissions) && projet.permissions.some((perm: any) => perm.userId === currentUser.id);
   };
 
   const whyCannotAccessDocument = (doc: any): 'ok' | 'projet' | 'document' => {
@@ -882,14 +935,22 @@ export default function ProjetDetail() {
 
   const handleSave = async () => {
     setError('');
-    if (!form.nom || !form.dateDebut) {
-      setError('Nom et date de début sont obligatoires');
+    const dd = (form.dateDebut || '').trim();
+    const dfp = (form.dateFinPrevue || '').trim();
+    if (!form.nom || !dd || !isValidIsoDate(dd)) {
+      setError('Nom et date de début valides (format AAAA-MM-JJ) sont obligatoires');
+      return;
+    }
+    if (dfp && !isValidIsoDate(dfp)) {
+      setError('Date de fin prévue : format AAAA-MM-JJ invalide');
       return;
     }
     setSaving(true);
     try {
       await api.put(`/projets/${id}`, {
         ...form,
+        dateDebut: dd,
+        dateFinPrevue: dfp,
         partiesPrenantes,
         kpis,
         objectifsStrategiques,
@@ -1164,7 +1225,9 @@ export default function ProjetDetail() {
                       </div>
                     )}
                     {(() => {
-                      const actifAdmins = users.filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'));
+                      const actifAdmins = (users || []).filter(
+                        (u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif')
+                      );
                       const creatorId = projet.createdById || projet.createdBy?.id;
                       return (
                         <>
@@ -1311,12 +1374,24 @@ export default function ProjetDetail() {
               <Field
                 label="Date de début"
                 value={projet.dateDebut ? new Date(projet.dateDebut).toLocaleDateString('fr-FR') : '—'}
-                editComponent={<input type="date" value={form.dateDebut} onChange={(e) => setForm({ ...form, dateDebut: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />}
+                editComponent={
+                  <ProjetDateField
+                    id="projet-date-debut"
+                    value={form.dateDebut}
+                    onChange={(v) => setForm({ ...form, dateDebut: v })}
+                  />
+                }
               />
               <Field
                 label="Date de fin prévue"
                 value={projet.dateFinPrevue ? new Date(projet.dateFinPrevue).toLocaleDateString('fr-FR') : '—'}
-                editComponent={<input type="date" value={form.dateFinPrevue} onChange={(e) => setForm({ ...form, dateFinPrevue: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />}
+                editComponent={
+                  <ProjetDateField
+                    id="projet-date-fin-prevue"
+                    value={form.dateFinPrevue}
+                    onChange={(v) => setForm({ ...form, dateFinPrevue: v })}
+                  />
+                }
               />
               <Field
                 label="Statut"
@@ -1527,7 +1602,9 @@ export default function ProjetDetail() {
                 <div className="flex gap-2 mt-2">
                   <select value={newPartieCFId} onChange={(e) => setNewPartieCFId(e.target.value)} className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm">
                     <option value="">— Sélectionner un client/fournisseur —</option>
-                    {clientsFournisseurs.filter((cf: any) => !projet?.clientsFournisseurs?.some((cfp: any) => cfp.clientFournisseurId === cf.id)).map((cf: any) => (
+                    {(clientsFournisseurs || []).filter((cf: any) =>
+                      !(projet?.clientsFournisseurs || []).some((cfp: any) => cfp.clientFournisseurId === cf.id)
+                    ).map((cf: any) => (
                       <option key={cf.id} value={cf.id}>[{cf.type === 'client' ? 'Client' : 'Fournisseur'}] {cf.nom}</option>
                     ))}
                   </select>

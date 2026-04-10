@@ -36,19 +36,23 @@ function isGovernanceMember(
   p: {
     responsableId: string | null;
     gestionnaireId: string | null;
-    sponsors: { userId: string }[];
-    chefsProjet: { userId: string }[];
-    techLeads: { userId: string }[];
-    equipe: { userId: string }[];
+    sponsors?: { userId: string }[] | null;
+    chefsProjet?: { userId: string }[] | null;
+    techLeads?: { userId: string }[] | null;
+    equipe?: { userId: string }[] | null;
   },
   userId: string
 ) {
   if (p.responsableId === userId || p.gestionnaireId === userId) return true;
+  const sponsors = p.sponsors ?? [];
+  const chefsProjet = p.chefsProjet ?? [];
+  const techLeads = p.techLeads ?? [];
+  const equipe = p.equipe ?? [];
   return (
-    p.sponsors.some((s) => s.userId === userId) ||
-    p.chefsProjet.some((c) => c.userId === userId) ||
-    p.techLeads.some((t) => t.userId === userId) ||
-    p.equipe.some((e) => e.userId === userId)
+    sponsors.some((s) => s.userId === userId) ||
+    chefsProjet.some((c) => c.userId === userId) ||
+    techLeads.some((t) => t.userId === userId) ||
+    equipe.some((e) => e.userId === userId)
   );
 }
 
