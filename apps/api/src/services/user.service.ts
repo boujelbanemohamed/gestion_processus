@@ -16,11 +16,17 @@ export class UserService {
     const where: any = {};
     if (filters?.role) where.role = filters.role;
     if (filters?.entiteId) {
-      where.entitesMembres = {
-        some: {
-          entiteId: filters.entiteId,
-        },
-      };
+      where.AND = where.AND || [];
+      where.AND.push({
+        OR: [
+          { entitesMembres: { some: { entiteId: filters.entiteId } } },
+          {
+            entitesResponsable: {
+              some: { id: filters.entiteId, deletedAt: null },
+            },
+          },
+        ],
+      });
     }
     if (filters?.statut) where.statut = filters.statut;
     
@@ -108,6 +114,10 @@ export class UserService {
           include: {
             entite: true,
           },
+        },
+        entitesResponsable: {
+          where: { deletedAt: null },
+          select: { id: true, nom: true, code: true },
         },
         processusProprietaire: { take: 10, orderBy: { updatedAt: 'desc' } },
         documentsUploaded: { take: 10, orderBy: { createdAt: 'desc' } },

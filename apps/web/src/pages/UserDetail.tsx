@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
+import { mergeUserEntitesForDisplay } from '../utils/userEntitesDisplay';
 
 export default function UserDetail() {
   const { id } = useParams<{ id: string }>();
@@ -517,20 +518,34 @@ export default function UserDetail() {
             <div>
               <label className="text-sm font-medium text-gray-500">Entités</label>
               <div className="mt-1">
-                {user.entitesMembres && user.entitesMembres.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {user.entitesMembres.map((ue: any) => (
-                      <span
-                        key={ue.entite?.id || ue.entiteId}
-                        className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs"
-                      >
-                        {ue.entite?.nom || 'N/A'}{ue.entite?.code ? ` (${ue.entite.code})` : ''}
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500 italic">N/A</p>
-                )}
+                {(() => {
+                  const rows = mergeUserEntitesForDisplay(user);
+                  if (rows.length === 0) {
+                    return <p className="text-sm text-gray-500 italic">N/A</p>;
+                  }
+                  return (
+                    <div className="flex flex-wrap gap-2">
+                      {rows.map((row) => {
+                        const base =
+                          row.responsable && !row.membre
+                            ? 'bg-amber-100 text-amber-900'
+                            : 'bg-blue-100 text-blue-800';
+                        return (
+                          <span key={row.id} className={`px-2 py-1 rounded text-xs ${base}`}>
+                            {row.nom || 'N/A'}
+                            {row.code ? ` (${row.code})` : ''}
+                            {row.responsable && row.membre && (
+                              <span className="text-amber-800 font-medium"> · Resp.</span>
+                            )}
+                            {row.responsable && !row.membre && (
+                              <span className="font-medium"> · Responsable</span>
+                            )}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 

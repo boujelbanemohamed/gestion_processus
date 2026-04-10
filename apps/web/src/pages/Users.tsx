@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
+import { mergeUserEntitesForDisplay, userEntitesSortLabel } from '../utils/userEntitesDisplay';
 
 export default function Users() {
   const [users, setUsers] = useState<any[]>([]);
@@ -62,8 +63,8 @@ export default function Users() {
       // Tri côté client pour les entités (car Prisma ne peut pas trier directement par relation)
       if (sortConfig?.key === 'entites') {
         sortedUsers = [...response.data].sort((a, b) => {
-          const aEntites = a.entitesMembres?.map((ue: any) => ue.entite?.nom || '').filter(Boolean).join(', ') || 'N/A';
-          const bEntites = b.entitesMembres?.map((ue: any) => ue.entite?.nom || '').filter(Boolean).join(', ') || 'N/A';
+          const aEntites = userEntitesSortLabel(mergeUserEntitesForDisplay(a));
+          const bEntites = userEntitesSortLabel(mergeUserEntitesForDisplay(b));
           if (sortConfig.direction === 'asc') {
             return aEntites.localeCompare(bEntites, 'fr', { sensitivity: 'base' });
           } else {
@@ -376,20 +377,34 @@ export default function Users() {
                 <td className="px-6 py-4 whitespace-nowrap text-sm">{u.email}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm capitalize">{u.role}</td>
                 <td className="px-6 py-4 text-sm">
-                  {u.entitesMembres && Array.isArray(u.entitesMembres) && u.entitesMembres.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {u.entitesMembres.map((ue: any) => (
-                        <span
-                          key={ue.entite?.id || ue.entiteId || Math.random()}
-                          className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs"
-                        >
-                          {ue.entite?.nom || 'N/A'}{ue.entite?.code ? ` (${ue.entite.code})` : ''}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-gray-500 italic">N/A</span>
-                  )}
+                  {(() => {
+                    const rows = mergeUserEntitesForDisplay(u);
+                    if (rows.length === 0) {
+                      return <span className="text-gray-500 italic">N/A</span>;
+                    }
+                    return (
+                      <div className="flex flex-wrap gap-2">
+                        {rows.map((row) => {
+                          const base =
+                            row.responsable && !row.membre
+                              ? 'bg-amber-100 text-amber-900'
+                              : 'bg-blue-100 text-blue-800';
+                          return (
+                            <span key={row.id} className={`px-2 py-1 rounded text-xs ${base}`}>
+                              {row.nom || 'N/A'}
+                              {row.code ? ` (${row.code})` : ''}
+                              {row.responsable && row.membre && (
+                                <span className="text-amber-800 font-medium"> · Resp.</span>
+                              )}
+                              {row.responsable && !row.membre && (
+                                <span className="font-medium"> · Responsable</span>
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span className={`px-2 py-1 text-xs rounded ${
