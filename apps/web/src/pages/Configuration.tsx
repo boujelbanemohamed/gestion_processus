@@ -686,20 +686,7 @@ export default function Configuration() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-2">Configuration</h1>
-      <p className="text-sm text-gray-600 mb-4 max-w-3xl">
-        <strong>Types d'entité</strong> (Direction, Service, etc., pour la page Entités) :{' '}
-        <button
-          type="button"
-          onClick={() => selectTab('typesEntite')}
-          className="text-blue-600 font-medium underline hover:text-blue-800"
-        >
-          ouvrir cet onglet
-        </button>
-        {' · '}
-        Lien direct :{' '}
-        <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">/configuration?tab=typesEntite</code>
-      </p>
+      <h1 className="text-2xl font-bold mb-6">Configuration</h1>
 
       {/* Onglets : retour à la ligne pour que tous restent visibles */}
       <div className="border-b border-gray-200 mb-6">
