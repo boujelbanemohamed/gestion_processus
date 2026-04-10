@@ -5,6 +5,21 @@ import { useAuth } from '../store/auth';
 import { getPaginationPageNumbers } from '../utils/pagination';
 import * as XLSX from 'xlsx';
 
+/** Avec `responseType: 'blob'`, les erreurs JSON arrivent en Blob : extraire `error` pour l’affichage. */
+async function apiErrorMessageFromAxios(error: any): Promise<string | undefined> {
+  const data = error.response?.data;
+  if (data instanceof Blob) {
+    try {
+      const j = JSON.parse(await data.text()) as { error?: string };
+      return typeof j.error === 'string' ? j.error : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  if (data && typeof data.error === 'string') return data.error;
+  return undefined;
+}
+
 export default function Documents() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
@@ -393,13 +408,16 @@ export default function Documents() {
       loadDocuments();
     } catch (error: any) {
       console.error('Erreur lors du chargement du document:', error);
+      const apiMsg = await apiErrorMessageFromAxios(error);
       if (error.response?.status === 403) {
-        alert('Vous n\'avez pas accès à ce document confidentiel');
+        alert(apiMsg || 'Vous n\'avez pas accès à ce document confidentiel');
       } else if (error.response?.status === 404) {
-        alert('Document non trouvé. Veuillez vérifier que l\'API est à jour.');
-        console.error('Endpoint non trouvé:', error.config?.url);
+        alert(
+          apiMsg ||
+            'Document ou fichier introuvable. Si le fichier a été uploadé sur un autre serveur, copiez le dossier uploads ou rechargez une version.'
+        );
       } else {
-        alert(`Erreur lors du chargement du document: ${error.response?.data?.error || error.message}`);
+        alert(`Erreur lors du chargement du document: ${apiMsg || error.message}`);
       }
       setLoadingExcel(false);
     }
@@ -434,10 +452,13 @@ export default function Documents() {
       loadDocuments();
     } catch (error: any) {
       console.error('Erreur lors du téléchargement:', error);
+      const apiMsg = await apiErrorMessageFromAxios(error);
       if (error.response?.status === 403) {
-        alert('Vous n\'avez pas accès à ce document confidentiel');
+        alert(apiMsg || 'Vous n\'avez pas accès à ce document confidentiel');
+      } else if (error.response?.status === 404) {
+        alert(apiMsg || 'Fichier introuvable sur le serveur.');
       } else {
-        alert('Erreur lors du téléchargement du document');
+        alert(apiMsg || 'Erreur lors du téléchargement du document');
       }
     }
   };

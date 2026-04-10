@@ -263,6 +263,9 @@ export const createVersion = async (req: AuthRequest, res: Response) => {
 
     const document = await documentService.createVersion(req.params.id, {
       fichierUrl: req.file.filename,
+      fichierNomOriginal: req.file.originalname,
+      fichierTaille: req.file.size,
+      fichierType: req.file.mimetype,
       commentaireVersion: req.body.commentaireVersion,
       uploadedById: req.user!.userId,
     });
@@ -337,15 +340,17 @@ export const downloadDocument = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Accès non autorisé à ce document confidentiel' });
     }
 
-    const filePath = path.join(UPLOAD_DIR, document.fichierUrl);
-    
-    // Logger avant le téléchargement pour capturer l'action
+    const dlPath = await documentService.resolveExistingFilePath(document);
+    if (!dlPath) {
+      return res.status(404).json({ error: 'Fichier non trouvé sur le serveur' });
+    }
+
     await logAccess(req, res, 'telechargement', 'document', document.id, document.nom, {
       version: document.version,
       processusId: document.referenceId,
     });
-    
-    res.download(filePath, document.fichierNomOriginal);
+
+    res.download(dlPath, document.fichierNomOriginal);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -371,14 +376,18 @@ export const downloadVersion = async (req: AuthRequest, res: Response) => {
     }
 
     const filePath = path.join(UPLOAD_DIR, version.fichierUrl);
-    
-    // Logger avant le téléchargement
+    try {
+      await fs.access(filePath);
+    } catch {
+      return res.status(404).json({ error: 'Fichier de cette version introuvable sur le serveur' });
+    }
+
     await logAccess(req, res, 'telechargement', 'document', document.id, document.nom, {
       version: version.version,
       typeTelechargement: 'version_ancienne',
       processusId: document.referenceId,
     });
-    
+
     res.download(filePath, `${document.fichierNomOriginal}_v${version.version}`);
   } catch (error: any) {
     res.status(500).json({ error: error.message });

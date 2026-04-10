@@ -10,6 +10,32 @@ const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 const processusService = new ProcessusService();
 const projetService = new ProjetService();
 
+/**
+ * Noms de fichiers à essayer sur disque : versions du plus récent au plus ancien, puis fichier courant sur Document.
+ * (Les anciennes versions n’avaient pas toujours mis à jour `Document.fichierUrl`.)
+ */
+function documentStorageFileNames(doc: {
+  fichierUrl: string;
+  versions?: { fichierUrl: string; createdAt: Date }[];
+}): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (u: string | null | undefined) => {
+    if (u == null || String(u).trim() === '') return;
+    if (seen.has(u)) return;
+    seen.add(u);
+    out.push(u);
+  };
+  if (doc.versions?.length) {
+    const sorted = [...doc.versions].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    for (const v of sorted) add(v.fichierUrl);
+  }
+  add(doc.fichierUrl);
+  return out;
+}
+
 /** Filtre documents par rattachement métier (query linkType + linkId). */
 function buildDocumentLinkClause(linkType: string, linkId: string): Record<string, unknown> | null {
   if (!linkType?.trim() || !linkId?.trim()) return null;
@@ -325,6 +351,23 @@ export class DocumentService {
     };
   }
 
+  /** Premier chemin absolu existant parmi les fichiers connus pour ce document (versions + courant). */
+  async resolveExistingFilePath(document: {
+    fichierUrl: string;
+    versions?: { fichierUrl: string; createdAt: Date }[];
+  }): Promise<string | null> {
+    for (const name of documentStorageFileNames(document)) {
+      const fp = path.join(UPLOAD_DIR, name);
+      try {
+        await fs.access(fp);
+        return fp;
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
   async canUserAccessDocument(documentId: string, userId: string, role?: string): Promise<boolean> {
     const document = await prisma.document.findUnique({
       where: { id: documentId },
@@ -403,10 +446,10 @@ export class DocumentService {
         if (projet.responsableId === userId) return true;
         if (projet.gestionnaireId === userId) return true;
         const gouvernanceIds = [
-          ...projet.sponsors.map((s: any) => s.userId),
-          ...projet.chefsProjet.map((s: any) => s.userId),
-          ...projet.techLeads.map((s: any) => s.userId),
-          ...projet.equipe.map((s: any) => s.userId),
+          ...(projet.sponsors ?? []).map((s: any) => s.userId),
+          ...(projet.chefsProjet ?? []).map((s: any) => s.userId),
+          ...(projet.techLeads ?? []).map((s: any) => s.userId),
+          ...(projet.equipe ?? []).map((s: any) => s.userId),
         ];
         if (gouvernanceIds.includes(userId)) return true;
       }
@@ -534,11 +577,17 @@ export class DocumentService {
     return document;
   }
 
-  async createVersion(documentId: string, data: {
-    fichierUrl: string;
-    commentaireVersion?: string;
-    uploadedById: string;
-  }) {
+  async createVersion(
+    documentId: string,
+    data: {
+      fichierUrl: string;
+      fichierNomOriginal: string;
+      fichierTaille: number;
+      fichierType: string;
+      commentaireVersion?: string;
+      uploadedById: string;
+    }
+  ) {
     const document = await prisma.document.findUnique({ where: { id: documentId } });
     if (!document) throw new Error('Document non trouvé');
 
@@ -546,11 +595,15 @@ export class DocumentService {
     const newMinor = parseInt(versionParts[1] || '0') + 1;
     const newVersion = `${versionParts[0]}.${newMinor}.0`;
 
+    const { fichierNomOriginal, fichierTaille, fichierType, ...versionRow } = data;
+
     await prisma.versionDocument.create({
       data: {
         documentId,
         version: newVersion,
-        ...data,
+        fichierUrl: versionRow.fichierUrl,
+        commentaireVersion: versionRow.commentaireVersion,
+        uploadedById: versionRow.uploadedById,
       },
     });
 
@@ -559,6 +612,10 @@ export class DocumentService {
       data: {
         version: newVersion,
         versionMineure: newMinor,
+        fichierUrl: data.fichierUrl,
+        fichierNomOriginal,
+        fichierTaille,
+        fichierType,
       },
     });
   }

@@ -175,18 +175,18 @@ app.post(
   pvReunionController.addPvCommentaire
 );
 
-// Documents
+// Documents — routes plus spécifiques avant /documents/:id pour éviter toute ambiguïté Express
 app.get("/api/v1/documents", documentController.getAllDocuments);
-app.get("/api/v1/documents/:id", documentController.getDocument);
 app.post("/api/v1/documents", documentController.uploadMiddleware, documentController.createDocument);
 app.post("/api/v1/documents/:id/versions", documentController.uploadMiddleware, documentController.createVersion);
 app.get("/api/v1/documents/:id/view", documentController.viewDocument);
 app.get("/api/v1/documents/:id/download", documentController.downloadDocument);
 app.get("/api/v1/documents/:id/versions/:versionId/download", documentController.downloadVersion);
+app.get("/api/v1/documents/:id/comments", documentCommentController.listComments);
+app.get("/api/v1/documents/:id", documentController.getDocument);
 app.put("/api/v1/documents/:id", documentController.updateDocument);
 app.delete("/api/v1/documents/:id", documentController.deleteDocument);
-// Commentaires de documents
-app.get("/api/v1/documents/:id/comments", documentCommentController.listComments);
+// Commentaires de documents (POST avec fichier)
 app.post("/api/v1/documents/:id/comments", documentCommentController.uploadMiddleware, documentCommentController.addComment);
 app.get("/api/v1/comments/:commentId/attachment", documentCommentController.downloadAttachment);
 
