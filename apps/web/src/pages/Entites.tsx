@@ -44,6 +44,35 @@ function countEntitesInTree(nodes: any[]): number {
   return nodes.reduce((acc, n) => acc + 1 + countEntitesInTree(n.children || []), 0);
 }
 
+function entiteMembreUsers(node: any) {
+  const list = (node.membres || [])
+    .map((m: any) => m.user)
+    .filter((u: any) => u?.id);
+  const byId = new Map<string, any>();
+  for (const u of list) {
+    if (!byId.has(u.id)) byId.set(u.id, u);
+  }
+  return Array.from(byId.values()).sort((a, b) =>
+    `${a.prenom} ${a.nom}`.localeCompare(`${b.prenom} ${b.nom}`, 'fr', { sensitivity: 'base' })
+  );
+}
+
+function entiteDelegationsForTree(node: any) {
+  const dels = node.accesApercu?.delegations;
+  if (!Array.isArray(dels) || dels.length === 0) return [];
+  return dels
+    .filter((d: any) => d.user?.id)
+    .map((d: any) => ({
+      user: d.user,
+      label: permSummaryLine(d.permissions || []),
+    }))
+    .sort((a: any, b: any) =>
+      `${a.user.prenom} ${a.user.nom}`.localeCompare(`${b.user.prenom} ${b.user.nom}`, 'fr', {
+        sensitivity: 'base',
+      })
+    );
+}
+
 function EntiteTreeNodes({ nodes, depth, navigate }: { nodes: any[]; depth: number; navigate: (to: string) => void }) {
   if (!nodes?.length) return null;
   return (
@@ -52,22 +81,63 @@ function EntiteTreeNodes({ nodes, depth, navigate }: { nodes: any[]; depth: numb
         const typeLabel = node.typeEntite?.libelle || node.typeEntite?.code || '—';
         const children = node.children as any[] | undefined;
         const hasChildren = Array.isArray(children) && children.length > 0;
+        const membreUsers = entiteMembreUsers(node);
+        const delegRows = entiteDelegationsForTree(node);
         return (
           <li key={node.id}>
-            <div className="flex flex-wrap items-center gap-2 py-1.5 pr-2 rounded-md hover:bg-slate-50 text-sm group">
-              <span className="px-2 py-0.5 bg-blue-50 text-blue-800 rounded text-xs font-medium shrink-0">{typeLabel}</span>
-              <button
-                type="button"
-                onClick={() => navigate(`/entites/${node.id}`)}
-                className="font-medium text-gray-900 hover:text-blue-600 text-left"
-              >
-                {node.nom}
-              </button>
-              <span className="text-gray-500 font-mono text-xs">{node.code}</span>
-              {node.responsable && (
-                <span className="text-xs text-gray-500">
-                  · {node.responsable.prenom} {node.responsable.nom}
-                </span>
+            <div className="py-1.5 pr-2 rounded-md hover:bg-slate-50 text-sm group space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2 py-0.5 bg-blue-50 text-blue-800 rounded text-xs font-medium shrink-0">{typeLabel}</span>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/entites/${node.id}`)}
+                  className="font-medium text-gray-900 hover:text-blue-600 text-left"
+                >
+                  {node.nom}
+                </button>
+                <span className="text-gray-500 font-mono text-xs">{node.code}</span>
+                {node.responsable && (
+                  <span className="text-xs text-gray-600">
+                    <span className="text-gray-400">Responsable :</span>{' '}
+                    {node.responsable.prenom} {node.responsable.nom}
+                  </span>
+                )}
+              </div>
+              {(membreUsers.length > 0 || delegRows.length > 0) && (
+                <div className="pl-0 sm:pl-1 space-y-0.5 text-xs text-gray-600 border-t border-gray-100/80 pt-1 mt-0.5">
+                  {membreUsers.length > 0 && (
+                    <div className="flex flex-wrap gap-x-1 gap-y-0.5 items-baseline">
+                      <span className="font-medium text-gray-500 shrink-0">Membres :</span>
+                      <span className="flex flex-wrap gap-1">
+                        {membreUsers.map((u: any) => (
+                          <span
+                            key={u.id}
+                            className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-800"
+                          >
+                            {u.prenom} {u.nom}
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
+                  {delegRows.length > 0 && (
+                    <div className="flex flex-wrap gap-x-1 gap-y-0.5 items-baseline">
+                      <span className="font-medium text-gray-500 shrink-0">Droits délégués :</span>
+                      <span className="flex flex-wrap gap-1">
+                        {delegRows.map((d: any) => (
+                          <span
+                            key={d.user.id}
+                            className="inline-flex items-center px-1.5 py-0.5 rounded bg-violet-50 text-violet-900"
+                            title={d.label}
+                          >
+                            {d.user.prenom} {d.user.nom}
+                            <span className="text-violet-600 font-normal ml-1">({d.label})</span>
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
             {hasChildren ? <EntiteTreeNodes nodes={children!} depth={depth + 1} navigate={navigate} /> : null}
