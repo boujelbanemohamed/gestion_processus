@@ -69,7 +69,8 @@ function niveauSummaryLicence(n: string) {
 }
 
 function isAccesRestreintLicence(l: any) {
-  return !!l.createdById || (l.permissions?.length ?? 0) > 0;
+  const exclusions = (l.adminSansAccesUserIds?.length ?? 0) > 0;
+  return !!l.createdById || (l.permissions?.length ?? 0) > 0 || exclusions;
 }
 
 const droitsCreateurLicence = 'gestion des accès + modification + suppression + lecture';
@@ -847,18 +848,39 @@ export default function Licences() {
                             (u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif')
                           );
                           const creatorId = l.createdById || l.createdBy?.id;
+                          const excludedAdminIds = new Set<string>(l.adminSansAccesUserIds || []);
+                          const permByUserId = new Map<string, any>(
+                            (l.permissions || []).map((p: any) => [p.userId, p]),
+                          );
                           return (
                             <>
                               {actifAdmins.map((a: any) => {
                                 const isCreator = creatorId === a.id;
+                                const perm = permByUserId.get(a.id);
+                                const adminExclu = excludedAdminIds.has(a.id) && !perm;
+                                const adminLimite = !!perm && !isCreator;
                                 return (
                                   <div key={`adm-${l.id}-${a.id}`} className="min-w-0">
                                     <span className="font-medium text-gray-900">{a.prenom} {a.nom}</span>
-                                    <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                                      {isCreator
-                                        ? `(Administrateur et créateur : ${droitsCreateurLicence})`
-                                        : `(Admin : ${droitsAdminLigneLicence})`}
-                                    </span>
+                                    {isCreator ? (
+                                      <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                        (Administrateur et créateur : {droitsCreateurLicence})
+                                      </span>
+                                    ) : adminExclu ? (
+                                      <span className="text-red-700 font-medium block sm:inline sm:ml-1">
+                                        — accès administrateur retiré (aucune visibilité sur cette fiche)
+                                      </span>
+                                    ) : adminLimite ? (
+                                      <span className="text-amber-800 block sm:inline sm:ml-1">
+                                        (Admin : accès limité —{' '}
+                                        {NIVEAUX.find((n) => n.value === perm.niveau)?.label || perm.niveau} ; voir aussi accès
+                                        partagés ci-dessous)
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                        (Admin : {droitsAdminLigneLicence})
+                                      </span>
+                                    )}
                                   </div>
                                 );
                               })}
@@ -889,7 +911,15 @@ export default function Licences() {
 
                     <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
                     <button type="button" onClick={() => openDetail(l)} className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200">👁 Détails</button>
-                    {canEditLicence(l) && <button type="button" onClick={() => openEdit(l)} className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">✏️ Modifier licence</button>}
+                    {canEditLicence(l) && (
+                      <button
+                        type="button"
+                        onClick={() => openEdit(l)}
+                        className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                      >
+                        ✏️ Modifier Licence / Certification
+                      </button>
+                    )}
                     <button type="button" onClick={() => onAccesButtonClick(l)} className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200">🔐 Accès</button>
                     <button type="button" onClick={() => openHistoriqueRowModal(l)} className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200">📜 Historique</button>
                     {canSoftDelete(l) && (

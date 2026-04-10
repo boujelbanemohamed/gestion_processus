@@ -212,6 +212,7 @@ export class LicenceService {
     return {
       ...full,
       capabilities: caps,
+      adminSansAccesUserIds: (raw.adminSansAcces || []).map((x: { userId: string }) => x.userId),
       accesApercu: {
         delegations: (raw.permissions || []).map((p: any) => ({
           id: p.id,
