@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
+import { DOCUMENT_TYPE_OPTIONS, documentTypeLabel } from '../constants/documentTypes';
 import { getPaginationPageNumbers } from '../utils/pagination';
 import * as XLSX from 'xlsx';
 
@@ -766,16 +767,11 @@ export default function Documents() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                 >
                   <option value="">Tous</option>
-                  <option value="general">Général</option>
-                  <option value="processus">Processus</option>
-                  <option value="projet">Projet</option>
-                  <option value="contrat">Contrat</option>
-                  <option value="licence">Licence</option>
-                  <option value="tache">Tâche</option>
-                  <option value="client_fournisseur">Client / Fournisseur</option>
-                  <option value="pv_reunion">PV de réunion</option>
-                  <option value="template">Template</option>
-                  <option value="autre">Autre</option>
+                  {DOCUMENT_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -992,10 +988,8 @@ export default function Documents() {
                     : 'bg-gray-100 text-gray-800';
             const typeLabel =
               d.typeDocument === 'autre' && d.tacheDocuments?.length > 0
-                ? 'tâche'
-                : d.typeDocument === 'licence'
-                  ? 'Licence'
-                  : d.typeDocument;
+                ? documentTypeLabel('tache')
+                : documentTypeLabel(d.typeDocument);
             const rowOpen = isDocumentRowExpanded(d.id);
             return (
               <div key={d.id} className="bg-gray-50/80 rounded-lg border border-gray-100 overflow-hidden">
@@ -1009,7 +1003,7 @@ export default function Documents() {
                   <span className={`px-2 py-0.5 text-xs rounded font-medium shrink-0 ${statutColor}`}>{statut}</span>
                   <span className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate text-left">{d.nom}</span>
                   <span className="text-xs text-gray-500 font-mono shrink-0">v{d.version || '—'}</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded text-xs font-medium capitalize shrink-0 hidden sm:inline">
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded text-xs font-medium shrink-0 hidden sm:inline">
                     {typeLabel}
                   </span>
                   {rowOpen && (
@@ -1024,7 +1018,7 @@ export default function Documents() {
                     <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4 pt-3">
                       <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex flex-wrap items-center gap-2 sm:hidden">
-                      <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded text-xs font-medium capitalize">
+                      <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded text-xs font-medium">
                         {typeLabel}
                       </span>
                     </div>
@@ -1550,16 +1544,20 @@ export default function Documents() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Type de document</label>
                   <select
                     value={uploadData.typeDocument || 'general'}
-                    onChange={(e) => setUploadData({ ...uploadData, typeDocument: e.target.value, processusId: e.target.value !== 'processus' ? '' : uploadData.processusId })}
+                    onChange={(e) =>
+                      setUploadData({
+                        ...uploadData,
+                        typeDocument: e.target.value,
+                        processusId: e.target.value !== 'processus' ? '' : uploadData.processusId,
+                      })
+                    }
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                   >
-                    <option value="general">Général</option>
-                    <option value="processus">Processus</option>
-                    <option value="projet">Projet</option>
-                    <option value="contrat">Contrat</option>
-                    <option value="client_fournisseur">Client / Fournisseur</option>
-                    <option value="template">Template</option>
-                    <option value="autre">Autre</option>
+                    {DOCUMENT_TYPE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
