@@ -81,7 +81,7 @@ test.describe('Parcours métier (admin)', () => {
   test('Licences : ouverture du formulaire nouvelle licence', async ({ page }) => {
     await page.goto('/licences');
     await expect(page.getByRole('heading', { name: /Licences/i })).toBeVisible({ timeout: 20_000 });
-    await page.getByRole('button', { name: '+ Nouvelle licence' }).click();
+    await page.getByRole('button', { name: '+ Nouvelle Licence & Certification' }).click();
     await expect(page.getByRole('heading', { name: 'Nouvelle licence' })).toBeVisible();
     await page.getByRole('button', { name: 'Annuler' }).click();
   });
