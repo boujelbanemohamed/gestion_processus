@@ -619,10 +619,20 @@ export default function Documents() {
     setFileNames(newNames);
   };
 
+  const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // aligné sur Multer côté API
+
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (files.length === 0) {
       setError('Veuillez sélectionner au moins un fichier');
+      return;
+    }
+
+    const tooBig = files.find((f) => f.size > MAX_UPLOAD_BYTES);
+    if (tooBig) {
+      setError(
+        `Le fichier « ${tooBig.name} » dépasse 50 Mo (limite serveur). Réduisez la taille ou compressez le PDF.`
+      );
       return;
     }
 
@@ -665,7 +675,14 @@ export default function Documents() {
       setPermissionUserIds([]);
       loadDocuments();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Erreur lors de l\'upload des fichiers');
+      const st = err.response?.status;
+      if (st === 413) {
+        setError(
+          'Fichier trop volumineux (erreur 413) : le proxy web limite souvent les uploads à 1 Mo. Déployez la dernière image du front (nginx 64 Mo) ou demandez à l’administrateur d’augmenter cette limite.'
+        );
+      } else {
+        setError(err.response?.data?.error || 'Erreur lors de l\'upload des fichiers');
+      }
     } finally {
       setUploading(false);
     }
