@@ -1070,12 +1070,33 @@ export default function ProjetDetail() {
         </div>
       ) : (
         <div className="flex flex-wrap gap-2 min-h-[32px]">
-          {(projet[field === 'sponsorIds' ? 'sponsors' : field === 'chefProjetIds' ? 'chefsProjet' : field === 'techLeadIds' ? 'techLeads' : 'equipe'] || []).length === 0
-            ? <span className="text-sm text-gray-400 italic">—</span>
-            : (projet[field === 'sponsorIds' ? 'sponsors' : field === 'chefProjetIds' ? 'chefsProjet' : field === 'techLeadIds' ? 'techLeads' : 'equipe'] || []).map((u: any) => (
-              <span key={u.id} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">{u.prenom} {u.nom}</span>
-            ))
-          }
+          {(() => {
+            const relKey =
+              field === 'sponsorIds'
+                ? 'sponsors'
+                : field === 'chefProjetIds'
+                  ? 'chefsProjet'
+                  : field === 'techLeadIds'
+                    ? 'techLeads'
+                    : 'equipe';
+            const rows = (projet[relKey] || []) as any[];
+            if (rows.length === 0) {
+              return <span className="text-sm text-gray-400 italic">—</span>;
+            }
+            return rows.map((row: any) => {
+              const person = row.user || row;
+              const pid = person?.id ?? row.userId ?? row.id;
+              const label =
+                person?.prenom || person?.nom
+                  ? `${person.prenom ?? ''} ${person.nom ?? ''}`.trim()
+                  : '—';
+              return (
+                <span key={pid} className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">
+                  {label}
+                </span>
+              );
+            });
+          })()}
         </div>
       )}
     </div>
