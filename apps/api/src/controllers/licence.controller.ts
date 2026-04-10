@@ -66,7 +66,7 @@ export const getLicenceHistory = async (req: AuthRequest, res: Response) => {
 export const createLicence = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
-    const l = await licenceService.create(req.body, req.user.userId);
+    const l = await licenceService.create(req.body, req.user.userId, req.user.role);
     await logAccess(req, res, 'creation', 'licence', l.id, l.nom);
     res.status(201).json(l);
   } catch (e: any) {
@@ -124,6 +124,18 @@ export const deleteLicencePermanent = async (req: AuthRequest, res: Response) =>
   }
 };
 
+export const getLicenceAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const data = await licenceService.getAccesDetail(req.params.id, req.user.userId, req.user.role);
+    res.json(data);
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return res.status(404).json({ error: 'Licence non trouvée' });
+    if (e.message === 'FORBIDDEN') return res.status(403).json({ error: 'Accès refusé' });
+    res.status(500).json({ error: e.message });
+  }
+};
+
 export const addPermission = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
@@ -134,7 +146,8 @@ export const addPermission = async (req: AuthRequest, res: Response) => {
     await logAccess(req, res, 'modification', 'licence', l.id, l.nom, { action: 'permission_ajoutee', userId, niveau });
     res.json(l);
   } catch (e: any) {
-    const code = e.message === 'Accès refusé' ? 403 : 400;
+    const code =
+      e.message === 'Accès refusé' ? 403 : e.message === 'Utilisateur introuvable' ? 404 : 400;
     res.status(code).json({ error: e.message });
   }
 };
@@ -147,7 +160,57 @@ export const removePermission = async (req: AuthRequest, res: Response) => {
     await logAccess(req, res, 'modification', 'licence', l.id, l.nom, { action: 'permission_retiree', userId: req.params.userId });
     res.json(l);
   } catch (e: any) {
-    const code = e.message === 'Accès refusé' ? 403 : 400;
+    const code =
+      e.message === 'Accès refusé'
+        ? 403
+        : e.message === 'Permission introuvable'
+          ? 404
+          : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const removePermissionEntry = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    await licenceService.removePermissionByEntryId(
+      req.params.id,
+      req.params.permissionEntryId,
+      req.user.userId,
+      req.user.role,
+    );
+    res.json({ success: true });
+  } catch (e: any) {
+    const code =
+      e.message === 'Accès refusé'
+        ? 403
+        : e.message === 'Permission introuvable'
+          ? 404
+          : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const blockAdminImplicitAccessLicence = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { userId } = req.body || {};
+    if (!userId) return res.status(400).json({ error: 'userId requis' });
+    await licenceService.blockAdminImplicitAccess(req.params.id, userId, req.user.userId);
+    res.status(204).end();
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : e.message === 'Licence non trouvée' ? 404 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const restoreAdminImplicitAccessLicence = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    await licenceService.restoreAdminImplicitAccess(req.params.id, req.params.userId, req.user.userId);
+    res.status(204).end();
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : e.message === 'Licence non trouvée' ? 404 : 400;
     res.status(code).json({ error: e.message });
   }
 };

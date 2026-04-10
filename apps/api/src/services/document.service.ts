@@ -379,6 +379,24 @@ export class DocumentService {
 
     if (!document) return false;
 
+    // Licence confidentielle : administrateurs « exclus » n’ont pas le raccourci global
+    if (
+      document.estConfidentiel &&
+      document.referenceType === 'licence' &&
+      document.referenceId &&
+      role === 'admin'
+    ) {
+      if (document.uploadedById === userId) return true;
+      const licence = await prisma.licence.findUnique({
+        where: { id: document.referenceId },
+        include: { permissions: true, adminSansAcces: { select: { userId: true } } },
+      });
+      if (licence && !licence.deletedAt && canReadLicence(userId, role || 'lecteur', licence as any)) {
+        return true;
+      }
+      return false;
+    }
+
     if (role === 'admin') return true;
 
     // Document rattaché à un processus : il faut d'abord pouvoir accéder au détail du processus
@@ -413,9 +431,9 @@ export class DocumentService {
     if (document.referenceType === 'licence' && document.referenceId) {
       const licence = await prisma.licence.findUnique({
         where: { id: document.referenceId },
-        include: { permissions: true },
+        include: { permissions: true, adminSansAcces: { select: { userId: true } } },
       });
-      if (licence && !licence.deletedAt && canReadLicence(userId, role || 'lecteur', licence)) {
+      if (licence && !licence.deletedAt && canReadLicence(userId, role || 'lecteur', licence as any)) {
         return true;
       }
     }
@@ -474,14 +492,14 @@ export class DocumentService {
     });
     if (!document) return false;
     if (!document.estConfidentiel) return true;
-    if (role === 'admin') return true;
     if (document.referenceType === 'licence' && document.referenceId) {
       const licence = await prisma.licence.findUnique({
         where: { id: document.referenceId },
-        include: { permissions: true },
+        include: { permissions: true, adminSansAcces: { select: { userId: true } } },
       });
-      return !!(licence && !licence.deletedAt && canEditLicenceContent(userId, role || 'lecteur', licence));
+      return !!(licence && !licence.deletedAt && canEditLicenceContent(userId, role || 'lecteur', licence as any));
     }
+    if (role === 'admin') return true;
     return this.canUserAccessDocument(documentId, userId, role);
   }
 
@@ -496,6 +514,16 @@ export class DocumentService {
 
     if (!document) return false;
 
+    if (document.estConfidentiel && document.referenceType === 'licence' && document.referenceId) {
+      const licence = await prisma.licence.findUnique({
+        where: { id: document.referenceId },
+        include: { permissions: true, adminSansAcces: { select: { userId: true } } },
+      });
+      if (!licence || licence.deletedAt) return false;
+      if (document.uploadedById === userId) return true;
+      return canEditLicenceContent(userId, role || 'lecteur', licence as any);
+    }
+
     if (role === 'admin') return true;
 
     const canVoir = await this.canUserAccessDocument(documentId, userId, role);
@@ -506,16 +534,6 @@ export class DocumentService {
 
     // L'utilisateur qui a uploadé peut toujours supprimer/ajouter version
     if (document.uploadedById === userId) return true;
-
-    // Pièce licence : seuls modification/suppression sur la licence (pas le simple droit DocumentPermission « lecture »)
-    if (document.referenceType === 'licence' && document.referenceId) {
-      const licence = await prisma.licence.findUnique({
-        where: { id: document.referenceId },
-        include: { permissions: true },
-      });
-      if (!licence || licence.deletedAt) return false;
-      return canEditLicenceContent(userId, role || 'lecteur', licence);
-    }
 
     // Pour les documents confidentiels, seuls les utilisateurs explicitement dans la liste des permissions peuvent supprimer/ajouter version
     // (le propriétaire/créateur du processus n'a pas automatiquement ce droit, sauf s'il est dans la liste)

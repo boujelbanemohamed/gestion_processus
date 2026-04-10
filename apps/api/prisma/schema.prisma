@@ -183,6 +183,7 @@ model User {
 
   licencesCreees              Licence[]              @relation("LicenceCreatedBy")
   licencePermissions        LicencePermission[]
+  licencesAdminSansAcces    LicenceAdminSansAcces[] @relation("LicenceAdminSansAcces")
   licenceCommentaires       LicenceCommentaire[]   @relation("LicenceCommentaireAuteur")
   licenceCommentairesAssignes LicenceCommentaire[] @relation("LicenceCommentaireAssigne")
 
@@ -1117,6 +1118,7 @@ model Licence {
   processusLies             LicenceProcessus[]
   clientsFournisseursLies   LicenceClientFournisseur[]
   permissions               LicencePermission[]
+  adminSansAcces            LicenceAdminSansAcces[]
   documents                 LicenceDocument[]
   commentaires              LicenceCommentaire[]
   notifications             LicenceNotification[]
@@ -1124,6 +1126,19 @@ model Licence {
   @@index([statut])
   @@index([deletedAt])
   @@index([createdById])
+}
+
+model LicenceAdminSansAcces {
+  id         String   @id @default(uuid())
+  licenceId  String
+  licence    Licence  @relation(fields: [licenceId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation("LicenceAdminSansAcces", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([licenceId, userId])
+  @@index([licenceId])
+  @@index([userId])
 }
 
 /// Liaison N-N licence ↔ contrat

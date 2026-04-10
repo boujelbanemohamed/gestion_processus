@@ -402,13 +402,23 @@ app.get("/api/v1/licences/corbeille", licenceController.getLicencesCorbeille);
 app.get("/api/v1/licences", licenceController.getLicences);
 app.post("/api/v1/licences", licenceController.createLicence);
 app.get("/api/v1/licences/:id/history", licenceController.getLicenceHistory);
+app.get("/api/v1/licences/:id/acces", licenceController.getLicenceAcces);
 app.get("/api/v1/licences/:id", licenceController.getLicence);
 app.put("/api/v1/licences/:id", licenceController.updateLicence);
 app.delete("/api/v1/licences/:id", licenceController.deleteLicence);
 app.post("/api/v1/licences/:id/restaurer", licenceController.restoreLicence);
 app.delete("/api/v1/licences/:id/definitif", licenceController.deleteLicencePermanent);
 app.post("/api/v1/licences/:id/permissions", licenceController.addPermission);
+app.delete(
+  "/api/v1/licences/:id/permissions/entry/:permissionEntryId",
+  licenceController.removePermissionEntry,
+);
 app.delete("/api/v1/licences/:id/permissions/:userId", licenceController.removePermission);
+app.post("/api/v1/licences/:id/admin-sans-acces", licenceController.blockAdminImplicitAccessLicence);
+app.delete(
+  "/api/v1/licences/:id/admin-sans-acces/:userId",
+  licenceController.restoreAdminImplicitAccessLicence,
+);
 app.post("/api/v1/licences/:id/commentaires", licenceController.addCommentaire);
 app.post("/api/v1/licences/:id/notifications", licenceController.setNotification);
 app.post("/api/v1/licences/:id/documents/link", licenceController.linkExistingDocument);

@@ -231,7 +231,7 @@ export const createVersion = async (req: AuthRequest, res: Response) => {
         const { canEditLicenceContent } = await import('../services/licence.service');
         const licence = await prisma.licence.findUnique({
           where: { id: oldDocument.referenceId },
-          include: { permissions: true },
+          include: { permissions: true, adminSansAcces: { select: { userId: true } } },
         });
         if (!licence || licence.deletedAt) {
           return res.status(404).json({ error: 'Licence non trouvée' });
@@ -425,7 +425,7 @@ export const updateDocument = async (req: AuthRequest, res: Response) => {
         const { canEditLicenceContent } = await import('../services/licence.service');
         const licence = await prisma.licence.findUnique({
           where: { id: oldDocument.referenceId },
-          include: { permissions: true },
+          include: { permissions: true, adminSansAcces: { select: { userId: true } } },
         });
         if (!licence || licence.deletedAt) {
           return res.status(404).json({ error: 'Licence non trouvée' });
@@ -540,12 +540,12 @@ export const deleteDocument = async (req: AuthRequest, res: Response) => {
         const { canEditLicenceContent } = await import('../services/licence.service');
         const licence = await prisma.licence.findUnique({
           where: { id: document.referenceId },
-          include: { permissions: true },
+          include: { permissions: true, adminSansAcces: { select: { userId: true } } },
         });
         if (!licence || licence.deletedAt) {
           return res.status(404).json({ error: 'Licence non trouvée' });
         }
-        if (!canEditLicenceContent(req.user.userId, req.user.role, licence)) {
+        if (!canEditLicenceContent(req.user.userId, req.user.role, licence as any)) {
           return res.status(403).json({
             error:
               'Vous n\'avez pas les permissions pour supprimer ce document. Un niveau Modification ou Suppression sur la licence est requis.',

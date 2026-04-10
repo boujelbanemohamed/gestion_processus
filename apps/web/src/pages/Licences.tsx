@@ -39,6 +39,12 @@ const NIVEAUX = [
   { value: 'suppression', label: '🗑 Suppression' },
 ];
 
+const LABEL_PERM_MODAL: Record<string, string> = {
+  lecture: 'Consultation',
+  modification: 'Modification',
+  suppression: 'Suppression',
+};
+
 const ACTION_JOURNAL: Record<string, string> = {
   connexion: 'Connexion',
   deconnexion: 'Déconnexion',
@@ -66,7 +72,8 @@ function isAccesRestreintLicence(l: any) {
   return !!l.createdById || (l.permissions?.length ?? 0) > 0;
 }
 
-const droitsAdminLigneLicence = 'modification + suppression + gestion des accès + lecture';
+const droitsCreateurLicence = 'gestion des accès + modification + suppression + lecture';
+const droitsAdminLigneLicence = 'modification + suppression + lecture (sans gestion des accès — réservée au créateur)';
 
 function joursRestants(date: string) {
   return Math.ceil((new Date(date).getTime() - Date.now()) / 86400000);
@@ -116,8 +123,12 @@ export default function Licences() {
   const [clientsFournisseurs, setCF] = useState<any[]>([]);
   const [typesLicence, setTypesLicence] = useState<any[]>([]);
   const [devises, setDevises] = useState<any[]>([]);
-  const [showPermModal, setShowPermModal] = useState<any>(null);
-  const [permForm, setPermForm] = useState({ userId: '', niveau: 'lecture' });
+  const [accesModalLicence, setAccesModalLicence] = useState<any | null>(null);
+  const [accesDetail, setAccesDetail] = useState<any | null>(null);
+  const [accesLoading, setAccesLoading] = useState(false);
+  const [newPermUserId, setNewPermUserId] = useState('');
+  const [newPermNiveau, setNewPermNiveau] = useState('lecture');
+  const [adminLimitNiveau, setAdminLimitNiveau] = useState<Record<string, string>>({});
   const [showDetailModal, setShowDetailModal] = useState<any>(null);
   const [detailTab, setDetailTab] = useState<'info'|'historique'|'docs'|'comments'|'notifs'|'acces'>('info');
   const [commentForm, setCommentForm] = useState({ contenu: '', assigneA: '' });
@@ -129,7 +140,6 @@ export default function Licences() {
   const [corbeilleLicences, setCorbeilleLicences] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [noAccesModalOpen, setNoAccesModalOpen] = useState(false);
   const [histModalLicence, setHistModalLicence] = useState<any | null>(null);
   const [histoListRow, setHistoListRow] = useState<any[]>([]);
   const [histoLoadingRow, setHistoLoadingRow] = useState(false);
@@ -236,15 +246,118 @@ export default function Licences() {
     setLoading(false);
   };
 
-  const canManagePermissionsLicence = (l: any) => user?.role === 'admin' || l.createdById === user?.id;
+  const openAccesModal = async (l: any) => {
+    setAccesModalLicence(l);
+    setAccesDetail(null);
+    setNewPermUserId('');
+    setNewPermNiveau('lecture');
+    setAdminLimitNiveau({});
+    setAccesLoading(true);
+    try {
+      const { data } = await api.get(`/licences/${l.id}/acces`);
+      setAccesDetail(data);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur chargement accès');
+      setAccesModalLicence(null);
+    } finally {
+      setAccesLoading(false);
+    }
+  };
 
   const onAccesButtonClick = (l: any) => {
-    if (!canManagePermissionsLicence(l)) {
-      setNoAccesModalOpen(true);
-      return;
+    void openAccesModal(l);
+  };
+
+  const refreshAccesDetail = async (licenceId: string) => {
+    const { data } = await api.get(`/licences/${licenceId}/acces`);
+    setAccesDetail(data);
+    try {
+      const res = await api.get(`/licences/${licenceId}`);
+      setShowDetailModal((prev: any) => (prev?.id === licenceId ? res.data : prev));
+    } catch {
+      /* ignore */
     }
-    setShowPermModal(l);
-    setPermForm({ userId: '', niveau: 'lecture' });
+  };
+
+  const handleAddPermission = async () => {
+    if (!accesModalLicence || !newPermUserId) return;
+    try {
+      await api.post(`/licences/${accesModalLicence.id}/permissions`, {
+        userId: newPermUserId,
+        niveau: newPermNiveau,
+      });
+      setNewPermUserId('');
+      await refreshAccesDetail(accesModalLicence.id);
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleRemovePermissionEntry = async (permissionEntryId: string, targetIsAdmin?: boolean) => {
+    const msg = targetIsAdmin
+      ? "Révoquer cet accès ? L'administrateur n'aura plus aucun droit sur cette licence. Vous pourrez lui accorder à nouveau un accès via « Accorder un accès » ci-dessous."
+      : 'Retirer ce droit ?';
+    if (!accesModalLicence || !window.confirm(msg)) return;
+    try {
+      await api.delete(`/licences/${accesModalLicence.id}/permissions/entry/${permissionEntryId}`);
+      await refreshAccesDetail(accesModalLicence.id);
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleRevokeAdminImplicitAccess = async (userId: string) => {
+    if (!accesModalLicence) return;
+    if (
+      !window.confirm(
+        "Retirer tout accès à cet administrateur ? Il ne verra plus la licence tant que vous ne lui aurez pas accordé un accès via la liste ci-dessous.",
+      )
+    )
+      return;
+    try {
+      await api.post(`/licences/${accesModalLicence.id}/admin-sans-acces`, { userId });
+      await refreshAccesDetail(accesModalLicence.id);
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleRestoreAdminDefaultAccess = async (userId: string) => {
+    if (!accesModalLicence) return;
+    if (!window.confirm("Rétablir l'accès administrateur par défaut (complet) pour cet utilisateur ?")) return;
+    try {
+      await api.delete(`/licences/${accesModalLicence.id}/admin-sans-acces/${userId}`);
+      await refreshAccesDetail(accesModalLicence.id);
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const patchPermissionLevel = async (targetUserId: string, niveau: string) => {
+    if (!accesModalLicence) return;
+    try {
+      await api.post(`/licences/${accesModalLicence.id}/permissions`, { userId: targetUserId, niveau });
+      await refreshAccesDetail(accesModalLicence.id);
+      await loadAll();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur');
+    }
+  };
+
+  const quickLimitAdminAccess = async (adminId: string) => {
+    if (!accesModalLicence) return;
+    const niveau = adminLimitNiveau[adminId] || 'lecture';
+    try {
+      await api.post(`/licences/${accesModalLicence.id}/permissions`, { userId: adminId, niveau });
+      await refreshAccesDetail(accesModalLicence.id);
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
   };
 
   const openHistoriqueRowModal = async (l: any) => {
@@ -264,10 +377,12 @@ export default function Licences() {
   };
 
   const canEditLicence = (l: any) => {
+    if (l?.capabilities) return !!l.capabilities.canModify;
     if (user?.role === 'admin' || l.createdById === user?.id) return true;
-    return l.permissions?.some((p: any) => p.userId === user?.id && ['modification','suppression'].includes(p.niveau));
+    return l.permissions?.some((p: any) => p.userId === user?.id && ['modification', 'suppression'].includes(p.niveau));
   };
   const canSoftDelete = (l: any) => {
+    if (l?.capabilities) return !!l.capabilities.canDelete;
     if (user?.role === 'admin' || l.createdById === user?.id) return true;
     return l.permissions?.some((p: any) => p.userId === user?.id && p.niveau === 'suppression');
   };
@@ -426,30 +541,6 @@ export default function Licences() {
     } catch (e: any) {
       alert(e?.response?.data?.error || 'Erreur');
     }
-  };
-
-  const handleAddPerm = async () => {
-    if (!permForm.userId) return;
-    await api.post(`/licences/${showPermModal.id}/permissions`, permForm);
-    setPermForm({ userId: '', niveau: 'lecture' });
-    try {
-      const res = await api.get(`/licences/${showPermModal.id}`);
-      setShowPermModal(res.data);
-    } catch {
-      /* ignore */
-    }
-    loadAll();
-  };
-
-  const handleRemovePerm = async (licenceId: string, userId: string) => {
-    await api.delete(`/licences/${licenceId}/permissions/${userId}`);
-    try {
-      const res = await api.get(`/licences/${licenceId}`);
-      setShowPermModal(res.data);
-    } catch {
-      setShowPermModal(null);
-    }
-    loadAll();
   };
 
   const handleAddComment = async () => {
@@ -765,7 +856,7 @@ export default function Licences() {
                                     <span className="font-medium text-gray-900">{a.prenom} {a.nom}</span>
                                     <span className="text-gray-500 italic block sm:inline sm:ml-1">
                                       {isCreator
-                                        ? `(Administrateur et créateur : ${droitsAdminLigneLicence})`
+                                        ? `(Administrateur et créateur : ${droitsCreateurLicence})`
                                         : `(Admin : ${droitsAdminLigneLicence})`}
                                     </span>
                                   </div>
@@ -774,7 +865,7 @@ export default function Licences() {
                               {l.createdBy && creatorId && !actifAdmins.some((a: any) => a.id === creatorId) && (
                                 <div className="min-w-0">
                                   <span className="font-medium text-gray-900">{l.createdBy.prenom} {l.createdBy.nom}</span>
-                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">(Créateur : {droitsAdminLigneLicence})</span>
+                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">(Créateur : {droitsCreateurLicence})</span>
                                 </div>
                               )}
                             </>
@@ -1324,56 +1415,281 @@ export default function Licences() {
         </div>
       )}
 
-      {/* Modal Permissions */}
-      {showPermModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 sm:p-6">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl">
-            <div className="flex justify-between items-center gap-4 px-6 py-5 border-b">
-              <h2 className="text-lg font-semibold pr-2">🔑 Accès — {showPermModal.nom}</h2>
-              <button type="button" onClick={() => setShowPermModal(null)} className="shrink-0 text-gray-400 hover:text-gray-600 text-xl leading-none p-1">✕</button>
-            </div>
-            <div className="px-6 py-6 space-y-5">
-              <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:gap-4">
-                <select
-                  value={permForm.userId}
-                  onChange={e => setPermForm({...permForm, userId: e.target.value})}
-                  className="flex-1 min-w-0 border border-gray-300 rounded-lg px-4 py-2.5 text-sm bg-white"
-                >
-                  <option value="">Sélectionner un utilisateur</option>
-                  {users
-                    .filter((u: any) => u.id !== user?.id && u.role !== 'admin' && (!u.statut || u.statut === 'actif'))
-                    .map((u: any) => (
-                      <option key={u.id} value={u.id}>
-                        {u.prenom} {u.nom}
-                      </option>
-                    ))}
-                </select>
-                <select
-                  value={permForm.niveau}
-                  onChange={e => setPermForm({...permForm, niveau: e.target.value})}
-                  className="w-full sm:w-44 shrink-0 border border-gray-300 rounded-lg px-4 py-2.5 text-sm bg-white"
-                >
-                  {NIVEAUX.map(n => <option key={n.value} value={n.value}>{n.label}</option>)}
-                </select>
-                <button
-                  type="button"
-                  onClick={handleAddPerm}
-                  className="shrink-0 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 whitespace-nowrap"
-                >
-                  Ajouter
-                </button>
-              </div>
-              <div className="space-y-2">
-                {showPermModal.permissions?.map((p: any) => (
-                  <div key={p.id} className="flex justify-between items-center px-3 py-2 bg-gray-50 rounded">
-                    <span className="text-sm">{p.user?.prenom} {p.user?.nom}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500">{NIVEAUX.find(n => n.value === p.niveau)?.label}</span>
-                      <button onClick={() => handleRemovePerm(showPermModal.id, p.userId)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+      {accesModalLicence && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-6">
+          <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
+            <h3 className="text-xl font-semibold mb-2">Accès — {accesModalLicence.nom}</h3>
+            <p className="text-sm text-gray-600 mb-5 leading-relaxed">
+              <span className="font-medium">Seul le créateur de la licence / certification</span> peut gérer les accès. Pour un
+              administrateur : sans ligne dans « Accès partagés » et sans exclusion, il a un accès complet ; une ligne dans « Accès
+              partagés » limite ses droits ; « Retirer l&apos;accès » le prive totalement de la fiche jusqu&apos;à ce qu&apos;un accès
+              lui soit accordé via « Accorder un accès ». « Rétablir l&apos;accès admin par défaut » annule une exclusion et restaure
+              l&apos;accès complet implicite (sans ligne).
+            </p>
+            {accesDetail && !accesDetail.canManagePermissions && (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2 mb-4">
+                Vous consultez la liste en lecture seule. Pour modifier les droits, connectez-vous en tant que créateur de la licence.
+              </p>
+            )}
+            {accesLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : accesDetail ? (
+              <div className="space-y-5 text-sm">
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Limitez un admin avec « Limiter l&apos;accès », retirez-le entièrement avec « Retirer l&apos;accès », ou rétablissez
+                    l&apos;accès complet implicite s&apos;il était exclu.
+                  </p>
+                  <ul className="space-y-3 text-gray-700 text-sm">
+                    {(accesDetail.admins || []).map((a: any) => {
+                      const delegation = (accesDetail.delegations || []).find((d: any) => d.user?.id === a.id);
+                      const explicite = !!delegation;
+                      const isCreatorAdmin = accesDetail.creator?.id === a.id;
+                      const refuse = (accesDetail.adminSansAccesUserIds || []).includes(a.id);
+                      return (
+                        <li
+                          key={a.id}
+                          className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 border border-gray-100 rounded-lg px-3 py-2 bg-white"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <span className="font-medium text-base">
+                              {a.prenom} {a.nom}
+                            </span>
+                            <span className="text-gray-500 ml-1">({a.email})</span>
+                            {refuse && !explicite && (
+                              <span className="text-red-700 block sm:inline sm:ml-1 text-xs font-medium">
+                                — aucun accès (exclu ; accorder un accès via la liste ci-dessous pour le réintégrer)
+                              </span>
+                            )}
+                            {!refuse && !explicite && (
+                              <span className="text-gray-400 block sm:inline sm:ml-1">
+                                — accès complet (défaut administrateur)
+                              </span>
+                            )}
+                            {explicite && (
+                              <span className="text-amber-800 block sm:inline sm:ml-1 text-xs font-medium">
+                                — accès limité (ligne « Accès partagés »)
+                              </span>
+                            )}
+                          </div>
+                          {accesDetail.canManagePermissions && !isCreatorAdmin && (
+                            <div className="flex flex-wrap items-center gap-2 shrink-0">
+                              {refuse && !explicite ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestoreAdminDefaultAccess(a.id)}
+                                  className="text-xs px-3 py-1.5 bg-green-100 text-green-800 rounded-md hover:bg-green-200"
+                                >
+                                  Rétablir l&apos;accès admin par défaut
+                                </button>
+                              ) : !explicite ? (
+                                <>
+                                  <select
+                                    value={adminLimitNiveau[a.id] ?? 'lecture'}
+                                    onChange={(e) =>
+                                      setAdminLimitNiveau((prev) => ({ ...prev, [a.id]: e.target.value }))
+                                    }
+                                    className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                                  >
+                                    {NIVEAUX.map((n) => (
+                                      <option key={n.value} value={n.value}>
+                                        {n.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => quickLimitAdminAccess(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                                  >
+                                    Limiter l’accès
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRevokeAdminImplicitAccess(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                  >
+                                    Retirer l&apos;accès
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <select
+                                    value={delegation.permission}
+                                    onChange={async (e) => {
+                                      const niveau = e.target.value;
+                                      if (!accesModalLicence || niveau === delegation.permission) return;
+                                      await patchPermissionLevel(a.id, niveau);
+                                    }}
+                                    className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                                  >
+                                    {NIVEAUX.map((n) => (
+                                      <option key={n.value} value={n.value}>
+                                        {n.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemovePermissionEntry(delegation.id, true)}
+                                    className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                  >
+                                    Révoquer l&apos;accès
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                          {accesDetail.canManagePermissions && isCreatorAdmin && (
+                            <span className="text-xs text-gray-500">Créateur : accès complet, non modérable ici.</span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Créateur</p>
+                  {accesDetail.creator ? (
+                    <p>
+                      <span className="font-medium">
+                        {accesDetail.creator.prenom} {accesDetail.creator.nom}
+                      </span>
+                      <span className="text-gray-400">
+                        {' '}
+                        — seul habilité à gérer les accès partagés ; modification et mise en corbeille selon ses autres droits sur la
+                        fiche
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-amber-800 text-sm">Créateur non résolu.</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Accès partagés</p>
+                  {(accesDetail.delegations || []).length === 0 ? (
+                    <p className="text-gray-400 text-xs italic">Aucun accès délégué</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {(accesDetail.delegations || []).map((d: any) => (
+                        <li
+                          key={d.id}
+                          className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50"
+                        >
+                          <span className="font-medium">
+                            {d.user.prenom} {d.user.nom}
+                            {d.user.role === 'admin' && (
+                              <span className="text-xs font-normal text-gray-500 ml-1">(admin)</span>
+                            )}
+                          </span>
+                          {accesDetail.canManagePermissions ? (
+                            <>
+                              <select
+                                value={d.permission}
+                                onChange={async (e) => {
+                                  const niveau = e.target.value;
+                                  if (!accesModalLicence || niveau === d.permission) return;
+                                  await patchPermissionLevel(d.user.id, niveau);
+                                }}
+                                className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                              >
+                                {NIVEAUX.map((n) => (
+                                  <option key={n.value} value={n.value}>
+                                    {n.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => handleRemovePermissionEntry(d.id, d.user?.role === 'admin')}
+                                className="text-xs text-red-600 hover:underline ml-auto"
+                              >
+                                {d.user?.role === 'admin' ? 'Révoquer' : 'Retirer'}
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-gray-500">
+                              — {LABEL_PERM_MODAL[d.permission] || d.permission}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {accesDetail.canManagePermissions && (
+                  <div className="border-t border-gray-200 pt-4 space-y-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accorder un accès</p>
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3 items-end">
+                      <select
+                        value={newPermUserId}
+                        onChange={(e) => setNewPermUserId(e.target.value)}
+                        className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        <option value="">— Utilisateur —</option>
+                        {(() => {
+                          const actifs = users.filter(
+                            (u: any) => (!u.statut || u.statut === 'actif') && u.id !== accesDetail.creator?.id,
+                          );
+                          const adminsPick = actifs.filter((u: any) => u.role === 'admin');
+                          const autresPick = actifs.filter((u: any) => u.role !== 'admin');
+                          return (
+                            <>
+                              {adminsPick.length > 0 && (
+                                <optgroup label="Administrateurs (modifiables par le créateur)">
+                                  {adminsPick.map((u: any) => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.prenom} {u.nom} — {u.email}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              {autresPick.length > 0 && (
+                                <optgroup label="Autres utilisateurs">
+                                  {autresPick.map((u: any) => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.prenom} {u.nom} — {u.email}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </select>
+                      <select
+                        value={newPermNiveau}
+                        onChange={(e) => setNewPermNiveau(e.target.value)}
+                        className="w-full lg:w-56 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        {NIVEAUX.map((n) => (
+                          <option key={n.value} value={n.value}>
+                            {n.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={handleAddPermission}
+                        disabled={!newPermUserId}
+                        className="w-full lg:w-auto px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shrink-0"
+                      >
+                        Ajouter
+                      </button>
                     </div>
                   </div>
-                ))}
+                )}
               </div>
+            ) : null}
+            <div className="flex justify-end mt-4">
+              <button
+                type="button"
+                onClick={() => setAccesModalLicence(null)}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Fermer
+              </button>
             </div>
           </div>
         </div>
@@ -1407,29 +1723,6 @@ export default function Licences() {
             )}
             <div className="flex justify-end mt-4">
               <button type="button" onClick={() => setHistModalLicence(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">
-                Fermer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {noAccesModalOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="no-acces-licence-title"
-          onClick={() => setNoAccesModalOpen(false)}
-        >
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-            <h3 id="no-acces-licence-title" className="text-lg font-semibold text-gray-900 mb-2">Accès au bouton « Accès »</h3>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              Vous n&apos;avez pas les droits nécessaires pour gérer les accès de cette licence. Seuls les{' '}
-              <span className="font-medium">administrateurs</span> et le <span className="font-medium">créateur</span> de la licence peuvent utiliser ce bouton.
-            </p>
-            <div className="flex justify-end mt-5">
-              <button type="button" onClick={() => setNoAccesModalOpen(false)} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">
                 Fermer
               </button>
             </div>
@@ -1758,21 +2051,29 @@ export default function Licences() {
                 </div>
               )}
               {detailTab === 'acces' && (
-                <div className="space-y-2">
-                  <div className="p-3 bg-gray-50 rounded-lg">
-                    <p className="text-sm font-medium">Super Admin</p>
-                    <p className="text-xs text-gray-500">Accès complet</p>
+                <div className="space-y-4 text-sm">
+                  <p className="text-gray-600">
+                    La gestion détaillée des droits (administrateurs, accès partagés, exclusions) utilise le même écran que depuis
+                    la liste : ouvrez la fenêtre « Accès ».
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void openAccesModal(showDetailModal)}
+                    className="px-4 py-2 bg-slate-100 text-slate-800 rounded-md text-sm font-medium hover:bg-slate-200"
+                  >
+                    🔐 Ouvrir la gestion des accès
+                  </button>
+                  <div className="border-t border-gray-100 pt-3 space-y-2 text-xs text-gray-500">
+                    <p>
+                      <span className="font-medium text-gray-700">Créateur :</span>{' '}
+                      {showDetailModal.createdBy
+                        ? `${showDetailModal.createdBy.prenom} ${showDetailModal.createdBy.nom}`
+                        : '—'}
+                    </p>
+                    <p>
+                      {(showDetailModal.permissions || []).length} utilisateur(s) avec accès partagé sur cette fiche.
+                    </p>
                   </div>
-                  <div className="p-3 bg-gray-50 rounded-lg">
-                    <p className="text-sm font-medium">{showDetailModal.createdBy?.prenom} {showDetailModal.createdBy?.nom}</p>
-                    <p className="text-xs text-gray-500">Créateur — accès complet</p>
-                  </div>
-                  {showDetailModal.permissions?.map((p: any) => (
-                    <div key={p.id} className="p-3 bg-gray-50 rounded-lg">
-                      <p className="text-sm font-medium">{p.user?.prenom} {p.user?.nom}</p>
-                      <p className="text-xs text-gray-500">{NIVEAUX.find(n => n.value === p.niveau)?.label}</p>
-                    </div>
-                  ))}
                 </div>
               )}
             </div>
