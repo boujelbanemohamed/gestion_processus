@@ -24,7 +24,10 @@ const storage = multer.diskStorage({
   },
 });
 
-export const epicUploadMiddleware = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } }).single('fichier');
+export const epicUploadMiddleware = multer({
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB (fichier epic)
+}).single('fichier');
 
 const epicCommentDir = path.join(process.cwd(), 'uploads', 'epics', 'commentaires');
 if (!fs.existsSync(epicCommentDir)) fs.mkdirSync(epicCommentDir, { recursive: true });

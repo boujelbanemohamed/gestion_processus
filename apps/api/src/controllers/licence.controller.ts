@@ -17,7 +17,7 @@ const storage = multer.diskStorage({
 });
 export const licenceUploadMiddleware = multer({
   storage,
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB (pièces jointes licences)
 }).array('documents', 20);
 
 export const getLicencesCorbeille = async (req: AuthRequest, res: Response) => {

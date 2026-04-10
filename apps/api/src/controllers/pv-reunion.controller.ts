@@ -25,7 +25,7 @@ const storage = multer.diskStorage({
 
 export const uploadPvPrincipal = multer({
   storage,
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB (PV principal)
 }).single('fichier');
 
 export const uploadPvCommentaire = multer({
