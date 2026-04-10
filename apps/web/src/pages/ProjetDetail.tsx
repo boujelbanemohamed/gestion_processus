@@ -55,7 +55,7 @@ function isValidIsoDate(s: string): boolean {
   return !Number.isNaN(d.getTime());
 }
 
-/** Saisie libre AAAA-MM-JJ + zone calendrier (input date en overlay) pour clic court sur mobile. */
+/** Saisie libre AAAA-MM-JJ + bouton ouvrant le sélecteur natif (showPicker / click). */
 function ProjetDateField({
   value,
   onChange,
@@ -65,8 +65,24 @@ function ProjetDateField({
   onChange: (v: string) => void;
   id: string;
 }) {
+  const dateInputRef = useRef<HTMLInputElement>(null);
   const iso = value.trim();
   const pickerValue = ISO_DATE_RE.test(iso) ? iso : '';
+
+  const openPicker = () => {
+    const el = dateInputRef.current;
+    if (!el) return;
+    if (typeof el.showPicker === 'function') {
+      try {
+        el.showPicker();
+        return;
+      } catch {
+        // certains navigateurs exigent un geste utilisateur strict
+      }
+    }
+    el.click();
+  };
+
   return (
     <div className="flex gap-2 items-stretch">
       <input
@@ -79,21 +95,24 @@ function ProjetDateField({
         autoComplete="off"
         spellCheck={false}
       />
-      <span
-        className="relative shrink-0 flex items-center justify-center min-w-[2.75rem] px-2 py-2 border border-gray-300 rounded-md text-sm bg-gray-50 hover:bg-gray-100"
+      <button
+        type="button"
+        className="shrink-0 flex items-center justify-center min-w-[2.75rem] px-2 py-2 border border-gray-300 rounded-md text-sm bg-gray-50 hover:bg-gray-100"
         title="Calendrier"
+        aria-label="Ouvrir le calendrier"
+        onClick={openPicker}
       >
-        <span className="pointer-events-none select-none" aria-hidden>
-          📅
-        </span>
-        <input
-          type="date"
-          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-          aria-label="Ouvrir le calendrier"
-          value={pickerValue}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      </span>
+        <span aria-hidden>📅</span>
+      </button>
+      <input
+        ref={dateInputRef}
+        type="date"
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden
+        value={pickerValue}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </div>
   );
 }

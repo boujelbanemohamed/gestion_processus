@@ -66,7 +66,7 @@ function canViewProjet(
   if (row.createdById == null) return true;
   if (row.createdById === auth.userId) return true;
   if (gov) return true;
-  return permTypes.length > 0;
+  return (permTypes ?? []).length > 0;
 }
 
 function canModifyProjet(
@@ -79,19 +79,21 @@ function canModifyProjet(
   if (row.createdById === auth.userId) return true;
   if (row.responsableId === auth.userId || row.gestionnaireId === auth.userId) return true;
   if (gov) return true;
-  return permTypes.some((t) => ['modification', 'suppression', 'gestion'].includes(t));
+  const perms = permTypes ?? [];
+  return perms.some((t) => ['modification', 'suppression', 'gestion'].includes(t));
 }
 
 function canSoftDeleteProjet(row: { createdById: string | null }, auth: ProjetAuth, permTypes: PermissionType[]) {
   if (isAdminRole(auth.role)) return true;
   if (row.createdById === auth.userId) return true;
-  return permTypes.some((t) => ['suppression', 'gestion'].includes(t));
+  const perms = permTypes ?? [];
+  return perms.some((t) => ['suppression', 'gestion'].includes(t));
 }
 
 function canManageProjetPermissions(row: { createdById: string | null }, auth: ProjetAuth, permTypes: PermissionType[]) {
   if (isAdminRole(auth.role)) return true;
   if (row.createdById === auth.userId) return true;
-  return permTypes.includes('gestion');
+  return (permTypes ?? []).includes('gestion');
 }
 
 function capabilitiesProjet(
@@ -757,7 +759,19 @@ export class ProjetService {
     },
     auth: ProjetAuth
   ) {
-    const existing = await prisma.projet.findFirst({ where: { id, deletedAt: null } });
+    const existing = await prisma.projet.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        id: true,
+        createdById: true,
+        responsableId: true,
+        gestionnaireId: true,
+        sponsors: { select: { userId: true } },
+        chefsProjet: { select: { userId: true } },
+        techLeads: { select: { userId: true } },
+        equipe: { select: { userId: true } },
+      },
+    });
     if (!existing) throw new Error('Projet non trouvé');
     const permTypes = await myPermTypesForProjet(id, auth.userId);
     const gov = isGovernanceMember(existing as any, auth.userId);

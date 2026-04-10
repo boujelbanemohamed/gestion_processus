@@ -233,13 +233,17 @@ export const getProjetHistory = async (req: AuthRequest, res: Response) => {
       select: { permission: true },
     });
     const permTypes = permRows.map((r) => r.permission);
+    const sponsors = projet.sponsors ?? [];
+    const chefsProjet = projet.chefsProjet ?? [];
+    const techLeads = projet.techLeads ?? [];
+    const equipe = projet.equipe ?? [];
     const gov =
       projet.responsableId === auth.userId ||
       projet.gestionnaireId === auth.userId ||
-      projet.sponsors.some((s) => s.userId === auth.userId) ||
-      projet.chefsProjet.some((c) => c.userId === auth.userId) ||
-      projet.techLeads.some((t) => t.userId === auth.userId) ||
-      projet.equipe.some((e) => e.userId === auth.userId);
+      sponsors.some((s) => s.userId === auth.userId) ||
+      chefsProjet.some((c) => c.userId === auth.userId) ||
+      techLeads.some((t) => t.userId === auth.userId) ||
+      equipe.some((e) => e.userId === auth.userId);
 
     const canView =
       auth.role === 'admin' ||
