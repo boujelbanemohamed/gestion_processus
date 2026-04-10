@@ -9,20 +9,20 @@ function govRolesForProjet(
     responsableId: string | null;
     gestionnaireId: string | null;
     createdById: string | null;
-    sponsors: { userId: string }[];
-    chefsProjet: { userId: string }[];
-    techLeads: { userId: string }[];
-    equipe: { userId: string }[];
+    sponsors?: { userId: string }[] | null;
+    chefsProjet?: { userId: string }[] | null;
+    techLeads?: { userId: string }[] | null;
+    equipe?: { userId: string }[] | null;
   }
 ): string[] {
   const r: string[] = [];
   if (p.createdById === userId) r.push('créateur');
   if (p.responsableId === userId) r.push('responsable');
   if (p.gestionnaireId === userId) r.push('gestionnaire');
-  if (p.sponsors.some((s) => s.userId === userId)) r.push('sponsor');
-  if (p.chefsProjet.some((c) => c.userId === userId)) r.push('chef de projet');
-  if (p.techLeads.some((t) => t.userId === userId)) r.push('tech lead');
-  if (p.equipe.some((e) => e.userId === userId)) r.push('équipe');
+  if ((p.sponsors ?? []).some((s) => s.userId === userId)) r.push('sponsor');
+  if ((p.chefsProjet ?? []).some((c) => c.userId === userId)) r.push('chef de projet');
+  if ((p.techLeads ?? []).some((t) => t.userId === userId)) r.push('tech lead');
+  if ((p.equipe ?? []).some((e) => e.userId === userId)) r.push('équipe');
   return r;
 }
 

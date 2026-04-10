@@ -4,6 +4,38 @@ import { PermissionType } from '../generated/prisma/enums';
 
 const TACHE_TERMINEES = ['termine', 'archive'] as const;
 
+/** Champs scalaires autorisés pour `projet.update` (ignore tout le reste du body client). */
+const PROJET_UPDATABLE_SCALAR_KEYS = new Set([
+  'nom',
+  'codeProjet',
+  'description',
+  'tags',
+  'type',
+  'nomClient',
+  'statut',
+  'priorite',
+  'dateFinReelle',
+  'budgetPrevu',
+  'budgetConsomme',
+  'responsableId',
+  'gestionnaireId',
+  'contexte',
+  'mission',
+  'vision',
+  'scopeInclus',
+  'scopeExclus',
+]);
+
+function pickProjetScalarUpdateData(raw: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of PROJET_UPDATABLE_SCALAR_KEYS) {
+    if (key in raw && raw[key] !== undefined) {
+      out[key] = raw[key];
+    }
+  }
+  return out;
+}
+
 const projetListInclude = {
   entites: {
     include: { entite: { select: { id: true, nom: true, code: true } } },
@@ -270,10 +302,10 @@ function mapProjetListItem(
     kpis: p.kpis ? JSON.parse(p.kpis) : [],
     objectifsStrategiques: p.objectifsStrategiques ? JSON.parse(p.objectifsStrategiques) : [],
     objectifsOperationnels: p.objectifsOperationnels ? JSON.parse(p.objectifsOperationnels) : [],
-    sponsorsData: p.sponsors.map((s: any) => s.user),
-    chefsProjetData: p.chefsProjet.map((c: any) => c.user),
-    techLeadsData: p.techLeads.map((t: any) => t.user),
-    equipeData: p.equipe.map((e: any) => e.user),
+    sponsorsData: (p.sponsors ?? []).map((s: any) => s.user),
+    chefsProjetData: (p.chefsProjet ?? []).map((c: any) => c.user),
+    techLeadsData: (p.techLeads ?? []).map((t: any) => t.user),
+    equipeData: (p.equipe ?? []).map((e: any) => e.user),
     permissions: perms,
     capabilities: caps,
     accesApercu: { delegations: accesDelegations },
@@ -836,10 +868,12 @@ export class ProjetService {
       }
     }
 
+    const scalarPayload = pickProjetScalarUpdateData(updateData as Record<string, unknown>);
+
     return prisma.projet.update({
       where: { id },
       data: {
-        ...updateData,
+        ...scalarPayload,
         dateDebut: dateDebut ? new Date(dateDebut) : undefined,
         dateFinPrevue: dateFinPrevue ? new Date(dateFinPrevue) : undefined,
         partiesPrenantes: partiesPrenantes !== undefined ? JSON.stringify(partiesPrenantes) : undefined,

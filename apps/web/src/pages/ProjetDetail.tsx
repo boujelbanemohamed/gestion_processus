@@ -967,9 +967,22 @@ export default function ProjetDetail() {
     setSaving(true);
     try {
       await api.put(`/projets/${id}`, {
-        ...form,
+        nom: form.nom,
+        type: form.type,
+        nomClient: form.nomClient,
         dateDebut: dd,
         dateFinPrevue: dfp,
+        statut: form.statut,
+        priorite: form.priorite,
+        sponsorIds: form.sponsorIds,
+        chefProjetIds: form.chefProjetIds,
+        techLeadIds: form.techLeadIds,
+        equipeIds: form.equipeIds,
+        contexte: form.contexte,
+        mission: form.mission,
+        vision: form.vision,
+        scopeInclus: form.scopeInclus,
+        scopeExclus: form.scopeExclus,
         partiesPrenantes,
         kpis,
         objectifsStrategiques,
