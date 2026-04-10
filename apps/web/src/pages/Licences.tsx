@@ -1,8 +1,16 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 import { getPaginationPageNumbers } from '../utils/pagination';
+import { documentTypeLabel } from '../constants/documentTypes';
 import axios from 'axios';
+
+/** Documents qu’on peut encore rattacher à une licence (pas déjà liés à une fiche licence). */
+function isDocumentLinkableForLicence(d: any, alreadyLinkedIds: Set<string>) {
+  if (alreadyLinkedIds.has(d.id)) return false;
+  if (d.referenceType === 'licence' && d.referenceId) return false;
+  return true;
+}
 
 const uploadApi = axios.create({ baseURL: API_BASE_URL });
 uploadApi.interceptors.request.use((config) => {
@@ -130,6 +138,12 @@ export default function Licences() {
   const pickProcessusRef = useRef<HTMLSelectElement>(null);
   const pickCfRef = useRef<HTMLSelectElement>(null);
   const [detailDocUploading, setDetailDocUploading] = useState(false);
+  const [docsForLink, setDocsForLink] = useState<any[]>([]);
+  const [docsForLinkLoading, setDocsForLinkLoading] = useState(false);
+  const [docsLinkSearch, setDocsLinkSearch] = useState('');
+  const [existingDocIds, setExistingDocIds] = useState<string[]>([]);
+  const [detailLinkDocId, setDetailLinkDocId] = useState('');
+  const [detailLinking, setDetailLinking] = useState(false);
   const [expandedLicenceIds, setExpandedLicenceIds] = useState<Set<string>>(() => new Set());
   const toggleLicenceRow = (id: string) => {
     setExpandedLicenceIds((prev) => {
@@ -142,6 +156,52 @@ export default function Licences() {
   const isLicenceRowExpanded = (id: string) => expandedLicenceIds.has(id);
 
   useEffect(() => { loadAll(); }, []);
+
+  useEffect(() => {
+    const needDocs = showForm || (showDetailModal && detailTab === 'docs');
+    if (!needDocs) return;
+    let cancelled = false;
+    (async () => {
+      setDocsForLinkLoading(true);
+      try {
+        const r = await api.get('/documents');
+        if (!cancelled) setDocsForLink(Array.isArray(r.data) ? r.data : []);
+      } catch {
+        if (!cancelled) setDocsForLink([]);
+      } finally {
+        if (!cancelled) setDocsForLinkLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showForm, showDetailModal?.id, detailTab]);
+
+  const formLinkedDocIds = useMemo(() => {
+    if (!editing?.documents?.length) return new Set<string>();
+    return new Set(
+      (editing.documents as any[]).map((x) => x.document?.id).filter(Boolean) as string[],
+    );
+  }, [editing]);
+
+  const detailLinkedDocIds = useMemo(() => {
+    if (!showDetailModal?.documents?.length) return new Set<string>();
+    return new Set(
+      (showDetailModal.documents as any[]).map((x) => x.document?.id).filter(Boolean) as string[],
+    );
+  }, [showDetailModal?.documents]);
+
+  const linkableDocsFiltered = useMemo(() => {
+    const q = docsLinkSearch.trim().toLowerCase();
+    const linked = showForm ? formLinkedDocIds : detailLinkedDocIds;
+    return docsForLink.filter((d) => {
+      if (!isDocumentLinkableForLicence(d, linked)) return false;
+      if (!q) return true;
+      const nom = (d.nom || '').toLowerCase();
+      const td = (d.typeDocument || '').toLowerCase();
+      return nom.includes(q) || td.includes(q);
+    });
+  }, [docsForLink, docsLinkSearch, showForm, editing?.id, showDetailModal?.id, detailTab, formLinkedDocIds, detailLinkedDocIds]);
 
   useEffect(() => {
     if (!showDetailModal || detailTab !== 'historique') return;
@@ -247,6 +307,8 @@ export default function Licences() {
     setEditing(null);
     setForm({ ...emptyForm, devise: devises[0]?.code || '' });
     setNewFiles([]);
+    setExistingDocIds([]);
+    setDocsLinkSearch('');
     setFormNotif(defaultFormNotif());
     setShowForm(true);
   };
@@ -263,6 +325,8 @@ export default function Licences() {
       clientFournisseurIds: (l.clientsFournisseurs || []).map((c: any) => c.id),
     });
     setNewFiles([]);
+    setExistingDocIds([]);
+    setDocsLinkSearch('');
     setFormNotif(defaultFormNotif());
     setShowForm(true);
   };
@@ -310,6 +374,20 @@ export default function Licences() {
         await uploadApi.post(`/licences/${licenceId}/upload`, fd);
       }
 
+      const linkErrors: string[] = [];
+      for (const docId of existingDocIds) {
+        try {
+          await api.post(`/licences/${licenceId}/documents/link`, { documentId: docId });
+        } catch (le: any) {
+          linkErrors.push(le?.response?.data?.error || le?.message || docId);
+        }
+      }
+      if (linkErrors.length > 0) {
+        alert(
+          'Licence enregistrée, mais certains documents n’ont pas pu être liés :\n' + linkErrors.join('\n'),
+        );
+      }
+
       if (formNotif.destinataires.length > 0) {
         try {
           await api.post(`/licences/${licenceId}/notifications`, {
@@ -331,6 +409,8 @@ export default function Licences() {
       }
 
       setShowForm(false);
+      setExistingDocIds([]);
+      setDocsLinkSearch('');
       setFormNotif(defaultFormNotif());
       loadAll();
     } catch (e: any) {
@@ -435,6 +515,22 @@ export default function Licences() {
     }
   };
 
+  const linkDetailExistingDoc = async () => {
+    if (!showDetailModal?.id || !detailLinkDocId) return;
+    setDetailLinking(true);
+    try {
+      await api.post(`/licences/${showDetailModal.id}/documents/link`, { documentId: detailLinkDocId });
+      const res = await api.get(`/licences/${showDetailModal.id}`);
+      setShowDetailModal(res.data);
+      setDetailLinkDocId('');
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur lors du lien du document');
+    } finally {
+      setDetailLinking(false);
+    }
+  };
+
   const filtered = licences.filter(l => {
     const matchSearch = l.nom.toLowerCase().includes(search.toLowerCase()) ||
       (l.reference || '').toLowerCase().includes(search.toLowerCase());
@@ -459,9 +555,9 @@ export default function Licences() {
     <div className="p-6">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Licences</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Licences / Certifications</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {filtered.length} licence(s) affichée(s) sur {licences.length} au total
+            {filtered.length} fiche(s) affichée(s) sur {licences.length} au total
           </p>
         </div>
         <div className="flex flex-wrap gap-2 justify-end">
@@ -480,7 +576,7 @@ export default function Licences() {
             onClick={openNew}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-sm"
           >
-            + Nouvelle Licence & Certification
+            + Nouvelle licence / certification
           </button>
         </div>
       </div>
@@ -766,7 +862,9 @@ export default function Licences() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-screen overflow-y-auto">
             <div className="flex justify-between items-center px-6 py-5 border-b">
-              <h2 className="text-lg font-semibold">{editing ? 'Modifier la licence' : 'Nouvelle licence'}</h2>
+              <h2 className="text-lg font-semibold">
+                {editing ? 'Modifier la licence / certification' : 'Nouvelle licence / certification'}
+              </h2>
               <button type="button" onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none p-1">✕</button>
             </div>
             <div className="p-6 space-y-5">
@@ -1143,25 +1241,77 @@ export default function Licences() {
                 </div>
               </div>
 
-              <div>
-                <span className="block text-xs font-medium text-gray-600 mb-1">Documents</span>
-                <div className="flex flex-wrap items-center gap-2">
-                  <label
-                    htmlFor="licence-form-files"
-                    className="inline-flex px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 cursor-pointer"
-                  >
-                    <input
-                      type="file"
-                      multiple
-                      id="licence-form-files"
-                      className="sr-only"
-                      onChange={(e) => setNewFiles(Array.from(e.target.files || []))}
-                    />
-                    Sélectionner fichier(s)
-                  </label>
-                  <span className="text-xs text-gray-500">PDF, Office, images…</span>
+              <div className="space-y-4">
+                <div>
+                  <span className="block text-xs font-medium text-gray-600 mb-1">Nouveaux fichiers</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label
+                      htmlFor="licence-form-files"
+                      className="inline-flex px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 cursor-pointer"
+                    >
+                      <input
+                        type="file"
+                        multiple
+                        id="licence-form-files"
+                        className="sr-only"
+                        onChange={(e) => setNewFiles(Array.from(e.target.files || []))}
+                      />
+                      Sélectionner fichier(s)
+                    </label>
+                    <span className="text-xs text-gray-500">PDF, Office, images…</span>
+                  </div>
+                  {newFiles.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {newFiles.map((f, i) => (
+                        <span key={i} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">
+                          📎 {f.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                {newFiles.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{newFiles.map((f, i) => <span key={i} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs">📎 {f.name}</span>)}</div>}
+                <div>
+                  <span className="block text-xs font-medium text-gray-600 mb-1">
+                    Lier un document déjà enregistré (liste Documents)
+                  </span>
+                  <input
+                    type="search"
+                    value={docsLinkSearch}
+                    onChange={(e) => setDocsLinkSearch(e.target.value)}
+                    placeholder="Filtrer par nom ou type…"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm mb-2"
+                  />
+                  {docsForLinkLoading && <p className="text-xs text-gray-500 mb-2">Chargement de la liste…</p>}
+                  <div className="border border-gray-200 rounded-md max-h-44 overflow-y-auto p-2 space-y-1 bg-gray-50/80">
+                    {linkableDocsFiltered.length === 0 && !docsForLinkLoading && (
+                      <p className="text-xs text-gray-500">Aucun document disponible (ou déjà lié à une licence).</p>
+                    )}
+                    {linkableDocsFiltered.map((d: any) => (
+                      <label
+                        key={d.id}
+                        className="flex items-start gap-2 text-xs cursor-pointer hover:bg-white px-2 py-1 rounded"
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 rounded"
+                          checked={existingDocIds.includes(d.id)}
+                          onChange={(e) =>
+                            setExistingDocIds((prev) =>
+                              e.target.checked ? [...prev, d.id] : prev.filter((id) => id !== d.id),
+                            )
+                          }
+                        />
+                        <span>
+                          <span className="font-medium text-gray-800">{d.nom}</span>
+                          <span className="text-gray-500"> · {documentTypeLabel(d.typeDocument)}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {existingDocIds.length > 0 && (
+                    <p className="text-xs text-blue-700 mt-2">{existingDocIds.length} document(s) seront liés à l’enregistrement.</p>
+                  )}
+                </div>
               </div>
             </div>
             <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50/80">
@@ -1371,22 +1521,59 @@ export default function Licences() {
               {detailTab === 'docs' && (
                 <div className="space-y-4">
                   {canEditLicence(showDetailModal) && (
-                    <div className={`flex flex-wrap items-center gap-2 ${detailDocUploading ? 'pointer-events-none opacity-60' : ''}`}>
-                      <label
-                        htmlFor="licence-detail-files"
-                        className="inline-flex px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 cursor-pointer shrink-0"
-                      >
+                    <div className="space-y-3">
+                      <div className={`flex flex-wrap items-center gap-2 ${detailDocUploading ? 'pointer-events-none opacity-60' : ''}`}>
+                        <label
+                          htmlFor="licence-detail-files"
+                          className="inline-flex px-3 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 cursor-pointer shrink-0"
+                        >
+                          <input
+                            ref={detailFileRef}
+                            type="file"
+                            multiple
+                            id="licence-detail-files"
+                            className="sr-only"
+                            onChange={(e) => uploadDetailDocs(e.target.files)}
+                          />
+                          {detailDocUploading ? 'Envoi en cours…' : 'Sélectionner fichier(s)'}
+                        </label>
+                        <span className="text-xs text-gray-500">
+                          Les fichiers apparaissent ici et dans Documents (type Licence), avec les mêmes accès que la fiche.
+                        </span>
+                      </div>
+                      <div className="border border-dashed border-gray-200 rounded-lg p-3 bg-slate-50/80 space-y-2">
+                        <p className="text-xs font-medium text-gray-700">Lier un document existant</p>
                         <input
-                          ref={detailFileRef}
-                          type="file"
-                          multiple
-                          id="licence-detail-files"
-                          className="sr-only"
-                          onChange={(e) => uploadDetailDocs(e.target.files)}
+                          type="search"
+                          value={docsLinkSearch}
+                          onChange={(e) => setDocsLinkSearch(e.target.value)}
+                          placeholder="Filtrer par nom ou type…"
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
                         />
-                        {detailDocUploading ? 'Envoi en cours…' : 'Sélectionner fichier(s)'}
-                      </label>
-                      <span className="text-xs text-gray-500">Les fichiers apparaissent dans Licences et dans Documents (type Licence), avec les mêmes accès que la licence.</span>
+                        {docsForLinkLoading && <p className="text-xs text-gray-500">Chargement…</p>}
+                        <div className="flex flex-wrap gap-2 items-end">
+                          <select
+                            value={detailLinkDocId}
+                            onChange={(e) => setDetailLinkDocId(e.target.value)}
+                            className="flex-1 min-w-[12rem] border border-gray-300 rounded-md px-3 py-2 text-sm bg-white"
+                          >
+                            <option value="">— Choisir un document —</option>
+                            {linkableDocsFiltered.map((d: any) => (
+                              <option key={d.id} value={d.id}>
+                                {d.nom} ({documentTypeLabel(d.typeDocument)})
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={!detailLinkDocId || detailLinking}
+                            onClick={() => void linkDetailExistingDoc()}
+                            className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                          >
+                            {detailLinking ? 'Liaison…' : 'Lier'}
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
                   {!showDetailModal.documents?.length && <p className="text-gray-400 text-sm">Aucun document</p>}

@@ -567,6 +567,57 @@ export class LicenceService {
     return this.findOne(licenceId, actorId, role);
   }
 
+  /** Rattache un document déjà présent sur la plateforme (mêmes règles d’accès que l’upload). */
+  async attachExistingDocument(
+    licenceId: string,
+    documentId: string,
+    actorId: string,
+    role: string,
+  ) {
+    const licence = await prisma.licence.findUnique({
+      where: { id: licenceId },
+      include: { permissions: true },
+    });
+    if (!licence || licence.deletedAt) throw new Error('Licence non trouvée');
+    if (!canEditLicenceContent(actorId, role, licence)) throw new Error('Accès refusé');
+
+    const { DocumentService } = await import('./document.service');
+    const documentService = new DocumentService();
+    const canSee = await documentService.canUserAccessDocument(documentId, actorId, role);
+    if (!canSee) throw new Error('Accès au document refusé');
+
+    const doc = await prisma.document.findFirst({
+      where: { id: documentId, deletedAt: null },
+    });
+    if (!doc) throw new Error('Document non trouvé');
+
+    const existingLink = await prisma.licenceDocument.findFirst({
+      where: { documentId },
+    });
+    if (existingLink && existingLink.licenceId !== licenceId) {
+      throw new Error('Ce document est déjà lié à une autre licence ou certification');
+    }
+
+    await prisma.document.update({
+      where: { id: documentId },
+      data: {
+        typeDocument: 'licence',
+        referenceType: 'licence',
+        referenceId: licenceId,
+        estConfidentiel: true,
+      },
+    });
+
+    if (!existingLink) {
+      await prisma.licenceDocument.create({
+        data: { licenceId, documentId },
+      });
+    }
+
+    await this.syncDocumentsPermissionsFromLicence(licenceId);
+    return this.findOne(licenceId, actorId, role);
+  }
+
   async getHistory(licenceId: string, userId: string, role: string) {
     const licence = await prisma.licence.findUnique({
       where: { id: licenceId },

@@ -206,6 +206,36 @@ export const deleteLicenceNotification = async (req: AuthRequest, res: Response)
   }
 };
 
+export const linkExistingDocument = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const documentId = req.body?.documentId;
+    if (!documentId || typeof documentId !== 'string') {
+      return res.status(400).json({ error: 'documentId requis' });
+    }
+    const l = await licenceService.attachExistingDocument(
+      req.params.id,
+      documentId,
+      req.user.userId,
+      req.user.role,
+    );
+    await logAccess(req, res, 'modification', 'licence', l.id, l.nom, {
+      action: 'document_lie',
+      documentId,
+    });
+    res.json(l);
+  } catch (e: any) {
+    const msg = e.message || '';
+    const code =
+      msg === 'Accès refusé' || msg === 'Accès au document refusé'
+        ? 403
+        : msg === 'Licence non trouvée' || msg === 'Document non trouvé'
+          ? 404
+          : 400;
+    res.status(code).json({ error: msg || 'Erreur' });
+  }
+};
+
 export const uploadDocuments = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });

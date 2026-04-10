@@ -411,6 +411,7 @@ app.post("/api/v1/licences/:id/permissions", licenceController.addPermission);
 app.delete("/api/v1/licences/:id/permissions/:userId", licenceController.removePermission);
 app.post("/api/v1/licences/:id/commentaires", licenceController.addCommentaire);
 app.post("/api/v1/licences/:id/notifications", licenceController.setNotification);
+app.post("/api/v1/licences/:id/documents/link", licenceController.linkExistingDocument);
 app.post("/api/v1/licences/:id/upload", licenceController.licenceUploadMiddleware, licenceController.uploadDocuments);
 app.get("/api/v1/types-licence", typeLicenceController.getTypesLicence);
 app.post("/api/v1/types-licence", typeLicenceController.createTypeLicence);
