@@ -44,12 +44,36 @@ export default function Documents() {
   const [acceDoc, setAcceDoc] = useState<any>(null);
   const [acceEstConfidentiel, setAcceEstConfidentiel] = useState(false);
   const [accePermissionUserIds, setAccePermissionUserIds] = useState<string[]>([]);
+  type AttachmentFilterType =
+    | ''
+    | 'processus'
+    | 'projet'
+    | 'epic'
+    | 'userStory'
+    | 'tache'
+    | 'clientFournisseur'
+    | 'contrat'
+    | 'pvReunion'
+    | 'licence'
+    | 'entite'
+    | 'uploadedBy';
+
   const [filters, setFilters] = useState({
     search: '',
     typeDocument: '',
     statut: '',
-    processusId: '',
+    attachmentType: '' as AttachmentFilterType,
+    attachmentId: '',
   });
+  const [projetsList, setProjetsList] = useState<any[]>([]);
+  const [epicsList, setEpicsList] = useState<any[]>([]);
+  const [userStoriesList, setUserStoriesList] = useState<any[]>([]);
+  const [tachesList, setTachesList] = useState<any[]>([]);
+  const [clientsFournisseursList, setClientsFournisseursList] = useState<any[]>([]);
+  const [contratsList, setContratsList] = useState<any[]>([]);
+  const [pvReunionsList, setPvReunionsList] = useState<any[]>([]);
+  const [licencesList, setLicencesList] = useState<any[]>([]);
+  const [entitesList, setEntitesList] = useState<any[]>([]);
   const [showFiltres, setShowFiltres] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [page, setPage] = useState(1);
@@ -72,7 +96,45 @@ export default function Documents() {
     loadProcessus();
     loadUsers();
     loadFavorisStatus();
+    loadAttachmentLists();
   }, []);
+
+  const loadAttachmentLists = async () => {
+    try {
+      const [
+        projRes,
+        epRes,
+        usRes,
+        tachesRes,
+        cfRes,
+        contratsRes,
+        pvRes,
+        licRes,
+        entRes,
+      ] = await Promise.all([
+        api.get('/projets').catch(() => ({ data: [] })),
+        api.get('/epics').catch(() => ({ data: [] })),
+        api.get('/user-stories').catch(() => ({ data: [] })),
+        api.get('/taches').catch(() => ({ data: [] })),
+        api.get('/clients-fournisseurs').catch(() => ({ data: [] })),
+        api.get('/contrats').catch(() => ({ data: [] })),
+        api.get('/pv-reunions').catch(() => ({ data: [] })),
+        api.get('/licences').catch(() => ({ data: [] })),
+        api.get('/entites').catch(() => ({ data: [] })),
+      ]);
+      setProjetsList(Array.isArray(projRes.data) ? projRes.data : []);
+      setEpicsList(Array.isArray(epRes.data) ? epRes.data : []);
+      setUserStoriesList(Array.isArray(usRes.data) ? usRes.data : []);
+      setTachesList(Array.isArray(tachesRes.data) ? tachesRes.data : []);
+      setClientsFournisseursList(Array.isArray(cfRes.data) ? cfRes.data : []);
+      setContratsList(Array.isArray(contratsRes.data) ? contratsRes.data : []);
+      setPvReunionsList(Array.isArray(pvRes.data) ? pvRes.data : []);
+      setLicencesList(Array.isArray(licRes.data) ? licRes.data : []);
+      setEntitesList(Array.isArray(entRes.data) ? entRes.data : []);
+    } catch (e) {
+      console.error('Erreur chargement listes filtres documents:', e);
+    }
+  };
 
   const loadFavorisStatus = async () => {
     if (!currentUser?.id) return;
@@ -121,10 +183,24 @@ export default function Documents() {
   useEffect(() => {
     loadDocuments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.typeDocument, filters.statut, filters.processusId, sortConfig]);
+  }, [
+    filters.search,
+    filters.typeDocument,
+    filters.statut,
+    filters.attachmentType,
+    filters.attachmentId,
+    sortConfig,
+  ]);
   useEffect(() => {
     setPage(1);
-  }, [filters.search, filters.typeDocument, filters.statut, filters.processusId, sortConfig]);
+  }, [
+    filters.search,
+    filters.typeDocument,
+    filters.statut,
+    filters.attachmentType,
+    filters.attachmentId,
+    sortConfig,
+  ]);
 
   const loadProcessus = async () => {
     try {
@@ -150,9 +226,9 @@ export default function Documents() {
       if (filters.search) params.search = filters.search;
       if (filters.typeDocument) params.typeDocument = filters.typeDocument;
       if (filters.statut) params.statut = filters.statut;
-      if (filters.processusId) {
-        params.referenceType = 'processus';
-        params.referenceId = filters.processusId;
+      if (filters.attachmentType && filters.attachmentId) {
+        params.linkType = filters.attachmentType;
+        params.linkId = filters.attachmentId;
       }
       if (sortConfig) {
         params.sortBy = sortConfig.key;
@@ -639,13 +715,18 @@ export default function Documents() {
         >
           <span>
             Filtres
-            {(filters.search || filters.typeDocument || filters.statut || filters.processusId) ? ' ●' : ''}
+            {(filters.search ||
+              filters.typeDocument ||
+              filters.statut ||
+              (filters.attachmentType && filters.attachmentId))
+              ? ' ●'
+              : ''}
           </span>
           <span className="text-gray-400">{showFiltres ? '▼' : '▶'}</span>
         </button>
         {showFiltres && (
           <div className="px-4 pb-4 pt-0 border-t border-gray-100">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 pt-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Recherche</label>
                 <input
@@ -657,7 +738,7 @@ export default function Documents() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Type de document</label>
                 <select
                   value={filters.typeDocument}
                   onChange={(e) => setFilters({ ...filters, typeDocument: e.target.value })}
@@ -671,6 +752,7 @@ export default function Documents() {
                   <option value="licence">Licence</option>
                   <option value="tache">Tâche</option>
                   <option value="client_fournisseur">Client / Fournisseur</option>
+                  <option value="pv_reunion">PV de réunion</option>
                   <option value="template">Template</option>
                   <option value="autre">Autre</option>
                 </select>
@@ -690,25 +772,131 @@ export default function Documents() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Processus</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Rattachement (type)</label>
                 <select
-                  value={filters.processusId}
-                  onChange={(e) => setFilters({ ...filters, processusId: e.target.value })}
+                  value={filters.attachmentType}
+                  onChange={(e) =>
+                    setFilters({
+                      ...filters,
+                      attachmentType: e.target.value as AttachmentFilterType,
+                      attachmentId: '',
+                    })
+                  }
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                 >
-                  <option value="">Tous</option>
-                  {processusList.map((processus) => (
-                    <option key={processus.id} value={processus.id}>
-                      {processus.nom} ({processus.codeProcessus})
-                    </option>
-                  ))}
+                  <option value="">— Aucun —</option>
+                  <option value="processus">Processus</option>
+                  <option value="projet">Projet</option>
+                  <option value="epic">Epic</option>
+                  <option value="userStory">User story</option>
+                  <option value="tache">Tâche</option>
+                  <option value="clientFournisseur">Client / Fournisseur</option>
+                  <option value="contrat">Contrat</option>
+                  <option value="pvReunion">PV de réunion</option>
+                  <option value="licence">Licence</option>
+                  <option value="entite">Entité</option>
+                  <option value="uploadedBy">Utilisateur (uploadé par)</option>
+                </select>
+              </div>
+              <div className="md:col-span-2 lg:col-span-2 xl:col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Rattachement (élément)</label>
+                <select
+                  value={filters.attachmentId}
+                  onChange={(e) => setFilters({ ...filters, attachmentId: e.target.value })}
+                  disabled={!filters.attachmentType}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm disabled:bg-gray-100 disabled:text-gray-400"
+                >
+                  <option value="">
+                    {filters.attachmentType ? '— Choisir —' : 'Choisissez un type ci-dessus'}
+                  </option>
+                  {filters.attachmentType === 'processus' &&
+                    processusList.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nom} ({p.codeProcessus})
+                      </option>
+                    ))}
+                  {filters.attachmentType === 'projet' &&
+                    projetsList.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nom} ({p.codeProjet || p.code || p.id})
+                      </option>
+                    ))}
+                  {filters.attachmentType === 'epic' &&
+                    epicsList.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.nom}
+                      </option>
+                    ))}
+                  {filters.attachmentType === 'userStory' &&
+                    userStoriesList.map((us) => (
+                      <option key={us.id} value={us.id}>
+                        {(us.description || '').slice(0, 90)}
+                        {(us.description || '').length > 90 ? '…' : ''}
+                      </option>
+                    ))}
+                  {filters.attachmentType === 'tache' &&
+                    tachesList.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.nom}
+                      </option>
+                    ))}
+                  {filters.attachmentType === 'clientFournisseur' &&
+                    clientsFournisseursList.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.raisonSociale || c.nom || c.id}
+                      </option>
+                    ))}
+                  {filters.attachmentType === 'contrat' &&
+                    contratsList.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nom} {c.codeContrat ? `(${c.codeContrat})` : ''}
+                      </option>
+                    ))}
+                  {filters.attachmentType === 'pvReunion' &&
+                    pvReunionsList.map((pv) => (
+                      <option key={pv.id} value={pv.id}>
+                        {pv.titre || pv.id}
+                      </option>
+                    ))}
+                  {filters.attachmentType === 'licence' &&
+                    licencesList.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.nom} ({l.reference})
+                      </option>
+                    ))}
+                  {filters.attachmentType === 'entite' &&
+                    entitesList.map((en) => (
+                      <option key={en.id} value={en.id}>
+                        {en.nom} ({en.code})
+                      </option>
+                    ))}
+                  {filters.attachmentType === 'uploadedBy' &&
+                    [...usersList]
+                      .sort((a, b) =>
+                        `${a.prenom} ${a.nom}`.localeCompare(`${b.prenom} ${b.nom}`, 'fr', {
+                          sensitivity: 'base',
+                        })
+                      )
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.prenom} {u.nom} ({u.email})
+                        </option>
+                      ))}
                 </select>
               </div>
             </div>
             <div className="flex justify-end mt-3">
               <button
                 type="button"
-                onClick={() => setFilters({ search: '', typeDocument: '', statut: '', processusId: '' })}
+                onClick={() =>
+                  setFilters({
+                    search: '',
+                    typeDocument: '',
+                    statut: '',
+                    attachmentType: '',
+                    attachmentId: '',
+                  })
+                }
                 className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
                 Réinitialiser
@@ -855,6 +1043,30 @@ export default function Documents() {
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-800 rounded text-xs font-medium">
                           🔑 {d.licence?.nom || 'Licence'}
                           {d.licence?.reference ? ` (#${d.licence.reference})` : ''}
+                        </span>
+                      ) : d.referenceType === 'entite' && d.referenceId ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/entites/${d.referenceId}`)}
+                          className="text-blue-600 hover:underline"
+                        >
+                          Voir l&apos;entité
+                        </button>
+                      ) : d.referenceType === 'clientFournisseur' && d.referenceId ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-teal-50 text-teal-800 rounded text-xs font-medium">
+                          🏢 Client / Fournisseur
+                        </span>
+                      ) : d.referenceType === 'pvReunion' && d.referenceId ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/pv-reunion/${d.referenceId}`)}
+                          className="text-blue-600 hover:underline"
+                        >
+                          PV de réunion
+                        </button>
+                      ) : d.epicDocuments?.length > 0 ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-800 rounded text-xs font-medium">
+                          🎯 {d.epicDocuments[0]?.epic?.nom || 'Epic'}
                         </span>
                       ) : d.typeDocument === 'tache' || d.typeDocument === 'autre' ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 text-orange-700 rounded text-xs font-medium">

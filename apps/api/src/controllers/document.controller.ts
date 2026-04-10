@@ -40,20 +40,35 @@ export const uploadMiddleware = upload.single('file');
 
 export const getAllDocuments = async (req: AuthRequest, res: Response) => {
   try {
-    const { typeDocument, referenceType, referenceId, statut, search, sortBy, sortOrder } = req.query;
+    const {
+      typeDocument,
+      referenceType,
+      referenceId,
+      linkType,
+      linkId,
+      statut,
+      search,
+      sortBy,
+      sortOrder,
+    } = req.query;
     const documents = await documentService.findAll({
       typeDocument: typeDocument as any,
       referenceType: referenceType as any,
       referenceId: referenceId as string,
+      linkType: linkType as string,
+      linkId: linkId as string,
       statut: statut as any,
       search: search as string,
       sortBy: sortBy as string,
       sortOrder: (sortOrder as 'asc' | 'desc') || 'asc',
     });
-    
-    // Logger la consultation si c'est pour un processus spécifique
-    if (referenceType === 'processus' && referenceId) {
-      await logAccess(req, res, 'lecture', 'processus', referenceId as string, undefined, {
+
+    const procRefId =
+      (linkType === 'processus' && linkId) || (referenceType === 'processus' && referenceId)
+        ? String(linkType === 'processus' ? linkId : referenceId)
+        : null;
+    if (procRefId) {
+      await logAccess(req, res, 'lecture', 'processus', procRefId, undefined, {
         action: 'consultation_documents',
         nombreDocuments: documents.length,
       });

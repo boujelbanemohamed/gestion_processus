@@ -10,6 +10,63 @@ const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 const processusService = new ProcessusService();
 const projetService = new ProjetService();
 
+/** Filtre documents par rattachement métier (query linkType + linkId). */
+function buildDocumentLinkClause(linkType: string, linkId: string): Record<string, unknown> | null {
+  if (!linkType?.trim() || !linkId?.trim()) return null;
+  switch (linkType) {
+    case 'processus':
+    case 'projet':
+    case 'entite':
+    case 'clientFournisseur':
+      return { referenceType: linkType as RefType, referenceId: linkId };
+    case 'uploadedBy':
+      return { uploadedById: linkId };
+    case 'contrat':
+      return { contrats: { some: { contratId: linkId } } };
+    case 'tache':
+      return {
+        tacheDocuments: { some: { tacheId: linkId, tache: { deletedAt: null } } },
+      };
+    case 'epic':
+      return {
+        epicDocuments: { some: { epicId: linkId, epic: { deletedAt: null } } },
+      };
+    case 'userStory':
+      return {
+        OR: [
+          { tacheDocuments: { some: { tache: { userStoryId: linkId, deletedAt: null } } } },
+          {
+            epicDocuments: {
+              some: {
+                epic: {
+                  deletedAt: null,
+                  userStories: { some: { id: linkId, deletedAt: null } },
+                },
+              },
+            },
+          },
+        ],
+      };
+    case 'licence':
+      return {
+        OR: [
+          { AND: [{ referenceType: 'licence' as RefType }, { referenceId: linkId }] },
+          { licenceDocuments: { some: { licenceId: linkId } } },
+        ],
+      };
+    case 'pvReunion':
+      return {
+        OR: [
+          { AND: [{ referenceType: 'pvReunion' as RefType }, { referenceId: linkId }] },
+          { pvReunionsPrincipal: { some: { id: linkId, deletedAt: null } } },
+          { pvReunionCommentPieces: { some: { pvReunionId: linkId } } },
+        ],
+      };
+    default:
+      return null;
+  }
+}
+
 export class DocumentService {
   async ensureUploadDir() {
     try {
@@ -23,22 +80,35 @@ export class DocumentService {
     typeDocument?: DocType;
     referenceType?: RefType;
     referenceId?: string;
+    linkType?: string;
+    linkId?: string;
     statut?: DocStatut;
     search?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
   }) {
-    const where: any = {};
+    const where: any = { deletedAt: null };
     if (filters?.typeDocument) where.typeDocument = filters.typeDocument;
-    if (filters?.referenceType) where.referenceType = filters.referenceType;
-    if (filters?.referenceId) where.referenceId = filters.referenceId;
     if (filters?.statut) where.statut = filters.statut;
+
+    const andParts: any[] = [];
     if (filters?.search) {
-      where.OR = [
-        { nom: { contains: filters.search, mode: 'insensitive' } },
-        { description: { contains: filters.search, mode: 'insensitive' } },
-      ];
+      andParts.push({
+        OR: [
+          { nom: { contains: filters.search, mode: 'insensitive' } },
+          { description: { contains: filters.search, mode: 'insensitive' } },
+        ],
+      });
     }
+
+    let linkClause: Record<string, unknown> | null = null;
+    if (filters?.linkType && filters?.linkId) {
+      linkClause = buildDocumentLinkClause(filters.linkType, filters.linkId);
+    } else if (filters?.referenceType && filters?.referenceId) {
+      linkClause = buildDocumentLinkClause(String(filters.referenceType), filters.referenceId);
+    }
+    if (linkClause) andParts.push(linkClause);
+    if (andParts.length > 0) where.AND = andParts;
 
     // Définir l'ordre de tri
     let orderBy: any = { createdAt: 'desc' }; // Par défaut, tri par date de création décroissante
@@ -71,9 +141,6 @@ export class DocumentService {
       }
     }
 
-    // Exclure les documents supprimés (soft delete)
-    where.deletedAt = null;
-
     // Pièces liées à une licence : toujours confidentielles (rattrapage + cohérence métier)
     await prisma.document.updateMany({
       where: {
@@ -103,6 +170,11 @@ export class DocumentService {
         tacheDocuments: {
           include: {
             tache: { select: { id: true, nom: true } },
+          },
+        },
+        epicDocuments: {
+          include: {
+            epic: { select: { id: true, nom: true } },
           },
         },
         _count: { select: { versions: true } },
