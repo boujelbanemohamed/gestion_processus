@@ -18,7 +18,7 @@ export default function OCR() {
   const loadDocuments = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/ocr/documents');
+      const res = await api.get('/ocr/documents', { timeout: 120_000 });
       setDocuments(res.data);
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -27,7 +27,7 @@ export default function OCR() {
   const scanDocument = async (id: string) => {
     setScanning(id);
     try {
-      await api.post(`/ocr/scan/${id}`);
+      await api.post(`/ocr/scan/${id}`, {}, { timeout: 600_000 });
       await loadDocuments();
     } catch (e: any) {
       alert('Erreur OCR: ' + (e?.response?.data?.error || e.message));
@@ -38,7 +38,7 @@ export default function OCR() {
   const scanAll = async () => {
     setScanningAll(true);
     try {
-      const res = await api.post('/ocr/scan-all');
+      const res = await api.post('/ocr/scan-all', {}, { timeout: 120_000 });
       const allIds: string[] = res.data.ids || [];
       const ids = allIds.filter(id => {
         const doc = documents.find(d => d.id === id);
@@ -47,7 +47,11 @@ export default function OCR() {
       if (ids.length === 0) { alert('Tous les documents supportés sont déjà traités !'); setScanningAll(false); return; }
       setProgress({ done: 0, total: ids.length, actif: true });
       for (let i = 0; i < ids.length; i++) {
-        try { await api.post(`/ocr/scan/${ids[i]}`); } catch (e) { /* continuer */ }
+        try {
+          await api.post(`/ocr/scan/${ids[i]}`, {}, { timeout: 600_000 });
+        } catch (e) {
+          /* continuer */
+        }
         setProgress({ done: i + 1, total: ids.length, actif: true });
       }
       await loadDocuments();
@@ -246,7 +250,7 @@ export default function OCR() {
                         {doc.ocrDate ? new Date(doc.ocrDate).toLocaleString('fr-FR') : '—'}
                       </td>
                       <td className="px-4 py-3 text-gray-500 text-xs max-w-48 truncate">
-                        {doc.texteOcr ? doc.texteOcr.substring(0, 80) + '...' : '—'}
+                        {doc.ocrTraite ? 'Texte indexé — onglet Recherche' : '—'}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-0.5 max-w-48">
