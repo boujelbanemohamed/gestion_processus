@@ -227,12 +227,8 @@ export const createVersion = async (req: AuthRequest, res: Response) => {
           });
         }
       } else if (oldDocument.referenceType === 'licence' && oldDocument.referenceId) {
-        const { prisma } = await import('../utils/prisma');
-        const { canEditLicenceContent } = await import('../services/licence.service');
-        const licence = await prisma.licence.findUnique({
-          where: { id: oldDocument.referenceId },
-          include: { permissions: true, adminSansAcces: { select: { userId: true } } },
-        });
+        const { loadLicenceForAclById, canEditLicenceContent } = await import('../services/licence.service');
+        const licence = await loadLicenceForAclById(oldDocument.referenceId);
         if (!licence || licence.deletedAt) {
           return res.status(404).json({ error: 'Licence non trouvée' });
         }
@@ -421,12 +417,8 @@ export const updateDocument = async (req: AuthRequest, res: Response) => {
           });
         }
       } else if (oldDocument.referenceType === 'licence' && oldDocument.referenceId) {
-        const { prisma } = await import('../utils/prisma');
-        const { canEditLicenceContent } = await import('../services/licence.service');
-        const licence = await prisma.licence.findUnique({
-          where: { id: oldDocument.referenceId },
-          include: { permissions: true, adminSansAcces: { select: { userId: true } } },
-        });
+        const { loadLicenceForAclById, canEditLicenceContent } = await import('../services/licence.service');
+        const licence = await loadLicenceForAclById(oldDocument.referenceId);
         if (!licence || licence.deletedAt) {
           return res.status(404).json({ error: 'Licence non trouvée' });
         }
@@ -536,12 +528,8 @@ export const deleteDocument = async (req: AuthRequest, res: Response) => {
           });
         }
       } else if (document.referenceType === 'licence' && document.referenceId) {
-        const { prisma } = await import('../utils/prisma');
-        const { canEditLicenceContent } = await import('../services/licence.service');
-        const licence = await prisma.licence.findUnique({
-          where: { id: document.referenceId },
-          include: { permissions: true, adminSansAcces: { select: { userId: true } } },
-        });
+        const { loadLicenceForAclById, canEditLicenceContent } = await import('../services/licence.service');
+        const licence = await loadLicenceForAclById(document.referenceId);
         if (!licence || licence.deletedAt) {
           return res.status(404).json({ error: 'Licence non trouvée' });
         }

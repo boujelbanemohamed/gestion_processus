@@ -15,7 +15,6 @@ const licenceInclude = {
   permissions: {
     include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
   },
-  adminSansAcces: { select: { userId: true } },
   documents: {
     include: {
       document: {
@@ -187,8 +186,51 @@ export async function formatLicenceFull(l: any) {
 
 const licenceAclInclude = {
   permissions: true,
-  adminSansAcces: { select: { userId: true } },
 } as const;
+
+/** Chargé à part : si la table n’existe pas encore (migration non appliquée), ne fait pas échouer le GET /licences. */
+async function fetchAdminSansAccesByLicenceIds(licenceIds: string[]): Promise<Map<string, { userId: string }[]>> {
+  const map = new Map<string, { userId: string }[]>();
+  const ids = [...new Set(licenceIds.filter(Boolean))];
+  if (ids.length === 0) return map;
+  try {
+    const rows = await prisma.licenceAdminSansAcces.findMany({
+      where: { licenceId: { in: ids } },
+      select: { licenceId: true, userId: true },
+    });
+    for (const r of rows) {
+      const arr = map.get(r.licenceId) ?? [];
+      arr.push({ userId: r.userId });
+      map.set(r.licenceId, arr);
+    }
+  } catch {
+    /* ex. P2021 table absente */
+  }
+  return map;
+}
+
+function mergeAdminSansAcces<L extends { id: string }>(
+  row: L,
+  byLicence: Map<string, { userId: string }[]>,
+): L & { adminSansAcces: { userId: string }[] } {
+  return { ...row, adminSansAcces: byLicence.get(row.id) ?? [] };
+}
+
+async function withAdminSansAcces<T extends { id: string }>(row: T | null): Promise<(T & { adminSansAcces: { userId: string }[] }) | null> {
+  if (!row) return null;
+  const m = await fetchAdminSansAccesByLicenceIds([row.id]);
+  return mergeAdminSansAcces(row, m);
+}
+
+/** Licence + permissions + exclusions admin (sans JOIN SQL sur LicenceAdminSansAcces — tolère table absente). */
+export async function loadLicenceForAclById(id: string) {
+  const row = await prisma.licence.findUnique({
+    where: { id },
+    include: { permissions: true },
+  });
+  if (!row) return null;
+  return withAdminSansAcces(row);
+}
 
 async function maybeExcludeAdminAfterLicencePermissionRemoved(
   licenceId: string,
@@ -198,11 +240,15 @@ async function maybeExcludeAdminAfterLicencePermissionRemoved(
   if (!licenceCreatedById || targetUserId === licenceCreatedById) return;
   const u = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
   if (u?.role !== 'admin') return;
-  await prisma.licenceAdminSansAcces.upsert({
-    where: { licenceId_userId: { licenceId, userId: targetUserId } },
-    create: { licenceId, userId: targetUserId },
-    update: {},
-  });
+  try {
+    await prisma.licenceAdminSansAcces.upsert({
+      where: { licenceId_userId: { licenceId, userId: targetUserId } },
+      create: { licenceId, userId: targetUserId },
+      update: {},
+    });
+  } catch {
+    /* table absente : migration non appliquée */
+  }
 }
 
 export class LicenceService {
@@ -229,7 +275,9 @@ export class LicenceService {
       include: licenceInclude,
       orderBy: { updatedAt: 'desc' },
     });
-    const filtered = list.filter((l) => canReadLicence(userId, role, l as LicenceAcl));
+    const byLic = await fetchAdminSansAccesByLicenceIds(list.map((l) => l.id));
+    const merged = list.map((l) => mergeAdminSansAcces(l, byLic));
+    const filtered = merged.filter((l) => canReadLicence(userId, role, l as LicenceAcl));
     return Promise.all(filtered.map((l) => this.mapLicenceWithCaps(l, userId, role)));
   }
 
@@ -243,7 +291,8 @@ export class LicenceService {
       include: licenceInclude,
       orderBy: { deletedAt: 'desc' },
     });
-    return Promise.all(list.map((l) => formatLicenceFull(l)));
+    const byLic = await fetchAdminSansAccesByLicenceIds(list.map((l) => l.id));
+    return Promise.all(list.map((l) => formatLicenceFull(mergeAdminSansAcces(l, byLic))));
   }
 
   async findOne(id: string, userId: string, role: string) {
@@ -252,11 +301,13 @@ export class LicenceService {
       include: licenceInclude,
     });
     if (!l) return null;
-    if (!canReadLicence(userId, role, l as LicenceAcl)) return null;
-    if (l.deletedAt) {
-      if (role !== 'admin' && l.createdById !== userId) return null;
+    const m = await fetchAdminSansAccesByLicenceIds([l.id]);
+    const merged = mergeAdminSansAcces(l, m);
+    if (!canReadLicence(userId, role, merged as LicenceAcl)) return null;
+    if (merged.deletedAt) {
+      if (role !== 'admin' && merged.createdById !== userId) return null;
     }
-    return this.mapLicenceWithCaps(l, userId, role);
+    return this.mapLicenceWithCaps(merged, userId, role);
   }
 
   async create(data: any, createdById: string, actorRole: string) {
@@ -308,12 +359,14 @@ export class LicenceService {
   }
 
   async update(id: string, data: any, userId: string, role: string) {
-    const existing = await prisma.licence.findUnique({
+    const existingRaw = await prisma.licence.findUnique({
       where: { id },
       include: licenceAclInclude,
     });
-    if (!existing || existing.deletedAt) throw new Error('Licence non trouvée');
-    if (!canEditLicenceContent(userId, role, existing)) throw new Error('Accès refusé');
+    if (!existingRaw || existingRaw.deletedAt) throw new Error('Licence non trouvée');
+    const existing = await withAdminSansAcces(existingRaw);
+    if (!existing) throw new Error('Licence non trouvée');
+    if (!canEditLicenceContent(userId, role, existing as LicenceAcl)) throw new Error('Accès refusé');
 
     const {
       nom,
@@ -385,12 +438,14 @@ export class LicenceService {
   }
 
   async softDelete(id: string, userId: string, role: string) {
-    const existing = await prisma.licence.findUnique({
+    const existingRaw = await prisma.licence.findUnique({
       where: { id },
       include: licenceAclInclude,
     });
-    if (!existing || existing.deletedAt) throw new Error('Licence non trouvée');
-    if (!canSoftDeleteLicence(userId, role, existing)) throw new Error('Accès refusé');
+    if (!existingRaw || existingRaw.deletedAt) throw new Error('Licence non trouvée');
+    const existing = await withAdminSansAcces(existingRaw);
+    if (!existing) throw new Error('Licence non trouvée');
+    if (!canSoftDeleteLicence(userId, role, existing as LicenceAcl)) throw new Error('Accès refusé');
     return prisma.licence.update({
       where: { id },
       data: { deletedAt: new Date() },
@@ -408,7 +463,8 @@ export class LicenceService {
     });
     const l = await prisma.licence.findUnique({ where: { id }, include: licenceInclude });
     if (!l) throw new Error('Licence non trouvée dans la corbeille');
-    return this.mapLicenceWithCaps(l, userId, role);
+    const m = await fetchAdminSansAccesByLicenceIds([l.id]);
+    return this.mapLicenceWithCaps(mergeAdminSansAcces(l, m), userId, role);
   }
 
   async deletePermanent(id: string) {
@@ -447,7 +503,11 @@ export class LicenceService {
     if (!target) throw new Error('Utilisateur introuvable');
     if (licence.createdById === userId) throw new Error('Le créateur de la licence a déjà tous les droits');
 
-    await prisma.licenceAdminSansAcces.deleteMany({ where: { licenceId, userId } });
+    try {
+      await prisma.licenceAdminSansAcces.deleteMany({ where: { licenceId, userId } });
+    } catch {
+      /* table absente */
+    }
 
     await prisma.licencePermission.upsert({
       where: { licenceId_userId: { licenceId, userId } },
@@ -508,11 +568,17 @@ export class LicenceService {
       throw new Error("Seuls les comptes administrateur peuvent être privés de l'accès implicite à la licence");
     }
     await prisma.licencePermission.deleteMany({ where: { licenceId, userId: targetUserId } });
-    await prisma.licenceAdminSansAcces.upsert({
-      where: { licenceId_userId: { licenceId, userId: targetUserId } },
-      create: { licenceId, userId: targetUserId },
-      update: {},
-    });
+    try {
+      await prisma.licenceAdminSansAcces.upsert({
+        where: { licenceId_userId: { licenceId, userId: targetUserId } },
+        create: { licenceId, userId: targetUserId },
+        update: {},
+      });
+    } catch {
+      throw new Error(
+        "Impossible d'enregistrer l'exclusion admin : table LicenceAdminSansAcces absente. Exécutez « prisma migrate deploy » sur l'API.",
+      );
+    }
     await this.syncDocumentsPermissionsFromLicence(licenceId);
   }
 
@@ -528,7 +594,13 @@ export class LicenceService {
       select: { nom: true, prenom: true },
     });
     if (!target) throw new Error('Utilisateur introuvable');
-    await prisma.licenceAdminSansAcces.deleteMany({ where: { licenceId, userId: targetUserId } });
+    try {
+      await prisma.licenceAdminSansAcces.deleteMany({ where: { licenceId, userId: targetUserId } });
+    } catch {
+      throw new Error(
+        "Impossible de restaurer l'accès : table LicenceAdminSansAcces absente. Exécutez « prisma migrate deploy » sur l'API.",
+      );
+    }
     await this.syncDocumentsPermissionsFromLicence(licenceId);
   }
 
@@ -538,21 +610,23 @@ export class LicenceService {
       include: licenceInclude,
     });
     if (!licence) throw new Error('NOT_FOUND');
-    if (!canReadLicence(userId, userRole, licence as LicenceAcl)) throw new Error('FORBIDDEN');
+    const admMap = await fetchAdminSansAccesByLicenceIds([licence.id]);
+    const merged = mergeAdminSansAcces(licence, admMap);
+    if (!canReadLicence(userId, userRole, merged as LicenceAcl)) throw new Error('FORBIDDEN');
 
     const admins = await prisma.user.findMany({
       where: { role: 'admin', statut: 'actif' },
       select: { id: true, nom: true, prenom: true, email: true, role: true },
       orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
     });
-    const creator = licence.createdById
+    const creator = merged.createdById
       ? await prisma.user.findUnique({
-          where: { id: licence.createdById },
+          where: { id: merged.createdById },
           select: { id: true, nom: true, prenom: true, email: true, role: true },
         })
       : null;
 
-    const delegations = licence.permissions.map((p) => ({
+    const delegations = merged.permissions.map((p) => ({
       id: p.id,
       permission: p.niveau,
       user: p.user,
@@ -561,22 +635,24 @@ export class LicenceService {
     }));
 
     return {
-      ficheNom: licence.nom,
+      ficheNom: merged.nom,
       admins,
       creator,
       delegations,
-      canManagePermissions: licence.createdById === userId,
-      adminSansAccesUserIds: (licence.adminSansAcces || []).map((x) => x.userId),
+      canManagePermissions: merged.createdById === userId,
+      adminSansAccesUserIds: (merged.adminSansAcces || []).map((x) => x.userId),
     };
   }
 
   async addCommentaire(licenceId: string, auteurId: string, role: string, contenu: string, assigneA: string | null) {
-    const licence = await prisma.licence.findUnique({
+    const licenceRaw = await prisma.licence.findUnique({
       where: { id: licenceId },
       include: licenceAclInclude,
     });
-    if (!licence || licence.deletedAt) throw new Error('Licence non trouvée');
-    if (!canReadLicence(auteurId, role, licence)) throw new Error('Accès refusé');
+    if (!licenceRaw || licenceRaw.deletedAt) throw new Error('Licence non trouvée');
+    const licence = await withAdminSansAcces(licenceRaw);
+    if (!licence) throw new Error('Licence non trouvée');
+    if (!canReadLicence(auteurId, role, licence as LicenceAcl)) throw new Error('Accès refusé');
     await prisma.licenceCommentaire.create({
       data: {
         licenceId,
@@ -600,11 +676,13 @@ export class LicenceService {
       destinataires: string[];
     },
   ) {
-    const licence = await prisma.licence.findUnique({
+    const licenceRaw = await prisma.licence.findUnique({
       where: { id: licenceId },
       include: licenceAclInclude,
     });
-    if (!licence || licence.deletedAt) throw new Error('Licence non trouvée');
+    if (!licenceRaw || licenceRaw.deletedAt) throw new Error('Licence non trouvée');
+    const licence = await withAdminSansAcces(licenceRaw);
+    if (!licence) throw new Error('Licence non trouvée');
     if (!canEditLicenceContent(actorId, role, licence as LicenceAcl)) throw new Error('Accès refusé');
 
     const mode = body.mode === 'date_recurrence' ? 'date_recurrence' : 'before_end';
@@ -651,11 +729,13 @@ export class LicenceService {
   }
 
   async deleteNotification(licenceId: string, notificationId: string, actorId: string, role: string) {
-    const licence = await prisma.licence.findUnique({
+    const licenceRaw = await prisma.licence.findUnique({
       where: { id: licenceId },
       include: licenceAclInclude,
     });
-    if (!licence || licence.deletedAt) throw new Error('Licence non trouvée');
+    if (!licenceRaw || licenceRaw.deletedAt) throw new Error('Licence non trouvée');
+    const licence = await withAdminSansAcces(licenceRaw);
+    if (!licence) throw new Error('Licence non trouvée');
     if (!canEditLicenceContent(actorId, role, licence as LicenceAcl)) throw new Error('Accès refusé');
     const n = await prisma.licenceNotification.findFirst({
       where: { id: notificationId, licenceId },
@@ -703,11 +783,13 @@ export class LicenceService {
     file: Express.Multer.File,
     nom: string,
   ) {
-    const licence = await prisma.licence.findUnique({
+    const licenceRaw = await prisma.licence.findUnique({
       where: { id: licenceId },
       include: licenceAclInclude,
     });
-    if (!licence || licence.deletedAt) throw new Error('Licence non trouvée');
+    if (!licenceRaw || licenceRaw.deletedAt) throw new Error('Licence non trouvée');
+    const licence = await withAdminSansAcces(licenceRaw);
+    if (!licence) throw new Error('Licence non trouvée');
     if (!canEditLicenceContent(actorId, role, licence as LicenceAcl)) throw new Error('Accès refusé');
 
     try {
@@ -751,11 +833,13 @@ export class LicenceService {
     actorId: string,
     role: string,
   ) {
-    const licence = await prisma.licence.findUnique({
+    const licenceRaw = await prisma.licence.findUnique({
       where: { id: licenceId },
       include: licenceAclInclude,
     });
-    if (!licence || licence.deletedAt) throw new Error('Licence non trouvée');
+    if (!licenceRaw || licenceRaw.deletedAt) throw new Error('Licence non trouvée');
+    const licence = await withAdminSansAcces(licenceRaw);
+    if (!licence) throw new Error('Licence non trouvée');
     if (!canEditLicenceContent(actorId, role, licence as LicenceAcl)) throw new Error('Accès refusé');
 
     const { DocumentService } = await import('./document.service');
@@ -796,10 +880,12 @@ export class LicenceService {
   }
 
   async getHistory(licenceId: string, userId: string, role: string) {
-    const licence = await prisma.licence.findUnique({
+    const licenceRaw = await prisma.licence.findUnique({
       where: { id: licenceId },
       include: licenceAclInclude,
     });
+    if (!licenceRaw) return null;
+    const licence = await withAdminSansAcces(licenceRaw);
     if (!licence) return null;
     if (!canReadLicence(userId, role, licence as LicenceAcl)) return null;
     if (licence.deletedAt && role !== 'admin' && licence.createdById !== userId) return null;
@@ -820,6 +906,7 @@ export class LicenceService {
       include: licenceInclude,
       orderBy: { deletedAt: 'desc' },
     });
-    return Promise.all(list.map((l) => formatLicenceFull(l)));
+    const byLic = await fetchAdminSansAccesByLicenceIds(list.map((l) => l.id));
+    return Promise.all(list.map((l) => formatLicenceFull(mergeAdminSansAcces(l, byLic))));
   }
 }

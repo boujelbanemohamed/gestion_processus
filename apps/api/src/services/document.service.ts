@@ -1,6 +1,6 @@
 import { prisma } from '../utils/prisma';
 import { DocType, DocStatut, RefType } from '@prisma/client';
-import { canEditLicenceContent, canReadLicence } from './licence.service';
+import { canEditLicenceContent, canReadLicence, loadLicenceForAclById } from './licence.service';
 import { ProcessusService } from './processus.service';
 import { ProjetService } from './projet.service';
 import { promises as fs } from 'fs';
@@ -387,10 +387,7 @@ export class DocumentService {
       role === 'admin'
     ) {
       if (document.uploadedById === userId) return true;
-      const licence = await prisma.licence.findUnique({
-        where: { id: document.referenceId },
-        include: { permissions: true, adminSansAcces: { select: { userId: true } } },
-      });
+      const licence = await loadLicenceForAclById(document.referenceId);
       if (licence && !licence.deletedAt && canReadLicence(userId, role || 'lecteur', licence as any)) {
         return true;
       }
@@ -429,10 +426,7 @@ export class DocumentService {
     if (document.uploadedById === userId) return true;
 
     if (document.referenceType === 'licence' && document.referenceId) {
-      const licence = await prisma.licence.findUnique({
-        where: { id: document.referenceId },
-        include: { permissions: true, adminSansAcces: { select: { userId: true } } },
-      });
+      const licence = await loadLicenceForAclById(document.referenceId);
       if (licence && !licence.deletedAt && canReadLicence(userId, role || 'lecteur', licence as any)) {
         return true;
       }
@@ -493,10 +487,7 @@ export class DocumentService {
     if (!document) return false;
     if (!document.estConfidentiel) return true;
     if (document.referenceType === 'licence' && document.referenceId) {
-      const licence = await prisma.licence.findUnique({
-        where: { id: document.referenceId },
-        include: { permissions: true, adminSansAcces: { select: { userId: true } } },
-      });
+      const licence = await loadLicenceForAclById(document.referenceId);
       return !!(licence && !licence.deletedAt && canEditLicenceContent(userId, role || 'lecteur', licence as any));
     }
     if (role === 'admin') return true;
@@ -515,10 +506,7 @@ export class DocumentService {
     if (!document) return false;
 
     if (document.estConfidentiel && document.referenceType === 'licence' && document.referenceId) {
-      const licence = await prisma.licence.findUnique({
-        where: { id: document.referenceId },
-        include: { permissions: true, adminSansAcces: { select: { userId: true } } },
-      });
+      const licence = await loadLicenceForAclById(document.referenceId);
       if (!licence || licence.deletedAt) return false;
       if (document.uploadedById === userId) return true;
       return canEditLicenceContent(userId, role || 'lecteur', licence as any);
