@@ -209,6 +209,7 @@ export class DocumentService {
     });
 
     // Enrichir avec les informations du processus et les statistiques
+    /** Données licence pour la liste documents — exclusions admin chargées à part (table parfois absente si migrate non appliqué). */
     const licenceCache = new Map<
       string,
       {
@@ -223,7 +224,7 @@ export class DocumentService {
           niveau: string;
           user: { id: string; prenom: string; nom: string; email: string };
         }[];
-        adminSansAcces: { userId: string }[];
+        adminSansAccesUserIds: string[];
       } | null
     >();
     const documentsWithProcessus = await Promise.all(
@@ -249,36 +250,47 @@ export class DocumentService {
             : null;
         if (licenceRefId) {
           if (!licenceCache.has(licenceRefId)) {
+            const rawLic = await prisma.licence.findUnique({
+              where: { id: licenceRefId },
+              select: {
+                id: true,
+                nom: true,
+                reference: true,
+                createdById: true,
+                createdBy: { select: { id: true, prenom: true, nom: true, email: true } },
+                permissions: {
+                  include: { user: { select: { id: true, prenom: true, nom: true, email: true } } },
+                },
+              },
+            });
+            let adminSansAccesUserIds: string[] = [];
+            if (rawLic) {
+              try {
+                const excl = await prisma.licenceAdminSansAcces.findMany({
+                  where: { licenceId: licenceRefId },
+                  select: { userId: true },
+                });
+                adminSansAccesUserIds = excl.map((x) => x.userId);
+              } catch {
+                /* ex. table LicenceAdminSansAcces absente — migrate deploy requis pour persister les exclusions */
+              }
+            }
             licenceCache.set(
               licenceRefId,
-              await prisma.licence.findUnique({
-                where: { id: licenceRefId },
-                select: {
-                  id: true,
-                  nom: true,
-                  reference: true,
-                  createdById: true,
-                  createdBy: { select: { id: true, prenom: true, nom: true, email: true } },
-                  permissions: {
-                    include: { user: { select: { id: true, prenom: true, nom: true, email: true } } },
-                  },
-                  adminSansAcces: { select: { userId: true } },
-                },
-              }),
+              rawLic
+                ? {
+                    id: rawLic.id,
+                    nom: rawLic.nom,
+                    reference: rawLic.reference,
+                    createdById: rawLic.createdById,
+                    createdBy: rawLic.createdBy,
+                    permissions: rawLic.permissions,
+                    adminSansAccesUserIds,
+                  }
+                : null,
             );
           }
-          const rawLic = licenceCache.get(licenceRefId) ?? null;
-          if (rawLic) {
-            licence = {
-              id: rawLic.id,
-              nom: rawLic.nom,
-              reference: rawLic.reference,
-              createdById: rawLic.createdById,
-              createdBy: rawLic.createdBy,
-              permissions: rawLic.permissions,
-              adminSansAccesUserIds: (rawLic.adminSansAcces || []).map((x) => x.userId),
-            };
-          }
+          licence = licenceCache.get(licenceRefId) ?? null;
         }
         // Contrats liés + droits (affichage page Documents aligné sur la fiche contrat)
         const contratsRaw = await prisma.contratDocument.findMany({
