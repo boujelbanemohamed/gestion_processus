@@ -864,18 +864,44 @@ export default function Contrats() {
                           {(() => {
                             const actifAdmins = users.filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'));
                             const creatorId = c.createdById || c.createdBy?.id;
+                            const excludedAdminIds = new Set<string>(
+                              c.adminSansAccesUserIds ??
+                                (c.adminSansAcces || []).map((x: { userId: string }) => x.userId),
+                            );
+                            const permByUserId = new Map<string, any>(
+                              (c.permissions || []).map((p: any) => [p.userId, p]),
+                            );
                             return (
                               <>
                                 {actifAdmins.map((a: any) => {
                                   const isCreator = creatorId === a.id;
+                                  const perm = permByUserId.get(a.id);
+                                  const adminExclu = excludedAdminIds.has(a.id) && !perm;
+                                  const adminLimite = !!perm && !isCreator;
                                   return (
                                     <div key={`adm-${c.id}-${a.id}`} className="min-w-0">
-                                      <span className="font-medium text-gray-900">{a.prenom} {a.nom}</span>
-                                      <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                                        {isCreator
-                                          ? `(Administrateur et créateur : ${droitsAdminLigne})`
-                                          : `(Admin : ${droitsAdminLigne})`}
+                                      <span className="font-medium text-gray-900">
+                                        {a.prenom} {a.nom}
                                       </span>
+                                      {isCreator ? (
+                                        <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                          (Administrateur et créateur : {droitsAdminLigne})
+                                        </span>
+                                      ) : adminExclu ? (
+                                        <span className="text-red-700 font-medium block sm:inline sm:ml-1">
+                                          — aucun accès (exclu ; réintégration via « Accès » → Accorder un accès)
+                                        </span>
+                                      ) : adminLimite ? (
+                                        <span className="text-amber-800 block sm:inline sm:ml-1">
+                                          (Admin : accès limité —{' '}
+                                          {NIVEAUX.find((n) => n.value === perm.niveau)?.label || perm.niveau} ; voir accès
+                                          partagés ci-dessous)
+                                        </span>
+                                      ) : (
+                                        <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                          (Admin : {droitsAdminLigne})
+                                        </span>
+                                      )}
                                     </div>
                                   );
                                 })}

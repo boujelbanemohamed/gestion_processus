@@ -143,9 +143,12 @@ export async function logContratHistorique(
 
 function mapWithCapsAndAcces<T extends ContratAcl & Record<string, unknown>>(c: T, userId: string, userRole: string) {
   const caps = capabilitiesContrat(c, userId, userRole);
+  const adminSansAccesUserIds =
+    (c as any).adminSansAcces?.map((x: { userId: string }) => x.userId) ?? [];
   return {
     ...c,
     capabilities: caps,
+    adminSansAccesUserIds,
     accesApercu: {
       delegations: (c as any).permissions?.map((p: any) => ({
         id: p.id,
