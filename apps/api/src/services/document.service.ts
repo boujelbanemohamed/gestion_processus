@@ -1,5 +1,5 @@
 import { prisma } from '../utils/prisma';
-import { DocType, DocStatut, RefType } from '@prisma/client';
+import { DocType, DocStatut, RefType, type Prisma } from '../generated/prisma/client';
 import { canEditLicenceContent, canReadLicence, loadLicenceForAclById } from './licence.service';
 import { ProcessusService } from './processus.service';
 import { ProjetService } from './projet.service';
@@ -9,6 +9,27 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
+
+/** Include réutilisé pour la liste documents (typage du fallback [] si la requête échoue). */
+const DOCUMENT_CONTRAT_LIST_INCLUDE = {
+  contrat: {
+    select: {
+      id: true,
+      nom: true,
+      statut: true,
+      createdById: true,
+      createdBy: { select: { id: true, prenom: true, nom: true, email: true } },
+      permissions: {
+        include: { user: { select: { id: true, prenom: true, nom: true, email: true, role: true } } },
+      },
+      adminSansAcces: { select: { userId: true } },
+    },
+  },
+} satisfies Prisma.ContratDocumentInclude;
+
+type DocumentContratListRow = Prisma.ContratDocumentGetPayload<{
+  include: typeof DOCUMENT_CONTRAT_LIST_INCLUDE;
+}>;
 const processusService = new ProcessusService();
 const projetService = new ProjetService();
 const entiteService = new EntiteService();
@@ -20,10 +41,12 @@ export function isNativeProjetUploadDocument(doc: {
   referenceType: RefType | string | null;
   referenceId: string | null;
 }): boolean {
+  const typeDoc = String(doc.typeDocument ?? '');
+  const refType = String(doc.referenceType ?? '');
   return (
     !!doc.estConfidentiel &&
-    doc.typeDocument === DocType.projet &&
-    doc.referenceType === 'projet' &&
+    typeDoc === 'projet' &&
+    refType === 'projet' &&
     doc.referenceId != null &&
     String(doc.referenceId).length > 0
   );
@@ -222,14 +245,18 @@ export class DocumentService {
     }
 
     // Pièces liées à une licence : toujours confidentielles (rattrapage + cohérence métier)
-    await prisma.document.updateMany({
-      where: {
-        deletedAt: null,
-        estConfidentiel: false,
-        OR: [{ typeDocument: 'licence' }, { referenceType: 'licence' }],
-      },
-      data: { estConfidentiel: true },
-    });
+    try {
+      await prisma.document.updateMany({
+        where: {
+          deletedAt: null,
+          estConfidentiel: false,
+          OR: [{ typeDocument: 'licence' }, { referenceType: 'licence' }],
+        },
+        data: { estConfidentiel: true },
+      });
+    } catch {
+      /* ne pas faire échouer GET /documents si cette synchro optionnelle échoue (verrou, droits, etc.) */
+    }
 
     const documents = await prisma.document.findMany({
       where,
@@ -347,24 +374,15 @@ export class DocumentService {
           licence = licenceCache.get(licenceRefId) ?? null;
         }
         // Contrats liés + droits (affichage page Documents aligné sur la fiche contrat)
-        const contratsRaw = await prisma.contratDocument.findMany({
-          where: { documentId: doc.id },
-          include: {
-            contrat: {
-              select: {
-                id: true,
-                nom: true,
-                statut: true,
-                createdById: true,
-                createdBy: { select: { id: true, prenom: true, nom: true, email: true } },
-                permissions: {
-                  include: { user: { select: { id: true, prenom: true, nom: true, email: true, role: true } } },
-                },
-                adminSansAcces: { select: { userId: true } },
-              },
-            },
-          },
-        });
+        let contratsRaw: DocumentContratListRow[] = [];
+        try {
+          contratsRaw = await prisma.contratDocument.findMany({
+            where: { documentId: doc.id },
+            include: DOCUMENT_CONTRAT_LIST_INCLUDE,
+          });
+        } catch {
+          /* schéma / table en retard ou requête incluse incompatible — liste documents reste utilisable */
+        }
         const contrats = contratsRaw.map((cd) => ({
           ...cd,
           contrat: cd.contrat
@@ -376,22 +394,28 @@ export class DocumentService {
         }));
 
         // Compter les téléchargements et visualisations
-        const [telechargements, visualisations] = await Promise.all([
-          prisma.journalAcces.count({
-            where: {
-              ressourceType: 'document',
-              ressourceId: doc.id,
-              action: 'telechargement',
-            },
-          }),
-          prisma.journalAcces.count({
-            where: {
-              ressourceType: 'document',
-              ressourceId: doc.id,
-              action: 'lecture',
-            },
-          }),
-        ]);
+        let telechargements = 0;
+        let visualisations = 0;
+        try {
+          [telechargements, visualisations] = await Promise.all([
+            prisma.journalAcces.count({
+              where: {
+                ressourceType: 'document',
+                ressourceId: doc.id,
+                action: 'telechargement',
+              },
+            }),
+            prisma.journalAcces.count({
+              where: {
+                ressourceType: 'document',
+                ressourceId: doc.id,
+                action: 'lecture',
+              },
+            }),
+          ]);
+        } catch {
+          /* JournalAcces indisponible — compteurs à 0 */
+        }
 
         let docAdminSansAccesUserIds: string[] | undefined;
         if (isNativeProjetUploadDocument(doc as any)) {
