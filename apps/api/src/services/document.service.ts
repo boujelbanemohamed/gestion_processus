@@ -13,6 +13,57 @@ const processusService = new ProcessusService();
 const projetService = new ProjetService();
 const entiteService = new EntiteService();
 
+/** Document confidentiel uploadé depuis la fiche projet (`typeDocument = projet`). Les documents liés gardent un autre type et héritent des règles existantes. */
+export function isNativeProjetUploadDocument(doc: {
+  estConfidentiel: boolean;
+  typeDocument: DocType | string;
+  referenceType: RefType | string | null;
+  referenceId: string | null;
+}): boolean {
+  return (
+    !!doc.estConfidentiel &&
+    doc.typeDocument === DocType.projet &&
+    doc.referenceType === 'projet' &&
+    doc.referenceId != null &&
+    String(doc.referenceId).length > 0
+  );
+}
+
+async function fetchDocumentAdminSansAccesUserIds(documentId: string): Promise<string[]> {
+  try {
+    const rows = await prisma.documentAdminSansAcces.findMany({
+      where: { documentId },
+      select: { userId: true },
+    });
+    return rows.map((r) => r.userId);
+  } catch {
+    return [];
+  }
+}
+
+async function maybeExcludeAdminAfterDocumentPermissionRemoved(
+  documentId: string,
+  documentUploadedById: string,
+  targetUserId: string
+) {
+  if (targetUserId === documentUploadedById) return;
+  const u = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
+  if (u?.role !== 'admin') return;
+  const remaining = await prisma.documentPermission.count({
+    where: { documentId, userId: targetUserId },
+  });
+  if (remaining > 0) return;
+  try {
+    await prisma.documentAdminSansAcces.upsert({
+      where: { documentId_userId: { documentId, userId: targetUserId } },
+      create: { documentId, userId: targetUserId },
+      update: {},
+    });
+  } catch {
+    /* table absente */
+  }
+}
+
 /**
  * Noms de fichiers à essayer sur disque : versions du plus récent au plus ancien, puis fichier courant sur Document.
  * (Les anciennes versions n’avaient pas toujours mis à jour `Document.fichierUrl`.)
@@ -341,7 +392,12 @@ export class DocumentService {
             },
           }),
         ]);
-        
+
+        let docAdminSansAccesUserIds: string[] | undefined;
+        if (isNativeProjetUploadDocument(doc as any)) {
+          docAdminSansAccesUserIds = await fetchDocumentAdminSansAccesUserIds(doc.id);
+        }
+
         return {
           ...doc,
           processus: processus || null,
@@ -350,6 +406,7 @@ export class DocumentService {
           contrats: contrats || [],
           nombreTelechargements: telechargements,
           nombreVisualisations: visualisations,
+          adminSansAccesUserIds: docAdminSansAccesUserIds,
         };
       })
     );
@@ -402,10 +459,16 @@ export class DocumentService {
       }),
     ]);
 
+    let oneAdminSans: string[] | undefined;
+    if (isNativeProjetUploadDocument(document as any)) {
+      oneAdminSans = await fetchDocumentAdminSansAccesUserIds(id);
+    }
+
     return {
       ...document,
       nombreTelechargements: telechargements,
       nombreVisualisations: visualisations,
+      adminSansAccesUserIds: oneAdminSans,
     };
   }
 
@@ -468,6 +531,18 @@ export class DocumentService {
 
     if (!document.estConfidentiel) return true;
 
+    /** Pièce confidentielle déposée sur le projet : accès = auteur + liste explicite + admins non exclus (pas de passe-droit gouvernance). */
+    if (isNativeProjetUploadDocument(document)) {
+      if (document.uploadedById === userId) return true;
+      const inList = document.permissionsUtilisateurs.some((p) => p.userId === userId);
+      if (inList) return true;
+      if (r === 'admin') {
+        const excluded = new Set(await fetchDocumentAdminSansAccesUserIds(documentId));
+        if (!excluded.has(userId)) return true;
+      }
+      return false;
+    }
+
     if (r === 'admin') return true;
 
     // L'utilisateur qui a uploadé peut toujours accéder
@@ -490,7 +565,7 @@ export class DocumentService {
         return true;
       }
     }
-    // Vérifier si le document est lié à un projet et si l'utilisateur fait partie de la gouvernance
+    // Document lié au projet (type autre que « projet ») : gouvernance et règles historiques inchangées
     if (document.referenceType === 'projet' && document.referenceId) {
       const projet = await prisma.projet.findUnique({
         where: { id: document.referenceId },
@@ -530,10 +605,21 @@ export class DocumentService {
   async canUserModifyConfidentialDocument(documentId: string, userId: string, role?: string): Promise<boolean> {
     const document = await prisma.document.findUnique({
       where: { id: documentId },
-      select: { estConfidentiel: true, referenceType: true, referenceId: true },
+      select: {
+        estConfidentiel: true,
+        referenceType: true,
+        referenceId: true,
+        typeDocument: true,
+        uploadedById: true,
+      },
     });
     if (!document) return false;
     if (!document.estConfidentiel) return true;
+    if (isNativeProjetUploadDocument(document as any)) {
+      if (document.uploadedById === userId) return true;
+      const hasPerm = await prisma.documentPermission.findFirst({ where: { documentId, userId } });
+      return !!hasPerm;
+    }
     if (document.referenceType === 'licence' && document.referenceId) {
       const licence = await loadLicenceForAclById(document.referenceId);
       return !!(licence && !licence.deletedAt && canEditLicenceContent(userId, role || 'lecteur', licence as any));
@@ -557,6 +643,12 @@ export class DocumentService {
       if (!licence || licence.deletedAt) return false;
       if (document.uploadedById === userId) return true;
       return canEditLicenceContent(userId, role || 'lecteur', licence as any);
+    }
+
+    if (isNativeProjetUploadDocument(document)) {
+      if (document.uploadedById === userId) return true;
+      const hasPerm = await prisma.documentPermission.findFirst({ where: { documentId, userId } });
+      return !!hasPerm;
     }
 
     if (role === 'admin') return true;
@@ -688,6 +780,28 @@ export class DocumentService {
       updateData.dateValidation = new Date();
     }
 
+    const before = await prisma.document.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        estConfidentiel: true,
+        typeDocument: true,
+        referenceType: true,
+        referenceId: true,
+        uploadedById: true,
+      },
+    });
+    if (!before) throw new Error('Document non trouvé');
+
+    let previousPermUserIds: string[] = [];
+    const willTouchPerms = data.estConfidentiel !== undefined || permissionUserIds !== undefined;
+    if (willTouchPerms) {
+      const existing = await prisma.documentPermission.findMany({
+        where: { documentId: id },
+        select: { userId: true },
+      });
+      previousPermUserIds = existing.map((e) => e.userId);
+    }
+
     const document = await prisma.document.update({
       where: { id },
       data: updateData,
@@ -696,17 +810,26 @@ export class DocumentService {
       },
     });
 
+    const afterEstConf =
+      data.estConfidentiel !== undefined ? data.estConfidentiel : before.estConfidentiel;
+    const mergedForNative = {
+      estConfidentiel: afterEstConf,
+      typeDocument: document.typeDocument,
+      referenceType: document.referenceType,
+      referenceId: document.referenceId,
+    };
+
+    let newPermUserIds: string[] = [];
     // Gérer les permissions si le document est confidentiel
     if (data.estConfidentiel !== undefined) {
-      // Supprimer toutes les permissions existantes
       await prisma.documentPermission.deleteMany({
         where: { documentId: id },
       });
 
-      // Créer les nouvelles permissions si le document est confidentiel
       if (data.estConfidentiel && permissionUserIds && permissionUserIds.length > 0) {
+        newPermUserIds = permissionUserIds;
         await prisma.documentPermission.createMany({
-          data: permissionUserIds.map(userId => ({
+          data: permissionUserIds.map((userId) => ({
             documentId: id,
             userId,
           })),
@@ -714,21 +837,50 @@ export class DocumentService {
         });
       }
     } else if (permissionUserIds !== undefined) {
-      // Si on met à jour seulement les permissions sans changer estConfidentiel
-      // Supprimer toutes les permissions existantes
       await prisma.documentPermission.deleteMany({
         where: { documentId: id },
       });
 
-      // Créer les nouvelles permissions
       if (permissionUserIds.length > 0) {
+        newPermUserIds = permissionUserIds;
         await prisma.documentPermission.createMany({
-          data: permissionUserIds.map(userId => ({
+          data: permissionUserIds.map((userId) => ({
             documentId: id,
             userId,
           })),
           skipDuplicates: true,
         });
+      }
+    }
+
+    if (willTouchPerms && isNativeProjetUploadDocument(mergedForNative as any)) {
+      const newSet = new Set(newPermUserIds);
+      const removed = previousPermUserIds.filter((uid) => !newSet.has(uid));
+      const added = newPermUserIds.filter((uid) => !previousPermUserIds.includes(uid));
+      try {
+        for (const uid of removed) {
+          const u = await prisma.user.findUnique({ where: { id: uid }, select: { role: true } });
+          if (u?.role === 'admin') {
+            await prisma.documentAdminSansAcces.upsert({
+              where: { documentId_userId: { documentId: id, userId: uid } },
+              create: { documentId: id, userId: uid },
+              update: {},
+            });
+          }
+        }
+        for (const uid of added) {
+          await prisma.documentAdminSansAcces.deleteMany({ where: { documentId: id, userId: uid } });
+        }
+      } catch {
+        /* table absente */
+      }
+    }
+
+    if (data.estConfidentiel === false) {
+      try {
+        await prisma.documentAdminSansAcces.deleteMany({ where: { documentId: id } });
+      } catch {
+        /* table absente */
       }
     }
 
@@ -754,5 +906,165 @@ export class DocumentService {
       where: { id },
       data: { deletedAt: new Date() },
     });
+  }
+
+  async assertCanManageNativeProjetDocument(documentId: string, actorUserId: string) {
+    const doc = await prisma.document.findFirst({
+      where: { id: documentId, deletedAt: null },
+      select: {
+        uploadedById: true,
+        estConfidentiel: true,
+        typeDocument: true,
+        referenceType: true,
+        referenceId: true,
+      },
+    });
+    if (!doc) throw new Error('NOT_FOUND');
+    if (!isNativeProjetUploadDocument(doc as any)) throw new Error('FORBIDDEN');
+    if (doc.uploadedById !== actorUserId) throw new Error('FORBIDDEN');
+  }
+
+  async getDocumentAccesDetail(documentId: string, actorUserId: string, actorRole: string) {
+    const doc = await prisma.document.findFirst({
+      where: { id: documentId, deletedAt: null },
+      select: {
+        id: true,
+        nom: true,
+        estConfidentiel: true,
+        typeDocument: true,
+        referenceType: true,
+        referenceId: true,
+        uploadedById: true,
+      },
+    });
+    if (!doc) throw new Error('NOT_FOUND');
+    if (!isNativeProjetUploadDocument(doc as any)) throw new Error('ACCES_DETAIL_UNAVAILABLE');
+
+    const canView = await this.canUserAccessDocument(documentId, actorUserId, actorRole);
+    if (!canView) throw new Error('FORBIDDEN');
+
+    const full = await prisma.document.findFirst({
+      where: { id: documentId },
+      include: {
+        uploadedBy: { select: { id: true, nom: true, prenom: true, email: true, role: true } },
+        permissionsUtilisateurs: {
+          include: {
+            user: { select: { id: true, nom: true, prenom: true, email: true, role: true } },
+          },
+        },
+      },
+    });
+    if (!full) throw new Error('NOT_FOUND');
+
+    const admins = await prisma.user.findMany({
+      where: { role: 'admin', statut: 'actif' },
+      select: { id: true, nom: true, prenom: true, email: true, role: true },
+      orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
+    });
+    const adminSansAccesUserIds = await fetchDocumentAdminSansAccesUserIds(documentId);
+    const delegations = (full.permissionsUtilisateurs || []).map((p) => ({
+      id: p.id,
+      permission: 'lecture' as const,
+      user: p.user,
+      grantedBy: null as null,
+      createdAt: p.createdAt,
+    }));
+
+    return {
+      ficheNom: full.nom,
+      admins,
+      creator: full.uploadedBy,
+      delegations,
+      canManagePermissions: full.uploadedById === actorUserId,
+      adminSansAccesUserIds,
+    };
+  }
+
+  async addDocumentExplicitPermission(documentId: string, targetUserId: string, actorUserId: string) {
+    await this.assertCanManageNativeProjetDocument(documentId, actorUserId);
+    const meta = await prisma.document.findUnique({
+      where: { id: documentId },
+      select: { uploadedById: true },
+    });
+    if (!meta) throw new Error('NOT_FOUND');
+    if (meta.uploadedById === targetUserId) {
+      throw new Error("L'auteur du document a déjà tous les droits");
+    }
+    try {
+      await prisma.documentAdminSansAcces.deleteMany({ where: { documentId, userId: targetUserId } });
+    } catch {
+      /* table absente */
+    }
+    return prisma.documentPermission.upsert({
+      where: { documentId_userId: { documentId, userId: targetUserId } },
+      create: { documentId, userId: targetUserId },
+      update: {},
+      include: {
+        user: { select: { id: true, nom: true, prenom: true, email: true, role: true } },
+      },
+    });
+  }
+
+  async removeDocumentPermissionEntry(documentId: string, permissionId: string, actorUserId: string) {
+    await this.assertCanManageNativeProjetDocument(documentId, actorUserId);
+    const perm = await prisma.documentPermission.findFirst({
+      where: { id: permissionId, documentId },
+    });
+    if (!perm) throw new Error('NOT_FOUND');
+    const doc = await prisma.document.findUnique({
+      where: { id: documentId },
+      select: { uploadedById: true },
+    });
+    if (!doc) throw new Error('NOT_FOUND');
+    await prisma.documentPermission.delete({ where: { id: permissionId } });
+    await maybeExcludeAdminAfterDocumentPermissionRemoved(documentId, doc.uploadedById, perm.userId);
+  }
+
+  async blockDocumentAdminImplicit(documentId: string, targetUserId: string, actorUserId: string) {
+    await this.assertCanManageNativeProjetDocument(documentId, actorUserId);
+    const doc = await prisma.document.findUnique({
+      where: { id: documentId },
+      select: { uploadedById: true },
+    });
+    if (!doc) throw new Error('NOT_FOUND');
+    if (doc.uploadedById === targetUserId) {
+      throw new Error("L'auteur du document ne peut pas être exclu");
+    }
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { role: true, nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    if (target.role !== 'admin') {
+      throw new Error("Seuls les comptes administrateur peuvent être privés de l'accès implicite au document");
+    }
+    await prisma.documentPermission.deleteMany({ where: { documentId, userId: targetUserId } });
+    try {
+      await prisma.documentAdminSansAcces.upsert({
+        where: { documentId_userId: { documentId, userId: targetUserId } },
+        create: { documentId, userId: targetUserId },
+        update: {},
+      });
+    } catch {
+      throw new Error(
+        "Impossible d'enregistrer l'exclusion : table absente. Exécutez « prisma migrate deploy » sur l'API."
+      );
+    }
+  }
+
+  async restoreDocumentAdminImplicit(documentId: string, targetUserId: string, actorUserId: string) {
+    await this.assertCanManageNativeProjetDocument(documentId, actorUserId);
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    try {
+      await prisma.documentAdminSansAcces.deleteMany({ where: { documentId, userId: targetUserId } });
+    } catch {
+      throw new Error(
+        "Impossible de restaurer l'accès : table absente. Exécutez « prisma migrate deploy » sur l'API."
+      );
+    }
   }
 }

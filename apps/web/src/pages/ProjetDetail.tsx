@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback, type ReactNode } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import ProjetPilotageAgile from '../components/ProjetPilotageAgile';
 import { PvReunionsLieesBlock } from '../components/PvReunionsLieesBlock';
+import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 
@@ -41,6 +42,19 @@ const LABEL_PERM_ROW: Record<string, string> = {
 };
 
 const droitsAdminLigne = 'modification + suppression + gestion des accès + lecture';
+
+/** Document confidentiel déposé depuis « Documents du projet » (pas un document lié sous un autre type). */
+function isNativeProjetUploadDoc(doc: any) {
+  return (
+    !!doc?.estConfidentiel &&
+    doc?.typeDocument === 'projet' &&
+    doc?.referenceType === 'projet' &&
+    !!doc?.referenceId
+  );
+}
+
+const DROITS_ADMIN_DOC_PROJET_NATIF =
+  'visualisation, modification statut, accès, suppression (admin non exclu de la pièce)';
 
 function permSummaryLine(perms: string[]) {
   return perms.map((p) => LABEL_PERM_ROW[p] || p).join(' + ');
@@ -330,6 +344,43 @@ function buildProjetDocumentAccessRecapRows(doc: any, p: any | null, usersList: 
     }
   };
 
+  if (doc.estConfidentiel && isNativeProjetUploadDoc(doc)) {
+    const excluded = new Set(doc.adminSansAccesUserIds || []);
+    const permIds = new Set(
+      (doc.permissionsUtilisateurs || []).map((x: any) => x.userId || x.user?.id).filter(Boolean)
+    );
+    (usersList || [])
+      .filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'))
+      .forEach((a: any) => {
+        const isAuthor = doc.uploadedById === a.id;
+        const hasPerm = permIds.has(a.id);
+        if (isAuthor) {
+          setRow(a.id, `${a.prenom} ${a.nom}`, 'Auteur du document : tous les droits sur la pièce');
+        } else if (excluded.has(a.id) && !hasPerm) {
+          setRow(a.id, `${a.prenom} ${a.nom}`, 'Admin : aucun accès (exclu par auteur)');
+        } else if (hasPerm) {
+          setRow(a.id, `${a.prenom} ${a.nom}`, 'Admin : accès limité — lecture (liste explicite)');
+        } else {
+          setRow(a.id, `${a.prenom} ${a.nom}`, `Admin : ${DROITS_ADMIN_DOC_PROJET_NATIF}`);
+        }
+      });
+    (doc.permissionsUtilisateurs || []).forEach((perm: any) => {
+      const uid = perm.user?.id;
+      if (!uid || perm.user?.role === 'admin') return;
+      setRow(uid, `${perm.user.prenom} ${perm.user.nom}`, 'Accès explicite : lecture');
+    });
+    if (doc.uploadedBy?.id && !map.has(doc.uploadedBy.id)) {
+      setRow(
+        doc.uploadedBy.id,
+        `${doc.uploadedBy.prenom} ${doc.uploadedBy.nom}`,
+        'Auteur du document : tous les droits sur la pièce'
+      );
+    }
+    return Array.from(map.entries())
+      .map(([id, v]) => ({ id, nom: v.nom, role: v.role }))
+      .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+  }
+
   const adminDoc = 'Admin : modification statut + accès + lecture';
   (usersList || []).forEach((u: any) => {
     if (u.role === 'admin' && (!u.statut || u.statut === 'actif')) {
@@ -547,6 +598,10 @@ export default function ProjetDetail() {
   const [acceDoc, setAcceDoc] = useState<any>(null);
   const [acceEstConfidentiel, setAcceEstConfidentiel] = useState(false);
   const [accePermissionUserIds, setAccePermissionUserIds] = useState<string[]>([]);
+  const [showDocAccesContratModal, setShowDocAccesContratModal] = useState(false);
+  const [docAccesDetail, setDocAccesDetail] = useState<any | null>(null);
+  const [docAccesLoading, setDocAccesLoading] = useState(false);
+  const [newDocPermUserId, setNewDocPermUserId] = useState('');
   const printRef = useRef<HTMLDivElement>(null);
 
   const [projet, setProjet] = useState<any>(null);
@@ -738,6 +793,19 @@ export default function ProjetDetail() {
     if (!doc.estConfidentiel) return 'ok';
     const uid = currentUser?.id;
     if (!uid) return 'document';
+
+    if (isNativeProjetUploadDoc(doc)) {
+      if (doc.uploadedById === uid) return 'ok';
+      if (doc.permissionsUtilisateurs?.some((p: any) => p.userId === uid || p.user?.id === uid)) {
+        return 'ok';
+      }
+      if (currentUser?.role === 'admin') {
+        const excluded = doc.adminSansAccesUserIds || [];
+        if (!excluded.includes(uid)) return 'ok';
+      }
+      return 'document';
+    }
+
     if (doc.uploadedById === uid) return 'ok';
     if (
       projet &&
@@ -902,6 +970,9 @@ export default function ProjetDetail() {
   };
   const canModifierAcces = (doc: any) => {
     if (!currentUser) return false;
+    if (isNativeProjetUploadDoc(doc)) {
+      return doc.uploadedById === currentUser.id;
+    }
     if (currentUser.role === 'admin') return true;
     if (projet && projet.createdById === currentUser.id) return true;
     if (doc.uploadedById === currentUser.id) return true;
@@ -911,12 +982,28 @@ export default function ProjetDetail() {
   };
   const canModifierStatut = (doc: any) => {
     if (!currentUser) return false;
+    if (isNativeProjetUploadDoc(doc)) {
+      if (doc.uploadedById === currentUser.id) return true;
+      return !!doc.permissionsUtilisateurs?.some(
+        (p: any) => (p.userId || p.user?.id) === currentUser.id
+      );
+    }
     if (currentUser.role === 'admin') return true;
     if (projet && projet.createdById === currentUser.id) return true;
     if (doc.uploadedById === currentUser.id) return true;
     const chefIds = (projet?.chefsProjet || []).map((s: any) => s.user?.id || s.id);
     if (chefIds.includes(currentUser.id)) return true;
     return false;
+  };
+  const canSupprimerDocument = (doc: any) => {
+    if (!currentUser) return false;
+    if (isNativeProjetUploadDoc(doc)) {
+      if (doc.uploadedById === currentUser.id) return true;
+      return !!doc.permissionsUtilisateurs?.some(
+        (p: any) => (p.userId || p.user?.id) === currentUser.id
+      );
+    }
+    return true;
   };
   const handleChangeStatut = async (docId: string, newStatut: string) => {
     try {
@@ -931,11 +1018,101 @@ export default function ProjetDetail() {
       }
     }
   };
-  const handleOpenAccesModal = (doc: any) => {
+  const refreshDocAccesDetail = async (documentId: string) => {
+    const { data } = await api.get(`/documents/${documentId}/acces`);
+    setDocAccesDetail(data);
+  };
+
+  const handleOpenAccesModal = async (doc: any) => {
     setAcceDoc(doc);
+    if (isNativeProjetUploadDoc(doc)) {
+      setShowDocAccesContratModal(true);
+      setDocAccesDetail(null);
+      setNewDocPermUserId('');
+      setDocAccesLoading(true);
+      try {
+        const { data } = await api.get(`/documents/${doc.id}/acces`);
+        setDocAccesDetail(data);
+      } catch (e: any) {
+        alert(e?.response?.data?.error || e?.message || 'Erreur chargement accès');
+        setShowDocAccesContratModal(false);
+        setAcceDoc(null);
+      } finally {
+        setDocAccesLoading(false);
+      }
+      return;
+    }
     setAcceEstConfidentiel(doc.estConfidentiel || false);
     setAccePermissionUserIds(doc.permissionsUtilisateurs?.map((p: any) => p.userId || p.user?.id).filter(Boolean) || []);
     setShowAccesModal(true);
+  };
+
+  const handleDocRestoreAdmin = async (userId: string) => {
+    if (!acceDoc) return;
+    if (!window.confirm("Rétablir l'accès administrateur implicite (complet) pour cet utilisateur ?")) return;
+    try {
+      await api.delete(`/documents/${acceDoc.id}/admin-sans-acces/${userId}`);
+      await refreshDocAccesDetail(acceDoc.id);
+      await loadDocuments();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleDocRevokeAdminImplicit = async (userId: string) => {
+    if (!acceDoc) return;
+    if (
+      !window.confirm(
+        "Retirer tout accès à cet administrateur sur ce document ? Il ne le verra plus tant que vous ne lui accorderez pas un accès explicite."
+      )
+    ) {
+      return;
+    }
+    try {
+      await api.post(`/documents/${acceDoc.id}/admin-sans-acces`, { userId });
+      await refreshDocAccesDetail(acceDoc.id);
+      await loadDocuments();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleDocQuickLimitAdmin = async (userId: string) => {
+    if (!acceDoc) return;
+    try {
+      await api.post(`/documents/${acceDoc.id}/permissions`, { userId });
+      await refreshDocAccesDetail(acceDoc.id);
+      await loadDocuments();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleDocRemovePermissionRow = async (permissionId: string, targetIsAdmin?: boolean) => {
+    if (!acceDoc) return;
+    const msg = targetIsAdmin
+      ? "Révoquer cet accès ? L'administrateur n'aura plus de droit explicite ; sans rétablissement il pourra être totalement exclu."
+      : 'Retirer cet accès ?';
+    if (!window.confirm(msg)) return;
+    try {
+      await api.delete(`/documents/${acceDoc.id}/permissions/${permissionId}`);
+      await refreshDocAccesDetail(acceDoc.id);
+      await loadDocuments();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleDocAddSharedPermission = async () => {
+    if (!acceDoc || !newDocPermUserId) return;
+    try {
+      await api.post(`/documents/${acceDoc.id}/permissions`, { userId: newDocPermUserId });
+      setNewDocPermUserId('');
+      await refreshDocAccesDetail(acceDoc.id);
+      await loadDocuments();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
   };
   const handleSaveAcces = async () => {
     if (!acceDoc) return;
@@ -1850,10 +2027,9 @@ export default function ProjetDetail() {
                 vous.
               </li>
               <li>
-                <strong>Document du projet</strong> : en ajoutant un fichier, vous pouvez le marquer confidentiel et
-                restreindre la consultation à une liste d&apos;utilisateurs (en plus des rôles projet déjà habilités).
-                Les droits fins lecture / modification / suppression au niveau fichier suivront l&apos;évolution du
-                modèle métier ; aujourd&apos;hui la liste ci-dessous reflète qui peut consulter ou gérer le document.
+                <strong>Document déposé sur le projet</strong> (fichier ajouté ici, confidentiel) : seuls l&apos;auteur du
+                dépôt et les personnes explicitement autorisées peuvent consulter, changer le statut ou supprimer la
+                pièce. L&apos;auteur gère les accès comme sur une fiche contrat (exclure ou limiter les administrateurs).
               </li>
               <li>
                 <strong>Document lié</strong> : en liant un document déjà existant, les mêmes règles d&apos;accès que sur
@@ -1905,20 +2081,76 @@ export default function ProjetDetail() {
                         <div>
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">🔒 Accès restreint</span>
                           <div className="mt-1 text-xs text-gray-600 space-y-0.5">
-                            {(() => {
-                              const ayantsDroit: {nom: string, droits: string}[] = [];
-                              const addPerson = (id: string, nom: string, droits: string) => {
-                                if (!ayantsDroit.find(a => a.nom === nom)) ayantsDroit.push({ nom, droits });
-                              };
-                              users.filter(u => u.role === 'admin').forEach(u => addPerson(u.id, `${u.prenom} ${u.nom}`, 'Admin : modification statut + accès + lecture'));
-                              if (doc.uploadedBy) addPerson(doc.uploadedBy.id, `${doc.uploadedBy.prenom} ${doc.uploadedBy.nom}`, 'Uploadeur : modification statut + accès + lecture');
-                              if (projet?.createdBy) addPerson(projet.createdBy.id, `${projet.createdBy.prenom} ${projet.createdBy.nom}`, 'Créateur : modification statut + accès + lecture');
-                              (doc.permissionsUtilisateurs || []).forEach((p: any) => { if (p.user) addPerson(p.user.id, `${p.user.prenom} ${p.user.nom}`, 'Accès explicite : lecture'); });
-                              if (ayantsDroit.length === 0) return <span className="italic text-gray-400">Aucun utilisateur défini</span>;
-                              return ayantsDroit.map((a, i) => (
-                                <div key={i}><span className="font-medium">{a.nom}</span> <span className="text-gray-400">({a.droits})</span></div>
-                              ));
-                            })()}
+                            {isNativeProjetUploadDoc(doc) ? (
+                              <>
+                                <AccessContratLikeAdminLines
+                                  keyPrefix={`pd-row-${doc.id}`}
+                                  users={users}
+                                  createdById={doc.uploadedById}
+                                  createdBy={doc.uploadedBy}
+                                  adminSansAccesUserIds={doc.adminSansAccesUserIds}
+                                  permissions={(doc.permissionsUtilisateurs || [])
+                                    .filter((p: any) => p.user?.role === 'admin')
+                                    .map((p: any) => ({
+                                      userId: p.userId || p.user?.id,
+                                      niveau: 'lecture',
+                                      user: p.user,
+                                    }))}
+                                  droitsAdminCompletLabel={DROITS_ADMIN_DOC_PROJET_NATIF}
+                                  creatorRightsLabel="auteur — tous les droits sur ce document"
+                                  niveauLabel={() => 'Lecture'}
+                                  limitedPrefix="Admin : accès limité —"
+                                />
+                                {(doc.permissionsUtilisateurs || [])
+                                  .filter((p: any) => p.user && p.user.role !== 'admin')
+                                  .map((p: any) => (
+                                    <div key={p.id} className="min-w-0">
+                                      <span className="font-medium text-gray-900">
+                                        {p.user.prenom} {p.user.nom}
+                                      </span>
+                                      <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                        (Accès explicite : lecture)
+                                      </span>
+                                    </div>
+                                  ))}
+                              </>
+                            ) : (
+                              (() => {
+                                const ayantsDroit: { nom: string; droits: string }[] = [];
+                                const addPerson = (id: string, nom: string, droits: string) => {
+                                  if (!ayantsDroit.find((a) => a.nom === nom)) ayantsDroit.push({ nom, droits });
+                                };
+                                users
+                                  .filter((u) => u.role === 'admin')
+                                  .forEach((u) =>
+                                    addPerson(u.id, `${u.prenom} ${u.nom}`, 'Admin : modification statut + accès + lecture')
+                                  );
+                                if (doc.uploadedBy)
+                                  addPerson(
+                                    doc.uploadedBy.id,
+                                    `${doc.uploadedBy.prenom} ${doc.uploadedBy.nom}`,
+                                    'Uploadeur : modification statut + accès + lecture'
+                                  );
+                                if (projet?.createdBy)
+                                  addPerson(
+                                    projet.createdBy.id,
+                                    `${projet.createdBy.prenom} ${projet.createdBy.nom}`,
+                                    'Créateur : modification statut + accès + lecture'
+                                  );
+                                (doc.permissionsUtilisateurs || []).forEach((p: any) => {
+                                  if (p.user)
+                                    addPerson(p.user.id, `${p.user.prenom} ${p.user.nom}`, 'Accès explicite : lecture');
+                                });
+                                if (ayantsDroit.length === 0)
+                                  return <span className="italic text-gray-400">Aucun utilisateur défini</span>;
+                                return ayantsDroit.map((a, i) => (
+                                  <div key={i}>
+                                    <span className="font-medium">{a.nom}</span>{' '}
+                                    <span className="text-gray-400">({a.droits})</span>
+                                  </div>
+                                ));
+                              })()
+                            )}
                           </div>
                         </div>
                       ) : (
@@ -1949,7 +2181,24 @@ export default function ProjetDetail() {
                       )}
                     </td>
                     <td className="px-4 py-2 text-sm">
-                      <div className="flex gap-2"><button onClick={() => handleViewDocument(doc)} className="px-3 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">👁 Visualiser</button><button onClick={() => handleDownload(doc)} className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200">⬇ Télécharger</button>{doc.typeDocument !== 'projet' && <button onClick={() => handleDelierDocument(doc.id, doc.nom)} className="px-3 py-1 bg-orange-100 text-orange-700 rounded text-xs hover:bg-orange-200">🔗 Délier</button>}{canModifierAcces(doc) && <button onClick={() => handleOpenAccesModal(doc)} className="px-3 py-1 bg-purple-100 text-purple-700 rounded text-xs hover:bg-purple-200">🔑 Accès</button>}<button onClick={() => handleDeleteDocument(doc.id, doc.nom)} className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200">🗑 Supprimer</button></div>
+                      <div className="flex gap-2"><button onClick={() => handleViewDocument(doc)} className="px-3 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">👁 Visualiser</button><button onClick={() => handleDownload(doc)} className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200">⬇ Télécharger</button>{doc.typeDocument !== 'projet' && <button onClick={() => handleDelierDocument(doc.id, doc.nom)} className="px-3 py-1 bg-orange-100 text-orange-700 rounded text-xs hover:bg-orange-200">🔗 Délier</button>}{canModifierAcces(doc) && (
+                        <button
+                          type="button"
+                          onClick={() => void handleOpenAccesModal(doc)}
+                          className="px-3 py-1 bg-purple-100 text-purple-700 rounded text-xs hover:bg-purple-200"
+                        >
+                          🔑 Accès
+                        </button>
+                      )}
+                      {canSupprimerDocument(doc) && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteDocument(doc.id, doc.nom)}
+                          className="px-3 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200"
+                        >
+                          🗑 Supprimer
+                        </button>
+                      )}</div>
                     </td>
                   </tr>
                 ))}
@@ -2099,6 +2348,212 @@ export default function ProjetDetail() {
         )}
         </div>{/* fin print-zone */}
       </div>{/* p-6 page */}
+      {showDocAccesContratModal && acceDoc && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-6">
+          <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
+            <h3 className="text-xl font-semibold mb-2">Accès — {acceDoc.nom}</h3>
+            <p className="text-sm text-gray-600 mb-5 leading-relaxed">
+              <span className="font-medium">Seul l&apos;auteur du dépôt</span> peut gérer les accès. Pour un administrateur
+              : sans ligne dans « Accès partagés » et sans exclusion, accès complet sur la pièce ; une ligne limite à la
+              lecture ; « Retirer l&apos;accès » le prive totalement jusqu&apos;à un accès explicite ou « Rétablir l&apos;accès
+              admin par défaut ».
+            </p>
+            {docAccesDetail && !docAccesDetail.canManagePermissions && (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2 mb-4">
+                Vous consultez la liste en lecture seule. Pour modifier les droits, connectez-vous en tant qu&apos;auteur du
+                document.
+              </p>
+            )}
+            {docAccesLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : docAccesDetail ? (
+              <div className="space-y-5 text-sm">
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
+                  <ul className="space-y-3 text-gray-700 text-sm">
+                    {(docAccesDetail.admins || []).map((a: any) => {
+                      const userDelegations = (docAccesDetail.delegations || []).filter((d: any) => d.user?.id === a.id);
+                      const primaryDelegation = userDelegations[0];
+                      const explicite = userDelegations.length > 0;
+                      const isCreatorAdmin = docAccesDetail.creator?.id === a.id;
+                      const refuse = (docAccesDetail.adminSansAccesUserIds || []).includes(a.id);
+                      return (
+                        <li
+                          key={a.id}
+                          className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 border border-gray-100 rounded-lg px-3 py-2 bg-white"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <span className="font-medium text-base">
+                              {a.prenom} {a.nom}
+                            </span>
+                            <span className="text-gray-500 ml-1">({a.email})</span>
+                            {refuse && !explicite && (
+                              <span className="text-red-700 block sm:inline sm:ml-1 text-xs font-medium">
+                                — aucun accès (exclu ; accorder un accès via la liste ci-dessous pour le réintégrer)
+                              </span>
+                            )}
+                            {!refuse && !explicite && (
+                              <span className="text-gray-400 block sm:inline sm:ml-1">
+                                — accès complet (défaut administrateur)
+                              </span>
+                            )}
+                            {explicite && (
+                              <span className="text-amber-800 block sm:inline sm:ml-1 text-xs font-medium">
+                                — accès limité (liste explicite — lecture)
+                              </span>
+                            )}
+                          </div>
+                          {docAccesDetail.canManagePermissions && !isCreatorAdmin && (
+                            <div className="flex flex-wrap items-center gap-2 shrink-0">
+                              {refuse && !explicite ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDocRestoreAdmin(a.id)}
+                                  className="text-xs px-3 py-1.5 bg-green-100 text-green-800 rounded-md hover:bg-green-200"
+                                >
+                                  Rétablir l&apos;accès admin par défaut
+                                </button>
+                              ) : !explicite ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleDocQuickLimitAdmin(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                                  >
+                                    Limiter l&apos;accès (lecture)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleDocRevokeAdminImplicit(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                  >
+                                    Retirer l&apos;accès
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void handleDocRemovePermissionRow(primaryDelegation.id, a.role === 'admin')
+                                  }
+                                  className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                >
+                                  Révoquer l&apos;accès
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          {docAccesDetail.canManagePermissions && isCreatorAdmin && (
+                            <span className="text-xs text-gray-500">
+                              Auteur du document : accès complet, non modérable ici.
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Auteur du document</p>
+                  {docAccesDetail.creator ? (
+                    <p>
+                      <span className="font-medium">
+                        {docAccesDetail.creator.prenom} {docAccesDetail.creator.nom}
+                      </span>
+                      <span className="text-gray-400">
+                        {' '}
+                        — seul habilité à gérer les accès de cette pièce
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-amber-800 text-sm">Auteur non résolu.</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Accès partagés</p>
+                  {(docAccesDetail.delegations || []).length === 0 ? (
+                    <p className="text-gray-400 text-xs italic">Aucun accès délégué</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {(docAccesDetail.delegations || []).map((d: any) => (
+                        <li
+                          key={d.id}
+                          className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50"
+                        >
+                          <span className="font-medium">
+                            {d.user.prenom} {d.user.nom}
+                            {d.user.role === 'admin' && (
+                              <span className="text-xs font-normal text-gray-500 ml-1">(admin)</span>
+                            )}
+                          </span>
+                          <span className="text-gray-500 text-sm">— lecture</span>
+                          {docAccesDetail.canManagePermissions && (
+                            <button
+                              type="button"
+                              onClick={() => void handleDocRemovePermissionRow(d.id, d.user?.role === 'admin')}
+                              className="text-xs text-red-600 hover:underline ml-auto"
+                            >
+                              {d.user?.role === 'admin' ? 'Révoquer' : 'Retirer'}
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {docAccesDetail.canManagePermissions && (
+                  <div className="border-t border-gray-200 pt-4 space-y-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accorder un accès</p>
+                    <div className="flex flex-wrap items-end gap-3">
+                      <select
+                        value={newDocPermUserId}
+                        onChange={(e) => setNewDocPermUserId(e.target.value)}
+                        className="min-w-[12rem] border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        <option value="">— Utilisateur —</option>
+                        {users
+                          .filter(
+                            (u: any) =>
+                              (!u.statut || u.statut === 'actif') && u.id !== docAccesDetail.creator?.id
+                          )
+                          .map((u: any) => (
+                            <option key={u.id} value={u.id}>
+                              {u.prenom} {u.nom} {u.role === 'admin' ? '(admin)' : ''}
+                            </option>
+                          ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => void handleDocAddSharedPermission()}
+                        disabled={!newDocPermUserId}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        Ajouter
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">Impossible de charger le détail.</p>
+            )}
+            <div className="flex justify-end mt-6">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDocAccesContratModal(false);
+                  setAcceDoc(null);
+                  setDocAccesDetail(null);
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Modifier Accès */}
       {showAccesModal && acceDoc && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

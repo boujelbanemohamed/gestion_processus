@@ -192,6 +192,17 @@ app.get("/api/v1/documents/:id/view", documentController.viewDocument);
 app.get("/api/v1/documents/:id/download", documentController.downloadDocument);
 app.get("/api/v1/documents/:id/versions/:versionId/download", documentController.downloadVersion);
 app.get("/api/v1/documents/:id/comments", documentCommentController.listComments);
+app.get("/api/v1/documents/:id/acces", documentController.getDocumentAcces);
+app.post("/api/v1/documents/:id/permissions", documentController.addDocumentPermissionRow);
+app.delete(
+  "/api/v1/documents/:id/permissions/:permissionId",
+  documentController.removeDocumentPermissionRow
+);
+app.post("/api/v1/documents/:id/admin-sans-acces", documentController.blockDocumentAdminImplicit);
+app.delete(
+  "/api/v1/documents/:id/admin-sans-acces/:userId",
+  documentController.restoreDocumentAdminImplicit
+);
 app.get("/api/v1/documents/:id", documentController.getDocument);
 app.put("/api/v1/documents/:id", documentController.updateDocument);
 app.delete("/api/v1/documents/:id", documentController.deleteDocument);

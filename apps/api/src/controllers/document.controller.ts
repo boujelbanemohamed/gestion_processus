@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { DocumentService } from '../services/document.service';
+import { DocumentService, isNativeProjetUploadDocument } from '../services/document.service';
 import { AuthRequest } from '../middleware/auth';
 import { logAccess } from '../middleware/logger';
 import multer from 'multer';
@@ -238,6 +238,24 @@ export const createVersion = async (req: AuthRequest, res: Response) => {
               'Vous n\'avez pas les permissions pour créer une nouvelle version de ce document. Un niveau Modification ou Suppression sur la licence est requis.',
           });
         }
+      } else if (oldDocument.referenceType === 'projet' && oldDocument.referenceId) {
+        if (isNativeProjetUploadDocument(oldDocument as any)) {
+          const ok = await documentService.canUserDeleteOrAddVersion(
+            oldDocument.id,
+            req.user.userId,
+            req.user.role
+          );
+          if (!ok) {
+            return res.status(403).json({
+              error:
+                'Vous ne pouvez pas créer de version : seuls l’auteur ou un utilisateur explicitement autorisé sur cette pièce le peuvent.',
+            });
+          }
+        } else {
+          return res.status(403).json({
+            error: 'Vous n\'avez pas les permissions pour créer une nouvelle version de ce document.',
+          });
+        }
       } else {
         // Si le document n'est pas lié à un processus ni à une licence, seuls les admins peuvent créer une version
         return res.status(403).json({ 
@@ -428,6 +446,18 @@ export const updateDocument = async (req: AuthRequest, res: Response) => {
               'Vous n\'avez pas les permissions pour modifier ce document. Un niveau Modification ou Suppression sur la licence est requis.',
           });
         }
+      } else if (oldDocument.referenceType === 'projet' && oldDocument.referenceId) {
+        if (
+          isNativeProjetUploadDocument(oldDocument as any) &&
+          oldDocument.uploadedById === req.user.userId
+        ) {
+          /* auteur d’une pièce confidentielle déposée sur le projet */
+        } else {
+          return res.status(403).json({
+            error:
+              'Modification non autorisée : document lié ou non auteur — utilisez le contexte d’origine ou contactez l’auteur de la pièce.',
+          });
+        }
       } else {
         // Si le document n'est pas lié à un processus ni à une licence, seuls les admins peuvent le modifier
         return res.status(403).json({ 
@@ -539,6 +569,24 @@ export const deleteDocument = async (req: AuthRequest, res: Response) => {
               'Vous n\'avez pas les permissions pour supprimer ce document. Un niveau Modification ou Suppression sur la licence est requis.',
           });
         }
+      } else if (document.referenceType === 'projet' && document.referenceId) {
+        if (isNativeProjetUploadDocument(document as any)) {
+          const ok = await documentService.canUserDeleteOrAddVersion(
+            document.id,
+            req.user.userId,
+            req.user.role
+          );
+          if (!ok) {
+            return res.status(403).json({
+              error:
+                'Suppression non autorisée : seuls l’auteur ou un utilisateur explicitement autorisé sur cette pièce peuvent supprimer.',
+            });
+          }
+        } else {
+          return res.status(403).json({
+            error: 'Vous n\'avez pas les permissions pour supprimer ce document.',
+          });
+        }
       } else {
         // Si le document n'est pas lié à un processus ni à une licence, seuls les admins peuvent le supprimer
         return res.status(403).json({ 
@@ -561,5 +609,94 @@ export const deleteDocument = async (req: AuthRequest, res: Response) => {
     res.status(204).send();
   } catch (error: any) {
     res.status(400).json({ error: error.message });
+  }
+};
+
+export const getDocumentAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
+    const data = await documentService.getDocumentAccesDetail(req.params.id, req.user.userId, req.user.role);
+    res.json(data);
+  } catch (e: any) {
+    const code =
+      e.message === 'NOT_FOUND'
+        ? 404
+        : e.message === 'FORBIDDEN'
+          ? 403
+          : e.message === 'ACCES_DETAIL_UNAVAILABLE'
+            ? 400
+            : 500;
+    const msg =
+      e.message === 'ACCES_DETAIL_UNAVAILABLE'
+        ? "Le détail d'accès type « contrat » n'est disponible que pour un document confidentiel déposé depuis la fiche projet."
+        : e.message;
+    res.status(code).json({ error: msg });
+  }
+};
+
+export const addDocumentPermissionRow = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId requis' });
+    const row = await documentService.addDocumentExplicitPermission(req.params.id, userId, req.user.userId);
+    await logAccess(req, res, 'modification', 'document', req.params.id, undefined, {
+      action: 'document_permission_ajoutee',
+      userId,
+    });
+    res.status(201).json(row);
+  } catch (e: any) {
+    const code =
+      e.message === 'NOT_FOUND' ? 404 : e.message === 'FORBIDDEN' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const removeDocumentPermissionRow = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    await documentService.removeDocumentPermissionEntry(req.params.id, req.params.permissionId, req.user.userId);
+    await logAccess(req, res, 'modification', 'document', req.params.id, undefined, {
+      action: 'document_permission_retiree',
+      permissionId: req.params.permissionId,
+    });
+    res.status(204).send();
+  } catch (e: any) {
+    const code = e.message === 'NOT_FOUND' ? 404 : e.message === 'FORBIDDEN' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const blockDocumentAdminImplicit = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId requis' });
+    await documentService.blockDocumentAdminImplicit(req.params.id, userId, req.user.userId);
+    await logAccess(req, res, 'modification', 'document', req.params.id, undefined, {
+      action: 'document_admin_sans_acces',
+      userId,
+    });
+    res.status(204).send();
+  } catch (e: any) {
+    const code = e.message === 'FORBIDDEN' || e.message === 'NOT_FOUND' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const restoreDocumentAdminImplicit = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    await documentService.restoreDocumentAdminImplicit(req.params.id, req.params.userId, req.user.userId);
+    await logAccess(req, res, 'modification', 'document', req.params.id, undefined, {
+      action: 'document_admin_acces_retabli',
+      userId: req.params.userId,
+    });
+    res.status(204).send();
+  } catch (e: any) {
+    const code = e.message === 'FORBIDDEN' || e.message === 'NOT_FOUND' ? 403 : 400;
+    res.status(code).json({ error: e.message });
   }
 };

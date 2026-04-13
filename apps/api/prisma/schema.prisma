@@ -151,6 +151,7 @@ model User {
   permissions           Permission[] @relation("PermissionUser")
   permissionsGranted    Permission[] @relation("PermissionGrantedBy")
   documentPermissions    DocumentPermission[] @relation("DocumentPermissionUser")
+  documentsAdminSansAcces DocumentAdminSansAcces[] @relation("DocumentAdminSansAcces")
   journalAcces          JournalAcces[]
   entitesResponsable    Entite[]    @relation("EntiteResponsable")
   entitesMembres        UserEntite[]
@@ -558,6 +559,7 @@ model Document {
   // Relations
   versions            VersionDocument[]
   permissionsUtilisateurs DocumentPermission[]
+  adminSansAcces      DocumentAdminSansAcces[]
   comments            DocumentComment[]
   favoris             FavorisDocument[]
   tacheDocuments      TacheDocument[]    @relation("DocumentTache")
@@ -594,6 +596,20 @@ model DocumentPermission {
   userId            String
   user              User        @relation("DocumentPermissionUser", fields: [userId], references: [id], onDelete: Cascade)
   createdAt         DateTime    @default(now())
+
+  @@unique([documentId, userId])
+  @@index([documentId])
+  @@index([userId])
+}
+
+/// Administrateurs privés d’accès implicite sur un document confidentiel « natif projet » (upload depuis la fiche projet).
+model DocumentAdminSansAcces {
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation("DocumentAdminSansAcces", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
 
   @@unique([documentId, userId])
   @@index([documentId])

@@ -149,9 +149,24 @@ function canSoftDeleteProjet(
   return perms.some((t) => ['suppression', 'gestion'].includes(t));
 }
 
-/** Créateur ou délégation « gestion » uniquement (admin implicite ne gère plus les accès — aligné contrat). */
-function canManageProjetPermissions(row: { createdById: string | null }, auth: ProjetAuth, permTypes: PermissionType[]) {
-  if (row.createdById === auth.userId) return true;
+/** Utilisateur de référence pour les droits d’accès (créateur enregistré, sinon responsable, sinon gestionnaire). */
+function projetAccesOwnerUserId(row: {
+  createdById: string | null;
+  responsableId?: string | null;
+  gestionnaireId?: string | null;
+}): string | null {
+  if (row.createdById) return row.createdById;
+  return row.responsableId ?? row.gestionnaireId ?? null;
+}
+
+/** Propriétaire métier des accès ou délégation « gestion » (admin implicite ne gère pas les accès — aligné contrat). */
+function canManageProjetPermissions(
+  row: { createdById: string | null; responsableId?: string | null; gestionnaireId?: string | null },
+  auth: ProjetAuth,
+  permTypes: PermissionType[]
+) {
+  const ownerId = projetAccesOwnerUserId(row);
+  if (ownerId === auth.userId) return true;
   return (permTypes ?? []).includes('gestion');
 }
 
@@ -178,10 +193,10 @@ function capabilitiesProjet(
 
 async function maybeExcludeAdminAfterProjetPermissionRemoved(
   projetId: string,
-  projetCreatedById: string | null,
+  projetAccesOwnerId: string | null,
   targetUserId: string
 ) {
-  if (targetUserId === projetCreatedById) return;
+  if (projetAccesOwnerId && targetUserId === projetAccesOwnerId) return;
   const u = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
   if (u?.role !== 'admin') return;
   const remaining = await prisma.permission.count({
@@ -598,9 +613,10 @@ export class ProjetService {
       select: { id: true, nom: true, prenom: true, email: true, role: true },
       orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
     });
-    const creator = p.createdById
+    const ownerId = projetAccesOwnerUserId(p);
+    const creator = ownerId
       ? await prisma.user.findUnique({
-          where: { id: p.createdById },
+          where: { id: ownerId },
           select: { id: true, nom: true, prenom: true, email: true, role: true },
         })
       : null;
@@ -637,23 +653,31 @@ export class ProjetService {
         grantedBy: r.grantedBy,
         createdAt: r.createdAt,
       })),
-      canManagePermissions: canManageProjetPermissions({ createdById: p.createdById }, auth, permTypes),
+      canManagePermissions: canManageProjetPermissions(
+        { createdById: p.createdById, responsableId: p.responsableId, gestionnaireId: p.gestionnaireId },
+        auth,
+        permTypes
+      ),
       adminSansAccesUserIds,
     };
   }
 
   async addPermission(projetId: string, targetUserId: string, permission: PermissionType, auth: ProjetAuth) {
-    const p = await prisma.projet.findFirst({ where: { id: projetId, deletedAt: null } });
+    const p = await prisma.projet.findFirst({
+      where: { id: projetId, deletedAt: null },
+      select: { createdById: true, responsableId: true, gestionnaireId: true },
+    });
     if (!p) throw new Error('NOT_FOUND');
     const permTypes = await myPermTypesForProjet(projetId, auth.userId);
-    if (!canManageProjetPermissions({ createdById: p.createdById }, auth, permTypes)) throw new Error('FORBIDDEN');
+    if (!canManageProjetPermissions(p, auth, permTypes)) throw new Error('FORBIDDEN');
 
     const target = await prisma.user.findUnique({
       where: { id: targetUserId },
       select: { id: true, role: true, nom: true, prenom: true },
     });
     if (!target) throw new Error('Utilisateur introuvable');
-    if (p.createdById === targetUserId) throw new Error('Le créateur du projet a déjà tous les droits');
+    const ownerId = projetAccesOwnerUserId(p);
+    if (ownerId === targetUserId) throw new Error('Le créateur du projet a déjà tous les droits');
 
     try {
       await prisma.projetAdminSansAcces.deleteMany({ where: { projetId, userId: targetUserId } });
@@ -677,10 +701,13 @@ export class ProjetService {
   }
 
   async removePermission(projetId: string, permissionId: string, auth: ProjetAuth) {
-    const p = await prisma.projet.findFirst({ where: { id: projetId, deletedAt: null } });
+    const p = await prisma.projet.findFirst({
+      where: { id: projetId, deletedAt: null },
+      select: { createdById: true, responsableId: true, gestionnaireId: true },
+    });
     if (!p) throw new Error('NOT_FOUND');
     const permTypes = await myPermTypesForProjet(projetId, auth.userId);
-    if (!canManageProjetPermissions({ createdById: p.createdById }, auth, permTypes)) throw new Error('FORBIDDEN');
+    if (!canManageProjetPermissions(p, auth, permTypes)) throw new Error('FORBIDDEN');
 
     const perm = await prisma.permission.findFirst({
       where: { id: permissionId, ressourceType: 'projet', ressourceId: projetId },
@@ -688,15 +715,19 @@ export class ProjetService {
     if (!perm) throw new Error('NOT_FOUND');
     const targetUserId = perm.userId;
     await prisma.permission.delete({ where: { id: permissionId } });
-    await maybeExcludeAdminAfterProjetPermissionRemoved(projetId, p.createdById, targetUserId);
+    await maybeExcludeAdminAfterProjetPermissionRemoved(projetId, projetAccesOwnerUserId(p), targetUserId);
   }
 
   async blockAdminImplicitAccess(projetId: string, targetUserId: string, auth: ProjetAuth) {
-    const p = await prisma.projet.findFirst({ where: { id: projetId, deletedAt: null } });
+    const p = await prisma.projet.findFirst({
+      where: { id: projetId, deletedAt: null },
+      select: { createdById: true, responsableId: true, gestionnaireId: true },
+    });
     if (!p) throw new Error('NOT_FOUND');
     const permTypes = await myPermTypesForProjet(projetId, auth.userId);
-    if (!canManageProjetPermissions({ createdById: p.createdById }, auth, permTypes)) throw new Error('FORBIDDEN');
-    if (p.createdById === targetUserId) throw new Error('Le créateur du projet ne peut pas être exclu');
+    if (!canManageProjetPermissions(p, auth, permTypes)) throw new Error('FORBIDDEN');
+    const ownerId = projetAccesOwnerUserId(p);
+    if (ownerId === targetUserId) throw new Error('Le créateur du projet ne peut pas être exclu');
     const target = await prisma.user.findUnique({
       where: { id: targetUserId },
       select: { role: true, nom: true, prenom: true },
@@ -722,10 +753,13 @@ export class ProjetService {
   }
 
   async restoreAdminImplicitAccess(projetId: string, targetUserId: string, auth: ProjetAuth) {
-    const p = await prisma.projet.findFirst({ where: { id: projetId, deletedAt: null } });
+    const p = await prisma.projet.findFirst({
+      where: { id: projetId, deletedAt: null },
+      select: { createdById: true, responsableId: true, gestionnaireId: true },
+    });
     if (!p) throw new Error('NOT_FOUND');
     const permTypes = await myPermTypesForProjet(projetId, auth.userId);
-    if (!canManageProjetPermissions({ createdById: p.createdById }, auth, permTypes)) throw new Error('FORBIDDEN');
+    if (!canManageProjetPermissions(p, auth, permTypes)) throw new Error('FORBIDDEN');
     const target = await prisma.user.findUnique({
       where: { id: targetUserId },
       select: { nom: true, prenom: true },
