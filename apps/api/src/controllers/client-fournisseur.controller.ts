@@ -13,7 +13,12 @@ function handleCfError(res: Response, e: any) {
   const msg = e?.message || String(e);
     if (msg === 'NOT_FOUND') return res.status(404).json({ error: 'Non trouvé' });
     if (msg === 'FORBIDDEN') return res.status(403).json({ error: 'Accès refusé' });
-    if (msg === 'BAD_INPUT' || msg.startsWith('Les administrateurs') || msg.startsWith('Le créateur')) {
+    if (
+      msg === 'BAD_INPUT' ||
+      msg.startsWith('Les administrateurs') ||
+      msg.startsWith('Le créateur') ||
+      msg.startsWith('Impossible')
+    ) {
       return res.status(400).json({ error: msg });
     }
   if (e?.code === 'P2002') return res.status(409).json({ error: 'Ce droit est déjà accordé pour cet utilisateur' });
@@ -136,6 +141,30 @@ export const removeClientFournisseurPermission = async (req: AuthRequest, res: R
     if (!auth) return res.status(401).json({ error: 'Non authentifié' });
     await clientFournisseurService.removeDelegation(req.params.id, req.params.permissionId, auth);
     res.json({ success: true });
+  } catch (e: any) {
+    return handleCfError(res, e);
+  }
+};
+
+export const postClientFournisseurAdminSansAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    const auth = authFromReq(req);
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
+    const { userId } = req.body || {};
+    if (!userId) return res.status(400).json({ error: 'userId requis' });
+    await clientFournisseurService.blockAdminImplicitAccess(req.params.id, userId, auth);
+    res.status(204).end();
+  } catch (e: any) {
+    return handleCfError(res, e);
+  }
+};
+
+export const deleteClientFournisseurAdminSansAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    const auth = authFromReq(req);
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
+    await clientFournisseurService.restoreAdminImplicitAccess(req.params.id, req.params.userId, auth);
+    res.status(204).end();
   } catch (e: any) {
     return handleCfError(res, e);
   }

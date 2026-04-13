@@ -1,5 +1,6 @@
 import { prisma } from '../utils/prisma';
 import { PermissionType } from '../generated/prisma/enums';
+import { fetchEntiteAdminExcludedByEntiteIds, fetchEntiteAdminExcludedForUser } from '../utils/resourceAdminSansAcces';
 
 const entiteIncludeList = {
   typeEntite: { select: { id: true, code: true, libelle: true } },
@@ -51,9 +52,16 @@ function canViewEntite(
   row: { id: string; createdById: string | null; responsableId: string | null },
   auth: { userId: string; role: string },
   permTypes: PermissionType[],
-  isMembre: boolean
+  isMembre: boolean,
+  adminImplicitRefused: boolean
 ) {
-  if (isAdminRole(auth.role)) return true;
+  if (isAdminRole(auth.role)) {
+    if (row.createdById === auth.userId) return true;
+    if (row.responsableId === auth.userId) return true;
+    if (isMembre) return true;
+    if (adminImplicitRefused && permTypes.length === 0) return false;
+    return true;
+  }
   if (row.createdById == null) return true;
   if (row.createdById === auth.userId) return true;
   if (row.responsableId === auth.userId) return true;
@@ -64,24 +72,71 @@ function canViewEntite(
 function canModifyEntite(
   row: { createdById: string | null; responsableId: string | null },
   auth: { userId: string; role: string },
-  permTypes: PermissionType[]
+  permTypes: PermissionType[],
+  adminImplicitRefused: boolean
 ) {
-  if (isAdminRole(auth.role)) return true;
+  if (isAdminRole(auth.role)) {
+    if (row.createdById === auth.userId) return true;
+    if (row.responsableId === auth.userId) return true;
+    if (adminImplicitRefused) {
+      return permTypes.some((p) => ['modification', 'suppression', 'gestion'].includes(p));
+    }
+    return true;
+  }
   if (row.createdById === auth.userId) return true;
   if (row.responsableId === auth.userId) return true;
   return permTypes.some((p) => ['modification', 'suppression', 'gestion'].includes(p));
 }
 
-function canSoftDeleteEntite(row: { createdById: string | null }, auth: { userId: string; role: string }, permTypes: PermissionType[]) {
-  if (isAdminRole(auth.role)) return true;
+function canSoftDeleteEntite(
+  row: { createdById: string | null },
+  auth: { userId: string; role: string },
+  permTypes: PermissionType[],
+  adminImplicitRefused: boolean
+) {
+  if (isAdminRole(auth.role)) {
+    if (row.createdById === auth.userId) return true;
+    if (adminImplicitRefused) {
+      return permTypes.includes('suppression');
+    }
+    return true;
+  }
   if (row.createdById === auth.userId) return true;
   return permTypes.includes('suppression');
 }
 
-function canManageEntitePermissions(row: { createdById: string | null }, auth: { userId: string; role: string }, permTypes: PermissionType[]) {
-  if (isAdminRole(auth.role)) return true;
+/** Créateur ou délégation « gestion » uniquement. */
+function canManageEntitePermissions(
+  row: { createdById: string | null },
+  auth: { userId: string; role: string },
+  permTypes: PermissionType[]
+) {
   if (row.createdById === auth.userId) return true;
   return permTypes.includes('gestion');
+}
+
+async function maybeExcludeAdminAfterEntitePermissionRemoved(
+  entiteId: string,
+  entiteCreatedById: string | null,
+  entiteResponsableId: string | null,
+  targetUserId: string
+) {
+  if (targetUserId === entiteCreatedById || targetUserId === entiteResponsableId) return;
+  const u = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
+  if (u?.role !== 'admin') return;
+  const remaining = await prisma.permission.count({
+    where: { ressourceType: 'entite', ressourceId: entiteId, userId: targetUserId },
+  });
+  if (remaining > 0) return;
+  try {
+    await prisma.entiteAdminSansAcces.upsert({
+      where: { entiteId_userId: { entiteId, userId: targetUserId } },
+      create: { entiteId, userId: targetUserId },
+      update: {},
+    });
+  } catch {
+    /* table absente */
+  }
 }
 
 async function delegationsGrouped(entiteId: string) {
@@ -111,12 +166,18 @@ async function delegationsGrouped(entiteId: string) {
   }));
 }
 
-function capabilitiesFor(row: any, auth: { userId: string; role: string }, permTypes: PermissionType[], isMembre: boolean) {
-  const view = canViewEntite(row, auth, permTypes, isMembre);
+function capabilitiesFor(
+  row: any,
+  auth: { userId: string; role: string },
+  permTypes: PermissionType[],
+  isMembre: boolean,
+  adminImplicitRefused: boolean
+) {
+  const view = canViewEntite(row, auth, permTypes, isMembre, adminImplicitRefused);
   return {
     canView: view,
-    canModify: view && canModifyEntite(row, auth, permTypes),
-    canDelete: view && canSoftDeleteEntite(row, auth, permTypes),
+    canModify: view && canModifyEntite(row, auth, permTypes, adminImplicitRefused),
+    canDelete: view && canSoftDeleteEntite(row, auth, permTypes, adminImplicitRefused),
     canManagePermissions: view && canManageEntitePermissions(row, auth, permTypes),
   };
 }
@@ -228,22 +289,30 @@ export class EntiteService {
       }
     }
 
-    return list.map((e) => {
-      const permTypes = myPermsByEntite.get(e.id) || [];
-      const isMembre = e.membres?.some((m) => m.userId === auth.userId) ?? false;
-      const delegMap = byEntiteUser.get(e.id);
-      const delegations = delegMap ? Array.from(delegMap.values()) : [];
-      return {
-        ...e,
-        capabilities: capabilitiesFor(
-          { id: e.id, createdById: e.createdById, responsableId: e.responsableId },
-          auth,
-          permTypes,
-          isMembre
-        ),
-        accesApercu: { delegations },
-      };
-    });
+    const adminExclViewer = await fetchEntiteAdminExcludedForUser(auth.userId, ids);
+    const adminExclAll = await fetchEntiteAdminExcludedByEntiteIds(ids);
+
+    return list
+      .map((e) => {
+        const permTypes = myPermsByEntite.get(e.id) || [];
+        const isMembre = e.membres?.some((m) => m.userId === auth.userId) ?? false;
+        const delegMap = byEntiteUser.get(e.id);
+        const delegations = delegMap ? Array.from(delegMap.values()) : [];
+        const adminImplicitRefused = adminExclViewer.has(e.id);
+        return {
+          ...e,
+          adminSansAccesUserIds: adminExclAll.get(e.id) ?? [],
+          capabilities: capabilitiesFor(
+            { id: e.id, createdById: e.createdById, responsableId: e.responsableId },
+            auth,
+            permTypes,
+            isMembre,
+            adminImplicitRefused
+          ),
+          accesApercu: { delegations },
+        };
+      })
+      .filter((row) => row.capabilities.canView);
   }
 
   async findOne(id: string, auth: EntiteAuth) {
@@ -264,17 +333,22 @@ export class EntiteService {
     if (!e) return null;
     const permTypes = await myPermTypesForEntite(id, auth.userId);
     const isMembre = e.membres?.some((m) => m.userId === auth.userId) ?? false;
-    if (!canViewEntite({ id: e.id, createdById: e.createdById, responsableId: e.responsableId }, auth, permTypes, isMembre)) {
+    const adminExcl = await fetchEntiteAdminExcludedForUser(auth.userId, [id]);
+    const air = adminExcl.has(id);
+    if (!canViewEntite({ id: e.id, createdById: e.createdById, responsableId: e.responsableId }, auth, permTypes, isMembre, air)) {
       return null;
     }
     const dels = await delegationsGrouped(id);
+    const adminExclAll = await fetchEntiteAdminExcludedByEntiteIds([id]);
     return {
       ...e,
+      adminSansAccesUserIds: adminExclAll.get(id) ?? [],
       capabilities: capabilitiesFor(
         { id: e.id, createdById: e.createdById, responsableId: e.responsableId },
         auth,
         permTypes,
-        isMembre
+        isMembre,
+        air
       ),
       accesApercu: {
         delegations: dels.map((d) => ({ user: d.user, permissions: d.permissions })),
@@ -290,11 +364,13 @@ export class EntiteService {
     if (!e) throw new Error('NOT_FOUND');
     const permTypes = await myPermTypesForEntite(entiteId, auth.userId);
     const membreRow = await prisma.userEntite.findFirst({ where: { entiteId, userId: auth.userId } });
-    if (!canViewEntite(e, auth, permTypes, !!membreRow)) throw new Error('FORBIDDEN');
+    const adminExcl = await fetchEntiteAdminExcludedForUser(auth.userId, [entiteId]);
+    const air = adminExcl.has(entiteId);
+    if (!canViewEntite(e, auth, permTypes, !!membreRow, air)) throw new Error('FORBIDDEN');
     const canManage = canManageEntitePermissions(e, auth, permTypes);
     const admins = await prisma.user.findMany({
       where: { role: 'admin', statut: 'actif' },
-      select: { id: true, nom: true, prenom: true, email: true },
+      select: { id: true, nom: true, prenom: true, email: true, role: true },
     });
     const creator = e.createdById
       ? await prisma.user.findUnique({
@@ -310,6 +386,19 @@ export class EntiteService {
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    let adminSansAccesUserIds: string[] = [];
+    try {
+      adminSansAccesUserIds = (
+        await prisma.entiteAdminSansAcces.findMany({
+          where: { entiteId },
+          select: { userId: true },
+        })
+      ).map((x) => x.userId);
+    } catch {
+      /* table absente */
+    }
+
     return {
       canManagePermissions: canManage,
       admins,
@@ -320,6 +409,7 @@ export class EntiteService {
         permission: r.permission,
         grantedBy: r.grantedBy,
       })),
+      adminSansAccesUserIds,
     };
   }
 
@@ -330,8 +420,12 @@ export class EntiteService {
     if (!canManageEntitePermissions({ createdById: e.createdById }, auth, permTypes)) throw new Error('FORBIDDEN');
     const target = await prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, role: true, nom: true, prenom: true } });
     if (!target) throw new Error('Utilisateur introuvable');
-    if (target.role === 'admin') throw new Error('Les administrateurs ont déjà tous les droits');
     if (e.createdById === targetUserId) throw new Error('Le créateur a déjà tous les droits');
+    try {
+      await prisma.entiteAdminSansAcces.deleteMany({ where: { entiteId, userId: targetUserId } });
+    } catch {
+      /* table absente */
+    }
     const created = await prisma.permission.create({
       data: {
         userId: targetUserId,
@@ -357,7 +451,80 @@ export class EntiteService {
       where: { id: permissionId, ressourceType: 'entite', ressourceId: entiteId },
     });
     if (!perm) throw new Error('NOT_FOUND');
+    const targetUserId = perm.userId;
     await prisma.permission.delete({ where: { id: permissionId } });
+    await maybeExcludeAdminAfterEntitePermissionRemoved(entiteId, e.createdById, e.responsableId, targetUserId);
+  }
+
+  async blockAdminImplicitAccess(entiteId: string, targetUserId: string, auth: EntiteAuth) {
+    const e = await prisma.entite.findFirst({
+      where: { id: entiteId, deletedAt: null },
+      select: { id: true, createdById: true, responsableId: true },
+    });
+    if (!e) throw new Error('NOT_FOUND');
+    const permTypes = await myPermTypesForEntite(entiteId, auth.userId);
+    if (!canManageEntitePermissions({ createdById: e.createdById }, auth, permTypes)) throw new Error('FORBIDDEN');
+    if (targetUserId === e.createdById || targetUserId === e.responsableId) {
+      throw new Error('Le créateur ou le responsable ne peut pas être exclu');
+    }
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { role: true, nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    if (target.role !== 'admin') {
+      throw new Error("Seuls les comptes administrateur peuvent être privés de l'accès implicite à l'entité");
+    }
+    await prisma.permission.deleteMany({
+      where: { ressourceType: 'entite', ressourceId: entiteId, userId: targetUserId },
+    });
+    try {
+      await prisma.entiteAdminSansAcces.upsert({
+        where: { entiteId_userId: { entiteId, userId: targetUserId } },
+        create: { entiteId, userId: targetUserId },
+        update: {},
+      });
+    } catch {
+      throw new Error(
+        "Impossible d'enregistrer l'exclusion admin : table absente. Exécutez « prisma migrate deploy » sur l'API."
+      );
+    }
+  }
+
+  async restoreAdminImplicitAccess(entiteId: string, targetUserId: string, auth: EntiteAuth) {
+    const e = await prisma.entite.findFirst({
+      where: { id: entiteId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!e) throw new Error('NOT_FOUND');
+    const permTypes = await myPermTypesForEntite(entiteId, auth.userId);
+    if (!canManageEntitePermissions({ createdById: e.createdById }, auth, permTypes)) throw new Error('FORBIDDEN');
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    try {
+      await prisma.entiteAdminSansAcces.deleteMany({ where: { entiteId, userId: targetUserId } });
+    } catch {
+      throw new Error(
+        "Impossible de restaurer l'accès : table absente. Exécutez « prisma migrate deploy » sur l'API."
+      );
+    }
+  }
+
+  async canAccess(entiteId: string, userId: string, userRole: string): Promise<{ canAccess: boolean; reason?: string }> {
+    const e = await prisma.entite.findFirst({
+      where: { id: entiteId, deletedAt: null },
+      select: { id: true, createdById: true, responsableId: true },
+    });
+    if (!e) return { canAccess: false, reason: 'Entité introuvable' };
+    const permTypes = await myPermTypesForEntite(entiteId, userId);
+    const membreRow = await prisma.userEntite.findFirst({ where: { entiteId, userId } });
+    const excl = await fetchEntiteAdminExcludedForUser(userId, [entiteId]);
+    const ok = canViewEntite(e, { userId, role: userRole }, permTypes, !!membreRow, excl.has(entiteId));
+    if (!ok) return { canAccess: false, reason: 'Accès refusé à cette entité' };
+    return { canAccess: true };
   }
 
   async create(
@@ -423,7 +590,15 @@ export class EntiteService {
     const existing = await prisma.entite.findFirst({ where: { id, deletedAt: null } });
     if (!existing) throw new Error('Entité non trouvée');
     const permTypes = await myPermTypesForEntite(id, auth.userId);
-    if (!canModifyEntite({ createdById: existing.createdById, responsableId: existing.responsableId }, auth, permTypes)) {
+    const excl = await fetchEntiteAdminExcludedForUser(auth.userId, [id]);
+    if (
+      !canModifyEntite(
+        { createdById: existing.createdById, responsableId: existing.responsableId },
+        auth,
+        permTypes,
+        excl.has(id)
+      )
+    ) {
       throw new Error('Accès refusé');
     }
     const { membreIds, typeEntiteId, ...updateData } = data;
@@ -467,7 +642,8 @@ export class EntiteService {
     const existing = await prisma.entite.findFirst({ where: { id, deletedAt: null } });
     if (!existing) throw new Error('Entité non trouvée');
     const permTypes = await myPermTypesForEntite(id, auth.userId);
-    if (!canSoftDeleteEntite({ createdById: existing.createdById }, auth, permTypes)) {
+    const exclSd = await fetchEntiteAdminExcludedForUser(auth.userId, [id]);
+    if (!canSoftDeleteEntite({ createdById: existing.createdById }, auth, permTypes, exclSd.has(id))) {
       throw new Error('Accès refusé');
     }
     const children = await prisma.entite.findMany({ where: { parentId: id, deletedAt: null } });
@@ -502,6 +678,11 @@ export class EntiteService {
       throw new Error('Supprimez ou mettez en corbeille les sous-entités actives avant suppression définitive');
     }
     await prisma.permission.deleteMany({ where: { ressourceType: 'entite', ressourceId: id } });
+    try {
+      await prisma.entiteAdminSansAcces.deleteMany({ where: { entiteId: id } });
+    } catch {
+      /* table absente */
+    }
     return prisma.entite.delete({ where: { id } });
   }
 

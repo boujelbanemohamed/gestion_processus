@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 import { getPaginationPageNumbers } from '../utils/pagination';
@@ -47,20 +48,24 @@ function isAccesRestreintProcessus(p: any) {
   return dels > 0 || !!p.createdById;
 }
 
-function delegationsRowsForCard(p: any) {
-  const d = p.accesApercu?.delegations;
-  if (d?.length) {
-    return d.map((row: any) => ({
-      key: row.user?.id + (row.permissions?.join(',') || ''),
-      user: row.user,
-      label: (row.permissions || []).map((x: string) => PERMISSION_LABELS[x] || x).join(' + '),
-    }));
+function permSummaryLineProcessus(perms: string[]) {
+  return perms.map((p) => PERMISSION_LABELS[p] || p).join(' + ');
+}
+
+function processusPermissionsForAdminLines(perms: any[]) {
+  const m = new Map<string, { userId: string; niveau: string; user?: any }>();
+  for (const r of perms || []) {
+    const uid = r.userId || r.user?.id;
+    if (!uid) continue;
+    const ex = m.get(uid);
+    const part = PERMISSION_LABELS[r.permission] || r.permission;
+    m.set(uid, {
+      userId: uid,
+      niveau: ex ? `${ex.niveau} + ${part}` : part,
+      user: r.user,
+    });
   }
-  return (p.permissions || []).map((perm: any) => ({
-    key: perm.id,
-    user: perm.user,
-    label: PERMISSION_LABELS[perm.permission] || perm.permission,
-  }));
+  return Array.from(m.values());
 }
 
 export default function Processus() {
@@ -103,9 +108,9 @@ export default function Processus() {
   const [accesModalProc, setAccesModalProc] = useState<any | null>(null);
   const [accesDetail, setAccesDetail] = useState<any | null>(null);
   const [accesLoading, setAccesLoading] = useState(false);
+  const [adminLimitPerm, setAdminLimitPerm] = useState<Record<string, string>>({});
   const [newPermUserId, setNewPermUserId] = useState('');
   const [newPermType, setNewPermType] = useState('lecture');
-  const [noAccesModalOpen, setNoAccesModalOpen] = useState(false);
 
   const [histModalProc, setHistModalProc] = useState<any | null>(null);
   const [histoList, setHistoList] = useState<any[]>([]);
@@ -275,15 +280,6 @@ export default function Processus() {
       p.proprietaireId === currentUser?.id ||
       p.createdById === currentUser?.id);
 
-  const capManagePermissions = (p: any) => {
-    if (p.capabilities?.canManagePermissions != null) return !!p.capabilities.canManagePermissions;
-    return (
-      currentUser?.role === 'admin' ||
-      p.proprietaireId === currentUser?.id ||
-      p.createdById === currentUser?.id
-    );
-  };
-
   const loadCorbeilleProcessus = async () => {
     try {
       const r = await api.get('/processus/corbeille');
@@ -330,10 +326,6 @@ export default function Processus() {
   };
 
   const onAccesButtonClick = (p: any) => {
-    if (!capManagePermissions(p)) {
-      setNoAccesModalOpen(true);
-      return;
-    }
     void openAccesModal(p);
   };
 
@@ -342,6 +334,7 @@ export default function Processus() {
     setAccesDetail(null);
     setNewPermUserId('');
     setNewPermType('lecture');
+    setAdminLimitPerm({});
     setAccesLoading(true);
     try {
       const { data } = await api.get(`/processus/${p.id}/acces`);
@@ -374,10 +367,86 @@ export default function Processus() {
     }
   };
 
-  const handleRemovePermissionEntry = async (permissionEntryId: string) => {
-    if (!accesModalProc || !confirm('Retirer ce droit ?')) return;
+  const handleRemovePermissionEntry = async (permissionEntryId: string, targetIsAdmin?: boolean) => {
+    const msg = targetIsAdmin
+      ? "Révoquer cet accès ? L'administrateur n'aura plus aucun droit explicite sur ce processus. Vous pourrez lui accorder à nouveau un accès via « Accorder un accès »."
+      : 'Retirer ce droit ?';
+    if (!accesModalProc || !window.confirm(msg)) return;
     try {
       await api.delete(`/processus/${accesModalProc.id}/permissions/${permissionEntryId}`);
+      await refreshAccesDetail(accesModalProc.id);
+      await loadProcessus();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const revokeAllProcessusDelegationsForUser = async (userId: string) => {
+    if (!accesModalProc || !accesDetail) return;
+    const rows = (accesDetail.delegations || []).filter((d: any) => d.user?.id === userId);
+    if (rows.length === 0) return;
+    if (!window.confirm('Révoquer tous les droits explicites pour cet utilisateur sur ce processus ?')) return;
+    try {
+      for (const r of rows) {
+        await api.delete(`/processus/${accesModalProc.id}/permissions/${r.id}`);
+      }
+      await refreshAccesDetail(accesModalProc.id);
+      await loadProcessus();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleRestoreAdminDefaultProcessus = async (userId: string) => {
+    if (!accesModalProc) return;
+    if (!window.confirm("Rétablir l'accès administrateur par défaut (complet) pour cet utilisateur ?")) return;
+    try {
+      await api.delete(`/processus/${accesModalProc.id}/admin-sans-acces/${userId}`);
+      await refreshAccesDetail(accesModalProc.id);
+      await loadProcessus();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleRevokeAdminImplicitProcessus = async (userId: string) => {
+    if (!accesModalProc) return;
+    if (
+      !window.confirm(
+        "Retirer tout accès à cet administrateur ? Il ne verra plus le processus tant que vous ne lui aurez pas accordé un accès via la liste ci-dessous."
+      )
+    ) {
+      return;
+    }
+    try {
+      await api.post(`/processus/${accesModalProc.id}/admin-sans-acces`, { userId });
+      await refreshAccesDetail(accesModalProc.id);
+      await loadProcessus();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const quickLimitAdminProcessus = async (userId: string) => {
+    if (!accesModalProc) return;
+    const permission = adminLimitPerm[userId] || 'lecture';
+    try {
+      await api.post(`/processus/${accesModalProc.id}/permissions`, { userId, permission });
+      await refreshAccesDetail(accesModalProc.id);
+      await loadProcessus();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const replaceAdminProcessusPermissionLevel = async (userId: string, permission: string) => {
+    if (!accesModalProc || !accesDetail) return;
+    const rows = (accesDetail.delegations || []).filter((d: any) => d.user?.id === userId);
+    try {
+      for (const r of rows) {
+        await api.delete(`/processus/${accesModalProc.id}/permissions/${r.id}`);
+      }
+      await api.post(`/processus/${accesModalProc.id}/permissions`, { userId, permission });
       await refreshAccesDetail(accesModalProc.id);
       await loadProcessus();
     } catch (e: any) {
@@ -608,10 +677,6 @@ export default function Processus() {
         )}
         {pageSlice.map((p) => {
           const currentStatut = statuts.find((s) => s.value === p.statut);
-          const rows = delegationsRowsForCard(p);
-          const actifAdmins = users.filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'));
-          const creatorId = p.createdById || p.createdBy?.id;
-
           const rowOpen = isProcessusRowExpanded(p.id);
 
           return (
@@ -776,39 +841,34 @@ export default function Processus() {
                           <span className="text-[10px] font-semibold leading-tight text-center">Accès élargi</span>
                         </div>
                       )}
-                      {actifAdmins.map((a: any) => {
-                        const isCreator = creatorId === a.id;
-                        return (
-                          <div key={`adm-${p.id}-${a.id}`} className="min-w-0">
-                            <span className="font-medium text-gray-900">
-                              {a.prenom} {a.nom}
-                            </span>
-                            <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                              {isCreator
-                                ? `(Administrateur et créateur : ${droitsAdminLigne})`
-                                : `(Admin : ${droitsAdminLigne})`}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      {p.createdBy && creatorId && !actifAdmins.some((a: any) => a.id === creatorId) && (
-                        <div className="min-w-0">
+                      <AccessContratLikeAdminLines
+                        users={users}
+                        createdById={p.createdById}
+                        createdBy={p.createdBy}
+                        adminSansAccesUserIds={p.adminSansAccesUserIds}
+                        permissions={processusPermissionsForAdminLines(p.permissions || [])}
+                        droitsAdminCompletLabel={droitsAdminLigne}
+                        niveauLabel={(n) => n}
+                        keyPrefix={`liste-proc-${p.id}`}
+                        creatorRightsLabel={droitsAdminLigne}
+                      />
+                      {(p.accesApercu?.delegations || []).map((d: any) => (
+                        <div
+                          key={`${d.user?.id}-${(d.permissionEntryIds || []).join('-')}`}
+                          className="min-w-0"
+                        >
                           <span className="font-medium text-gray-900">
-                            {p.createdBy.prenom} {p.createdBy.nom}
+                            {d.user.prenom} {d.user.nom}
                           </span>
                           <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                            (Créateur : {droitsAdminLigne})
+                            ({permSummaryLineProcessus(d.permissions || [])})
                           </span>
-                        </div>
-                      )}
-                      {rows.map((r: any) => (
-                        <div key={r.key} className="min-w-0">
-                          <span className="font-medium text-gray-900">
-                            {r.user.prenom} {r.user.nom}
-                          </span>
-                          <span className="text-gray-500 italic block sm:inline sm:ml-1">({r.label})</span>
                         </div>
                       ))}
+                      <p className="text-[10px] text-gray-500 w-full basis-full">
+                        Aligné sur les contrats : exclusion ou droits explicites pour les administrateurs sont visibles ici et
+                        gérés dans la modale « Accès » (créateur, propriétaire ou permission « Gestion des accès »).
+                      </p>
                     </div>
                   </div>
                     </div>
@@ -1214,27 +1274,138 @@ export default function Processus() {
           <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
             <h3 className="text-xl font-semibold mb-2">Accès — {accesModalProc.nom}</h3>
             <p className="text-sm text-gray-600 mb-5 leading-relaxed">
-              Les comptes <span className="font-medium">administrateur</span> ont tous les droits. Le{' '}
-              <span className="font-medium">créateur</span> et le <span className="font-medium">propriétaire</span>{' '}
-              peuvent modifier, mettre en corbeille et gérer les accès délégués (selon les règles métier).
+              Le <span className="font-medium">créateur</span>, le <span className="font-medium">propriétaire</span> du
+              processus et les utilisateurs avec la permission <span className="font-medium">« Gestion des accès »</span>{' '}
+              peuvent gérer les droits. Pour un administrateur : sans ligne dans « Accès partagés » et sans exclusion, accès
+              complet ; une ligne limite les droits ; « Retirer l&apos;accès » retire tout accès jusqu&apos;à octroi via «
+              Accorder un accès » ; « Rétablir l&apos;accès admin par défaut » annule une exclusion.
             </p>
+            {accesDetail && !accesDetail.canManagePermissions && (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2 mb-4">
+                Vous consultez la liste en lecture seule. Pour modifier les droits, connectez-vous en tant que créateur,
+                propriétaire ou avec la permission « Gestion des accès ».
+              </p>
+            )}
             {accesLoading ? (
               <p className="text-sm text-gray-500">Chargement…</p>
             ) : accesDetail ? (
               <div className="space-y-5 text-sm">
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                    Administrateurs
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Limitez un admin avec « Limiter l&apos;accès », retirez-le entièrement avec « Retirer l&apos;accès », ou
+                    rétablissez l&apos;accès complet implicite s&apos;il était exclu.
                   </p>
-                  <ul className="space-y-1.5 text-gray-700">
-                    {(accesDetail.admins || []).map((a: any) => (
-                      <li key={a.id}>
-                        <span className="font-medium">
-                          {a.prenom} {a.nom}
-                        </span>
-                        <span className="text-gray-400"> (accès complet)</span>
-                      </li>
-                    ))}
+                  <ul className="space-y-3 text-gray-700 text-sm">
+                    {(accesDetail.admins || []).map((a: any) => {
+                      const userDelegations = (accesDetail.delegations || []).filter((d: any) => d.user?.id === a.id);
+                      const primaryDelegation = userDelegations[0];
+                      const explicite = userDelegations.length > 0;
+                      const isPrivilegedAdmin =
+                        accesDetail.creator?.id === a.id || accesModalProc.proprietaireId === a.id;
+                      const refuse = (accesDetail.adminSansAccesUserIds || []).includes(a.id);
+                      return (
+                        <li
+                          key={a.id}
+                          className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 border border-gray-100 rounded-lg px-3 py-2 bg-white"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <span className="font-medium text-base">
+                              {a.prenom} {a.nom}
+                            </span>
+                            <span className="text-gray-500 ml-1">({a.email})</span>
+                            {refuse && !explicite && (
+                              <span className="text-red-700 block sm:inline sm:ml-1 text-xs font-medium">
+                                — aucun accès (exclu ; accorder un accès via la liste ci-dessous pour le réintégrer)
+                              </span>
+                            )}
+                            {!refuse && !explicite && (
+                              <span className="text-gray-400 block sm:inline sm:ml-1">
+                                — accès complet (défaut administrateur)
+                              </span>
+                            )}
+                            {explicite && (
+                              <span className="text-amber-800 block sm:inline sm:ml-1 text-xs font-medium">
+                                — accès limité (ligne « Accès partagés »)
+                              </span>
+                            )}
+                          </div>
+                          {accesDetail.canManagePermissions && !isPrivilegedAdmin && (
+                            <div className="flex flex-wrap items-center gap-2 shrink-0">
+                              {refuse && !explicite ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRestoreAdminDefaultProcessus(a.id)}
+                                  className="text-xs px-3 py-1.5 bg-green-100 text-green-800 rounded-md hover:bg-green-200"
+                                >
+                                  Rétablir l&apos;accès admin par défaut
+                                </button>
+                              ) : !explicite ? (
+                                <>
+                                  <select
+                                    value={adminLimitPerm[a.id] ?? 'lecture'}
+                                    onChange={(e) =>
+                                      setAdminLimitPerm((prev) => ({ ...prev, [a.id]: e.target.value }))
+                                    }
+                                    className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                                  >
+                                    {PERM_OPTIONS.map((n) => (
+                                      <option key={n.value} value={n.value}>
+                                        {n.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => void quickLimitAdminProcessus(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                                  >
+                                    Limiter l&apos;accès
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleRevokeAdminImplicitProcessus(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                  >
+                                    Retirer l&apos;accès
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <select
+                                    value={primaryDelegation?.permission ?? 'lecture'}
+                                    onChange={(e) => {
+                                      const permission = e.target.value;
+                                      if (!accesModalProc || permission === primaryDelegation?.permission) return;
+                                      void replaceAdminProcessusPermissionLevel(a.id, permission);
+                                    }}
+                                    className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                                  >
+                                    {PERM_OPTIONS.map((n) => (
+                                      <option key={n.value} value={n.value}>
+                                        {n.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => void revokeAllProcessusDelegationsForUser(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                  >
+                                    Révoquer l&apos;accès
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                          {accesDetail.canManagePermissions && isPrivilegedAdmin && (
+                            <span className="text-xs text-gray-500">
+                              Créateur ou propriétaire : accès complet, non modérable ici.
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
                 <div>
@@ -1244,18 +1415,16 @@ export default function Processus() {
                       <span className="font-medium">
                         {accesDetail.creator.prenom} {accesDetail.creator.nom}
                       </span>
-                      <span className="text-gray-400"> — droits étendus sur le processus</span>
+                      <span className="text-gray-400"> — droits étendus et gestion des accès (si habilité)</span>
                     </p>
                   ) : (
                     <p className="text-amber-800 text-sm">Créateur non résolu (processus système ou sans créateur).</p>
                   )}
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                    Droits délégués
-                  </p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Accès partagés</p>
                   {(accesDetail.delegations || []).length === 0 ? (
-                    <p className="text-gray-400 text-xs italic">Aucun droit délégué</p>
+                    <p className="text-gray-400 text-xs italic">Aucun accès délégué</p>
                   ) : (
                     <ul className="space-y-2">
                       {(accesDetail.delegations || []).map((d: any) => (
@@ -1265,18 +1434,46 @@ export default function Processus() {
                         >
                           <span className="font-medium">
                             {d.user.prenom} {d.user.nom}
+                            {d.user.role === 'admin' && (
+                              <span className="text-xs font-normal text-gray-500 ml-1">(admin)</span>
+                            )}
                           </span>
-                          <span className="text-gray-500">
-                            — {PERMISSION_LABELS[d.permission] || d.permission}
-                          </span>
-                          {accesDetail.canManagePermissions && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemovePermissionEntry(d.id)}
-                              className="text-xs text-red-600 hover:underline ml-auto"
-                            >
-                              Retirer
-                            </button>
+                          {d.grantedBy && (
+                            <span className="text-xs text-gray-400">
+                              par {d.grantedBy.prenom} {d.grantedBy.nom}
+                            </span>
+                          )}
+                          {accesDetail.canManagePermissions ? (
+                            <>
+                              <select
+                                value={d.permission}
+                                onChange={(e) => {
+                                  const permission = e.target.value;
+                                  if (!accesModalProc || permission === d.permission) return;
+                                  void replaceAdminProcessusPermissionLevel(d.user.id, permission);
+                                }}
+                                className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                              >
+                                {PERM_OPTIONS.map((n) => (
+                                  <option key={n.value} value={n.value}>
+                                    {n.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void handleRemovePermissionEntry(d.id, d.user?.role === 'admin')
+                                }
+                                className="text-xs text-red-600 hover:underline ml-auto"
+                              >
+                                {d.user?.role === 'admin' ? 'Révoquer' : 'Retirer'}
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-gray-500">
+                              — {PERMISSION_LABELS[d.permission] || d.permission}
+                            </span>
                           )}
                         </li>
                       ))}
@@ -1285,9 +1482,7 @@ export default function Processus() {
                 </div>
                 {accesDetail.canManagePermissions && (
                   <div className="border-t border-gray-200 pt-4 space-y-3">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Accorder un droit
-                    </p>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accorder un accès</p>
                     <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3 items-end">
                       <select
                         value={newPermUserId}
@@ -1295,19 +1490,38 @@ export default function Processus() {
                         className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm"
                       >
                         <option value="">— Utilisateur —</option>
-                        {users
-                          .filter(
+                        {(() => {
+                          const actifs = users.filter(
                             (u: any) =>
                               (!u.statut || u.statut === 'actif') &&
-                              u.role !== 'admin' &&
                               u.id !== accesDetail.creator?.id &&
                               u.id !== accesModalProc.proprietaireId
-                          )
-                          .map((u: any) => (
-                            <option key={u.id} value={u.id}>
-                              {u.prenom} {u.nom} ({u.email})
-                            </option>
-                          ))}
+                          );
+                          const adminsPick = actifs.filter((u: any) => u.role === 'admin');
+                          const autresPick = actifs.filter((u: any) => u.role !== 'admin');
+                          return (
+                            <>
+                              {adminsPick.length > 0 && (
+                                <optgroup label="Administrateurs">
+                                  {adminsPick.map((u: any) => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.prenom} {u.nom} — {u.email}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              {autresPick.length > 0 && (
+                                <optgroup label="Autres utilisateurs">
+                                  {autresPick.map((u: any) => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.prenom} {u.nom} — {u.email}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                            </>
+                          );
+                        })()}
                       </select>
                       <select
                         value={newPermType}
@@ -1322,7 +1536,7 @@ export default function Processus() {
                       </select>
                       <button
                         type="button"
-                        onClick={handleAddPermission}
+                        onClick={() => void handleAddPermission()}
                         disabled={!newPermUserId}
                         className="w-full lg:w-auto px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shrink-0"
                       >
@@ -1388,36 +1602,6 @@ export default function Processus() {
                 type="button"
                 onClick={() => setHistModalProc(null)}
                 className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
-              >
-                Fermer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {noAccesModalOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setNoAccesModalOpen(false)}
-        >
-          <div
-            className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Gestion des accès</h3>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              Vous n&apos;avez pas les droits nécessaires pour gérer les accès de ce processus. Seuls les
-              administrateurs, le propriétaire, le créateur ou les utilisateurs avec la permission « gestion »
-              peuvent modifier les droits délégués.
-            </p>
-            <div className="flex justify-end mt-5">
-              <button
-                type="button"
-                onClick={() => setNoAccesModalOpen(false)}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
               >
                 Fermer
               </button>

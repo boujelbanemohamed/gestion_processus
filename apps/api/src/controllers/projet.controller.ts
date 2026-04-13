@@ -118,6 +118,32 @@ export const removeProjetPermission = async (req: AuthRequest, res: Response) =>
   }
 };
 
+export const postProjetAdminSansAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    const auth = authFromReq(req);
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
+    const { userId } = req.body || {};
+    if (!userId) return res.status(400).json({ error: 'userId requis' });
+    await projetService.blockAdminImplicitAccess(req.params.id, userId, auth);
+    res.status(204).end();
+  } catch (e: any) {
+    const code = e.message === 'NOT_FOUND' ? 404 : e.message === 'FORBIDDEN' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const deleteProjetAdminSansAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    const auth = authFromReq(req);
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
+    await projetService.restoreAdminImplicitAccess(req.params.id, req.params.userId, auth);
+    res.status(204).end();
+  } catch (e: any) {
+    const code = e.message === 'NOT_FOUND' ? 404 : e.message === 'FORBIDDEN' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
 export const createProjet = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);

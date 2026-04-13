@@ -10,6 +10,7 @@ import {
   isAdminRole,
   isLegacyOpen,
 } from './client-fournisseur-access';
+import { fetchCfAdminExcludedByCfIds, fetchCfAdminExcludedForUser } from '../utils/resourceAdminSansAcces';
 
 function parseRepresentantDate(v: unknown): Date | null {
   if (v === null || v === undefined) return null;
@@ -18,6 +19,34 @@ function parseRepresentantDate(v: unknown): Date | null {
   const iso = s.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T12:00:00.000Z` : s;
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+async function isCfAdminImplicitRefused(cfId: string, viewerUserId: string): Promise<boolean> {
+  const s = await fetchCfAdminExcludedForUser(viewerUserId, [cfId]);
+  return s.has(cfId);
+}
+
+async function maybeExcludeAdminAfterCfPermissionRemoved(
+  cfId: string,
+  cfCreatedById: string | null,
+  targetUserId: string
+) {
+  if (targetUserId === cfCreatedById) return;
+  const u = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
+  if (u?.role !== 'admin') return;
+  const remaining = await prisma.permission.count({
+    where: { ressourceType: 'clientFournisseur', ressourceId: cfId, userId: targetUserId },
+  });
+  if (remaining > 0) return;
+  try {
+    await prisma.clientFournisseurAdminSansAcces.upsert({
+      where: { clientFournisseurId_userId: { clientFournisseurId: cfId, userId: targetUserId } },
+      create: { clientFournisseurId: cfId, userId: targetUserId },
+      update: {},
+    });
+  } catch {
+    /* table absente */
+  }
 }
 
 async function assertRepresentantBelongsToClient(repId: string, clientFournisseurId: string) {
@@ -162,18 +191,21 @@ async function attachContratsLies<T extends { id: string }>(clients: T[]) {
 function enrichWithCapabilities<T extends { id: string; createdById: string | null }>(
   rows: T[],
   auth: CfAuth,
-  permMap: Map<string, PermissionType[]>
+  permMap: Map<string, PermissionType[]>,
+  adminExcludedForViewer: Set<string>,
+  adminExclAll: Map<string, string[]>
 ) {
   return rows
     .filter((row) => {
       const perms = permMap.get(row.id) ?? [];
-      return canViewCf(row, auth, perms);
+      return canViewCf(row, auth, perms, adminExcludedForViewer.has(row.id));
     })
     .map((row) => {
       const perms = permMap.get(row.id) ?? [];
       return {
         ...row,
-        capabilities: capabilitiesFor(row, auth, perms),
+        adminSansAccesUserIds: adminExclAll.get(row.id) ?? [],
+        capabilities: capabilitiesFor(row, auth, perms, adminExcludedForViewer.has(row.id)),
       };
     });
 }
@@ -198,10 +230,17 @@ export const clientFournisseurService = {
       rows.map((r) => r.id),
       auth.userId
     );
+    const adminExcludedViewer = await fetchCfAdminExcludedForUser(
+      auth.userId,
+      rows.map((r) => r.id)
+    );
+    const adminExclAll = await fetchCfAdminExcludedByCfIds(rows.map((r) => r.id));
     const filtered = enrichWithCapabilities(
       rows.map((r) => ({ ...r, createdById: r.createdById })),
       auth,
-      permMap
+      permMap,
+      adminExcludedViewer,
+      adminExclAll
     );
     const delMap = await allDelegationsByCf(filtered.map((r) => r.id));
     const withAcces = filtered.map((r) => ({
@@ -229,16 +268,20 @@ export const clientFournisseurService = {
     if (!row) return null;
     const perms = await myPermTypesForCf(id, auth.userId);
     const acl = { id: row.id, createdById: row.createdById };
-    if (!canViewCf(acl, auth, perms)) return null;
+    const adminExcl = await fetchCfAdminExcludedForUser(auth.userId, [id]);
+    const adminImplicitRefused = adminExcl.has(id);
+    if (!canViewCf(acl, auth, perms, adminImplicitRefused)) return null;
     const delMap = await allDelegationsByCf([row.id]);
     const delegations = Array.from(delMap.get(row.id)?.values() ?? []).map((d) => ({
       user: d.user,
       permissions: d.permissions,
     }));
+    const adminExclAll = await fetchCfAdminExcludedByCfIds([id]);
     const [withContrats] = await attachContratsLies([
       {
         ...row,
-        capabilities: capabilitiesFor(acl, auth, perms),
+        adminSansAccesUserIds: adminExclAll.get(id) ?? [],
+        capabilities: capabilitiesFor(acl, auth, perms, adminImplicitRefused),
         accesApercu: { delegations },
       },
     ]);
@@ -260,7 +303,7 @@ export const clientFournisseurService = {
     const [out] = await attachContratsLies([
       {
         ...row,
-        capabilities: capabilitiesFor({ id: row.id, createdById: row.createdById }, auth, []),
+        capabilities: capabilitiesFor({ id: row.id, createdById: row.createdById }, auth, [], false),
       },
     ]);
     return out;
@@ -282,7 +325,8 @@ export const clientFournisseurService = {
     });
     if (!existing) throw new Error('NOT_FOUND');
     const perms = await myPermTypesForCf(id, auth.userId);
-    if (!canModifyCf(existing, auth, perms)) throw new Error('FORBIDDEN');
+    const excl = await fetchCfAdminExcludedForUser(auth.userId, [id]);
+    if (!canModifyCf(existing, auth, perms, excl.has(id))) throw new Error('FORBIDDEN');
 
     const { representants, projetIds, ...rest } = data;
     if (projetIds !== undefined) {
@@ -314,7 +358,7 @@ export const clientFournisseurService = {
     const [out] = await attachContratsLies([
       {
         ...row,
-        capabilities: capabilitiesFor({ id: row.id, createdById: row.createdById }, auth, perms),
+        capabilities: capabilitiesFor({ id: row.id, createdById: row.createdById }, auth, perms, excl.has(id)),
       },
     ]);
     return out;
@@ -325,7 +369,8 @@ export const clientFournisseurService = {
     const existing = await getCfAclRow(id);
     if (!existing) throw new Error('NOT_FOUND');
     const perms = await myPermTypesForCf(id, auth.userId);
-    if (!canDeleteCf(existing, auth, perms)) throw new Error('FORBIDDEN');
+    const exclDel = await fetchCfAdminExcludedForUser(auth.userId, [id]);
+    if (!canDeleteCf(existing, auth, perms, exclDel.has(id))) throw new Error('FORBIDDEN');
     const row = await prisma.clientFournisseur.findUnique({
       where: { id },
       select: { nom: true },
@@ -341,7 +386,9 @@ export const clientFournisseurService = {
     const cf = await getCfAclRow(clientFournisseurId);
     if (!cf) throw new Error('NOT_FOUND');
     const perms = await myPermTypesForCf(clientFournisseurId, auth.userId);
-    if (!canModifyCf(cf, auth, perms)) throw new Error('FORBIDDEN');
+    if (!canModifyCf(cf, auth, perms, await isCfAdminImplicitRefused(clientFournisseurId, auth.userId))) {
+      throw new Error('FORBIDDEN');
+    }
 
     const nom = String(raw?.nom ?? '').trim();
     const prenom = String(raw?.prenom ?? '').trim();
@@ -375,7 +422,9 @@ export const clientFournisseurService = {
     const cf = await getCfAclRow(clientFournisseurId);
     if (!cf) throw new Error('NOT_FOUND');
     const perms = await myPermTypesForCf(clientFournisseurId, auth.userId);
-    if (!canModifyCf(cf, auth, perms)) throw new Error('FORBIDDEN');
+    if (!canModifyCf(cf, auth, perms, await isCfAdminImplicitRefused(clientFournisseurId, auth.userId))) {
+      throw new Error('FORBIDDEN');
+    }
     await assertRepresentantBelongsToClient(repId, clientFournisseurId);
 
     const data: {
@@ -415,7 +464,9 @@ export const clientFournisseurService = {
     const cf = await getCfAclRow(clientFournisseurId);
     if (!cf) throw new Error('NOT_FOUND');
     const perms = await myPermTypesForCf(clientFournisseurId, auth.userId);
-    if (!canModifyCf(cf, auth, perms)) throw new Error('FORBIDDEN');
+    if (!canModifyCf(cf, auth, perms, await isCfAdminImplicitRefused(clientFournisseurId, auth.userId))) {
+      throw new Error('FORBIDDEN');
+    }
     await assertRepresentantBelongsToClient(repId, clientFournisseurId);
     const rep = await prisma.representantLegal.findUnique({ where: { id: repId } });
     await prisma.representantLegal.delete({ where: { id: repId } });
@@ -428,7 +479,9 @@ export const clientFournisseurService = {
     const cf = await getCfAclRow(clientFournisseurId);
     if (!cf) throw new Error('NOT_FOUND');
     const perms = await myPermTypesForCf(clientFournisseurId, auth.userId);
-    if (!canModifyCf(cf, auth, perms)) throw new Error('FORBIDDEN');
+    if (!canModifyCf(cf, auth, perms, await isCfAdminImplicitRefused(clientFournisseurId, auth.userId))) {
+      throw new Error('FORBIDDEN');
+    }
 
     const cfRow = await prisma.clientFournisseur.findUnique({ where: { id: clientFournisseurId } });
     if (!cfRow) throw new Error('Client / fournisseur introuvable');
@@ -452,7 +505,9 @@ export const clientFournisseurService = {
     const cf = await getCfAclRow(clientFournisseurId);
     if (!cf) throw new Error('NOT_FOUND');
     const perms = await myPermTypesForCf(clientFournisseurId, auth.userId);
-    if (!canModifyCf(cf, auth, perms)) throw new Error('FORBIDDEN');
+    if (!canModifyCf(cf, auth, perms, await isCfAdminImplicitRefused(clientFournisseurId, auth.userId))) {
+      throw new Error('FORBIDDEN');
+    }
     const c = await prisma.contrat.findUnique({ where: { id: contratId }, select: { nom: true } });
     await prisma.contratPartiePrenante.deleteMany({
       where: { contratId, clientFournisseurId },
@@ -464,7 +519,9 @@ export const clientFournisseurService = {
     const cf = await getCfAclRow(clientFournisseurId);
     if (!cf) throw new Error('NOT_FOUND');
     const perms = await myPermTypesForCf(clientFournisseurId, auth.userId);
-    if (!canModifyCf(cf, auth, perms)) throw new Error('FORBIDDEN');
+    if (!canModifyCf(cf, auth, perms, await isCfAdminImplicitRefused(clientFournisseurId, auth.userId))) {
+      throw new Error('FORBIDDEN');
+    }
     const data = await prisma.clientFournisseurProjet.create({
       data: { clientFournisseurId, projetId },
       include: { projet: { select: { nom: true, codeProjet: true } } },
@@ -482,7 +539,9 @@ export const clientFournisseurService = {
     const cf = await getCfAclRow(clientFournisseurId);
     if (!cf) throw new Error('NOT_FOUND');
     const perms = await myPermTypesForCf(clientFournisseurId, auth.userId);
-    if (!canModifyCf(cf, auth, perms)) throw new Error('FORBIDDEN');
+    if (!canModifyCf(cf, auth, perms, await isCfAdminImplicitRefused(clientFournisseurId, auth.userId))) {
+      throw new Error('FORBIDDEN');
+    }
     const p = await prisma.projet.findUnique({ where: { id: projetId }, select: { nom: true } });
     await prisma.clientFournisseurProjet.deleteMany({
       where: { clientFournisseurId, projetId },
@@ -497,7 +556,8 @@ export const clientFournisseurService = {
     });
     if (!row) throw new Error('NOT_FOUND');
     const perms = await myPermTypesForCf(cfId, auth.userId);
-    if (!canViewCf(row, auth, perms)) throw new Error('FORBIDDEN');
+    const ar = await isCfAdminImplicitRefused(cfId, auth.userId);
+    if (!canViewCf(row, auth, perms, ar)) throw new Error('FORBIDDEN');
 
     const admins = await prisma.user.findMany({
       where: { role: 'admin', statut: 'actif' },
@@ -521,6 +581,18 @@ export const clientFournisseurService = {
       orderBy: { createdAt: 'asc' },
     });
 
+    let adminSansAccesUserIds: string[] = [];
+    try {
+      adminSansAccesUserIds = (
+        await prisma.clientFournisseurAdminSansAcces.findMany({
+          where: { clientFournisseurId: cfId },
+          select: { userId: true },
+        })
+      ).map((x) => x.userId);
+    } catch {
+      /* table absente */
+    }
+
     return {
       ficheNom: row.nom,
       admins,
@@ -532,24 +604,32 @@ export const clientFournisseurService = {
         grantedBy: d.grantedBy,
         createdAt: d.createdAt,
       })),
-      canManagePermissions: canManageCfPermissions(row, auth),
+      canManagePermissions: canManageCfPermissions(row, auth, perms, ar),
+      adminSansAccesUserIds,
     };
   },
 
   async addDelegation(cfId: string, targetUserId: string, permission: PermissionType, auth: CfAuth) {
     const row = await getCfAclRow(cfId);
     if (!row) throw new Error('NOT_FOUND');
-    if (!canManageCfPermissions(row, auth)) throw new Error('FORBIDDEN');
+    const actorPerms = await myPermTypesForCf(cfId, auth.userId);
+    const ar = await isCfAdminImplicitRefused(cfId, auth.userId);
+    if (!canManageCfPermissions(row, auth, actorPerms, ar)) throw new Error('FORBIDDEN');
     if (targetUserId === auth.userId && !isAdminRole(auth.role)) {
       // créateur se donne un droit explicite : inutile mais autorisé si admin
     }
     const target = await prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, role: true, nom: true, prenom: true } });
     if (!target) throw new Error('Utilisateur introuvable');
-    if (target.role === 'admin') {
-      throw new Error('Les administrateurs ont déjà tous les droits sur les fiches');
-    }
     if (row.createdById === targetUserId) {
       throw new Error('Le créateur de la fiche a déjà tous les droits');
+    }
+
+    try {
+      await prisma.clientFournisseurAdminSansAcces.deleteMany({
+        where: { clientFournisseurId: cfId, userId: targetUserId },
+      });
+    } catch {
+      /* table absente */
     }
 
     const created = await prisma.permission.create({
@@ -575,17 +655,74 @@ export const clientFournisseurService = {
   async removeDelegation(cfId: string, permissionId: string, auth: CfAuth) {
     const row = await getCfAclRow(cfId);
     if (!row) throw new Error('NOT_FOUND');
-    if (!canManageCfPermissions(row, auth)) throw new Error('FORBIDDEN');
+    const actorPerms = await myPermTypesForCf(cfId, auth.userId);
+    const ar = await isCfAdminImplicitRefused(cfId, auth.userId);
+    if (!canManageCfPermissions(row, auth, actorPerms, ar)) throw new Error('FORBIDDEN');
     const perm = await prisma.permission.findFirst({
       where: { id: permissionId, ressourceType: 'clientFournisseur', ressourceId: cfId },
       include: { user: { select: { nom: true, prenom: true } } },
     });
     if (!perm) throw new Error('NOT_FOUND');
+    const targetUserId = perm.userId;
     await prisma.permission.delete({ where: { id: permissionId } });
     await logCfHistory(cfId, auth.userId, 'droit_retire', `Droit « ${perm.permission} » retiré à ${perm.user.prenom} ${perm.user.nom}`, {
       permission: perm.permission,
       cibleUserId: perm.userId,
     });
+    await maybeExcludeAdminAfterCfPermissionRemoved(cfId, row.createdById, targetUserId);
+  },
+
+  async blockAdminImplicitAccess(cfId: string, targetUserId: string, auth: CfAuth) {
+    const row = await getCfAclRow(cfId);
+    if (!row) throw new Error('NOT_FOUND');
+    const actorPerms = await myPermTypesForCf(cfId, auth.userId);
+    const ar = await isCfAdminImplicitRefused(cfId, auth.userId);
+    if (!canManageCfPermissions(row, auth, actorPerms, ar)) throw new Error('FORBIDDEN');
+    if (row.createdById === targetUserId) throw new Error('Le créateur de la fiche ne peut pas être exclu');
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { role: true, nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    if (target.role !== 'admin') {
+      throw new Error("Seuls les comptes administrateur peuvent être privés de l'accès implicite à la fiche");
+    }
+    await prisma.permission.deleteMany({
+      where: { ressourceType: 'clientFournisseur', ressourceId: cfId, userId: targetUserId },
+    });
+    try {
+      await prisma.clientFournisseurAdminSansAcces.upsert({
+        where: { clientFournisseurId_userId: { clientFournisseurId: cfId, userId: targetUserId } },
+        create: { clientFournisseurId: cfId, userId: targetUserId },
+        update: {},
+      });
+    } catch {
+      throw new Error(
+        "Impossible d'enregistrer l'exclusion admin : table absente. Exécutez « prisma migrate deploy » sur l'API."
+      );
+    }
+  },
+
+  async restoreAdminImplicitAccess(cfId: string, targetUserId: string, auth: CfAuth) {
+    const row = await getCfAclRow(cfId);
+    if (!row) throw new Error('NOT_FOUND');
+    const actorPerms = await myPermTypesForCf(cfId, auth.userId);
+    const ar = await isCfAdminImplicitRefused(cfId, auth.userId);
+    if (!canManageCfPermissions(row, auth, actorPerms, ar)) throw new Error('FORBIDDEN');
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    try {
+      await prisma.clientFournisseurAdminSansAcces.deleteMany({
+        where: { clientFournisseurId: cfId, userId: targetUserId },
+      });
+    } catch {
+      throw new Error(
+        "Impossible de restaurer l'accès : table absente. Exécutez « prisma migrate deploy » sur l'API."
+      );
+    }
   },
 
   async getHistorique(cfId: string, auth: CfAuth) {
@@ -595,7 +732,9 @@ export const clientFournisseurService = {
     });
     if (!row) throw new Error('NOT_FOUND');
     const perms = await myPermTypesForCf(cfId, auth.userId);
-    if (!canViewCf(row, auth, perms)) throw new Error('FORBIDDEN');
+    if (!canViewCf(row, auth, perms, await isCfAdminImplicitRefused(cfId, auth.userId))) {
+      throw new Error('FORBIDDEN');
+    }
 
     const events = await prisma.clientFournisseurHistorique.findMany({
       where: { clientFournisseurId: cfId },
@@ -645,10 +784,29 @@ export const clientFournisseurService = {
     await prisma.permission.deleteMany({
       where: { ressourceType: 'clientFournisseur', ressourceId: id },
     });
+    try {
+      await prisma.clientFournisseurAdminSansAcces.deleteMany({ where: { clientFournisseurId: id } });
+    } catch {
+      /* table absente */
+    }
     await prisma.contratPartiePrenante.updateMany({
       where: { clientFournisseurId: id },
       data: { clientFournisseurId: null },
     });
     await prisma.clientFournisseur.delete({ where: { id } });
+  },
+
+  async canAccess(cfId: string, userId: string, userRole: string): Promise<{ canAccess: boolean; reason?: string }> {
+    const row = await prisma.clientFournisseur.findFirst({
+      where: { id: cfId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!row) return { canAccess: false, reason: 'Fiche introuvable' };
+    const perms = await myPermTypesForCf(cfId, userId);
+    const ar = await isCfAdminImplicitRefused(cfId, userId);
+    if (!canViewCf(row, { userId, role: userRole as CfAuth['role'] }, perms, ar)) {
+      return { canAccess: false, reason: 'Accès refusé à cette fiche' };
+    }
+    return { canAccess: true };
   },
 };

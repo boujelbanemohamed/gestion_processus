@@ -3,12 +3,15 @@ import { DocType, DocStatut, RefType } from '@prisma/client';
 import { canEditLicenceContent, canReadLicence, loadLicenceForAclById } from './licence.service';
 import { ProcessusService } from './processus.service';
 import { ProjetService } from './projet.service';
+import { EntiteService } from './entite.service';
+import { clientFournisseurService } from './client-fournisseur.service';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 const processusService = new ProcessusService();
 const projetService = new ProjetService();
+const entiteService = new EntiteService();
 
 /**
  * Noms de fichiers à essayer sur disque : versions du plus récent au plus ancien, puis fichier courant sur Document.
@@ -434,48 +437,38 @@ export class DocumentService {
 
     if (!document) return false;
 
+    const r = role || 'lecteur';
+
     // Licence confidentielle : administrateurs « exclus » n’ont pas le raccourci global
-    if (
-      document.estConfidentiel &&
-      document.referenceType === 'licence' &&
-      document.referenceId &&
-      role === 'admin'
-    ) {
+    if (document.estConfidentiel && document.referenceType === 'licence' && document.referenceId && r === 'admin') {
       if (document.uploadedById === userId) return true;
       const licence = await loadLicenceForAclById(document.referenceId);
-      if (licence && !licence.deletedAt && canReadLicence(userId, role || 'lecteur', licence as any)) {
+      if (licence && !licence.deletedAt && canReadLicence(userId, r, licence as any)) {
         return true;
       }
       return false;
     }
 
-    if (role === 'admin') return true;
-
-    // Document rattaché à un processus : il faut d'abord pouvoir accéder au détail du processus
     if (document.referenceType === 'processus' && document.referenceId) {
-      const procAccess = await processusService.canAccess(
-        document.referenceId,
-        userId,
-        role || 'lecteur'
-      );
-      if (!procAccess.canAccess) {
-        return false;
-      }
+      const procAccess = await processusService.canAccess(document.referenceId, userId, r);
+      if (!procAccess.canAccess) return false;
     }
-
     if (document.referenceType === 'projet' && document.referenceId) {
-      const projAccess = await projetService.canAccess(
-        document.referenceId,
-        userId,
-        role || 'lecteur'
-      );
-      if (!projAccess.canAccess) {
-        return false;
-      }
+      const projAccess = await projetService.canAccess(document.referenceId, userId, r);
+      if (!projAccess.canAccess) return false;
+    }
+    if (document.referenceType === 'entite' && document.referenceId) {
+      const entAccess = await entiteService.canAccess(document.referenceId, userId, r);
+      if (!entAccess.canAccess) return false;
+    }
+    if (document.referenceType === 'clientFournisseur' && document.referenceId) {
+      const cfAccess = await clientFournisseurService.canAccess(document.referenceId, userId, r);
+      if (!cfAccess.canAccess) return false;
     }
 
-    // Si le document n'est pas confidentiel, l'accès ressource parente (ci-dessus) suffit
     if (!document.estConfidentiel) return true;
+
+    if (r === 'admin') return true;
 
     // L'utilisateur qui a uploadé peut toujours accéder
     if (document.uploadedById === userId) return true;
@@ -545,7 +538,6 @@ export class DocumentService {
       const licence = await loadLicenceForAclById(document.referenceId);
       return !!(licence && !licence.deletedAt && canEditLicenceContent(userId, role || 'lecteur', licence as any));
     }
-    if (role === 'admin') return true;
     return this.canUserAccessDocument(documentId, userId, role);
   }
 

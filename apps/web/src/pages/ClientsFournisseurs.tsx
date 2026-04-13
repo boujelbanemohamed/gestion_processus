@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
 import { getPaginationPageNumbers } from '../utils/pagination';
@@ -24,8 +25,25 @@ const LABEL_PERM: Record<string, string> = {
   gestion: 'Gestion',
 };
 
+const CF_PERM_LEVELS = [
+  { value: 'lecture', label: '👁 Consultation' },
+  { value: 'modification', label: '✏️ Modification' },
+  { value: 'suppression', label: '🗑 Suppression (fiche)' },
+  { value: 'gestion', label: '🔐 Gestion des droits' },
+];
+
+const droitsAdminCfLigne = 'modification + suppression + gestion des droits + lecture';
+
 function permSummaryLine(perms: string[]) {
   return perms.map((p) => LABEL_PERM_ROW[p] || p).join(' + ');
+}
+
+function cfPermissionsForAdminLines(delegations: any[]) {
+  return (delegations || []).map((d: any) => ({
+    userId: d.user?.id,
+    niveau: permSummaryLine(d.permissions || []),
+    user: d.user,
+  }));
 }
 
 function isAccesRestreint(item: any) {
@@ -58,11 +76,6 @@ export default function ClientsFournisseurs() {
     item.capabilities?.canModify ?? (user?.role === 'admin' || user?.role === 'contributeur');
   const capDelete = (item: any) =>
     item.capabilities?.canDelete ?? (user?.role === 'admin' || user?.role === 'contributeur');
-  /** Gestion des droits (bouton Accès → modale complète). */
-  const capManagePermissions = (item: any) => {
-    if (item.capabilities?.canManagePermissions != null) return !!item.capabilities.canManagePermissions;
-    return user?.role === 'admin';
-  };
 
   const [items, setItems] = useState<any[]>([]);
   const [typeFilter, setTypeFilter] = useState<string>('');
@@ -87,12 +100,12 @@ export default function ClientsFournisseurs() {
   const [accesModalItem, setAccesModalItem] = useState<any | null>(null);
   const [accesDetail, setAccesDetail] = useState<any | null>(null);
   const [accesLoading, setAccesLoading] = useState(false);
+  const [adminLimitPerm, setAdminLimitPerm] = useState<Record<string, string>>({});
   const [newPermUserId, setNewPermUserId] = useState('');
   const [newPermType, setNewPermType] = useState('lecture');
   const [histModalItem, setHistModalItem] = useState<any | null>(null);
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
-  const [noAccesModalOpen, setNoAccesModalOpen] = useState(false);
   const [expandedCfIds, setExpandedCfIds] = useState<Set<string>>(() => new Set());
   const [showCorbeilleModal, setShowCorbeilleModal] = useState(false);
   const [corbeilleItems, setCorbeilleItems] = useState<any[]>([]);
@@ -236,10 +249,6 @@ export default function ClientsFournisseurs() {
   };
 
   const onAccesButtonClick = (item: any) => {
-    if (!capManagePermissions(item)) {
-      setNoAccesModalOpen(true);
-      return;
-    }
     void openAccesModal(item);
   };
 
@@ -248,6 +257,7 @@ export default function ClientsFournisseurs() {
     setAccesDetail(null);
     setNewPermUserId('');
     setNewPermType('lecture');
+    setAdminLimitPerm({});
     setAccesLoading(true);
     try {
       const { data } = await api.get(`/clients-fournisseurs/${item.id}/acces`);
@@ -295,10 +305,86 @@ export default function ClientsFournisseurs() {
     }
   };
 
-  const handleRemovePermission = async (permissionId: string) => {
-    if (!accesModalItem || !confirm('Retirer ce droit ?')) return;
+  const handleRemovePermission = async (permissionId: string, targetIsAdmin?: boolean) => {
+    const msg = targetIsAdmin
+      ? "Révoquer cet accès ? L'administrateur n'aura plus aucun droit explicite sur cette fiche. Vous pourrez lui accorder à nouveau un accès via « Accorder un accès »."
+      : 'Retirer ce droit ?';
+    if (!accesModalItem || !window.confirm(msg)) return;
     try {
       await api.delete(`/clients-fournisseurs/${accesModalItem.id}/permissions/${permissionId}`);
+      await refreshAccesDetail(accesModalItem.id);
+      load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const revokeAllCfDelegationsForUser = async (userId: string) => {
+    if (!accesModalItem || !accesDetail) return;
+    const rows = (accesDetail.delegations || []).filter((d: any) => d.user?.id === userId);
+    if (rows.length === 0) return;
+    if (!window.confirm('Révoquer tous les droits explicites pour cet utilisateur sur cette fiche ?')) return;
+    try {
+      for (const r of rows) {
+        await api.delete(`/clients-fournisseurs/${accesModalItem.id}/permissions/${r.id}`);
+      }
+      await refreshAccesDetail(accesModalItem.id);
+      load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleRestoreAdminDefaultCf = async (userId: string) => {
+    if (!accesModalItem) return;
+    if (!window.confirm("Rétablir l'accès administrateur par défaut (complet) pour cet utilisateur ?")) return;
+    try {
+      await api.delete(`/clients-fournisseurs/${accesModalItem.id}/admin-sans-acces/${userId}`);
+      await refreshAccesDetail(accesModalItem.id);
+      load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleRevokeAdminImplicitCf = async (userId: string) => {
+    if (!accesModalItem) return;
+    if (
+      !window.confirm(
+        "Retirer tout accès à cet administrateur ? Il ne verra plus la fiche tant que vous ne lui aurez pas accordé un accès via la liste ci-dessous."
+      )
+    ) {
+      return;
+    }
+    try {
+      await api.post(`/clients-fournisseurs/${accesModalItem.id}/admin-sans-acces`, { userId });
+      await refreshAccesDetail(accesModalItem.id);
+      load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const quickLimitAdminCf = async (userId: string) => {
+    if (!accesModalItem) return;
+    const permission = adminLimitPerm[userId] || 'lecture';
+    try {
+      await api.post(`/clients-fournisseurs/${accesModalItem.id}/permissions`, { userId, permission });
+      await refreshAccesDetail(accesModalItem.id);
+      load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const replaceAdminCfPermissionLevel = async (userId: string, permission: string) => {
+    if (!accesModalItem || !accesDetail) return;
+    const rows = (accesDetail.delegations || []).filter((d: any) => d.user?.id === userId);
+    try {
+      for (const r of rows) {
+        await api.delete(`/clients-fournisseurs/${accesModalItem.id}/permissions/${r.id}`);
+      }
+      await api.post(`/clients-fournisseurs/${accesModalItem.id}/permissions`, { userId, permission });
       await refreshAccesDetail(accesModalItem.id);
       load();
     } catch (e: any) {
@@ -623,44 +709,17 @@ export default function ClientsFournisseurs() {
                           <span className="text-[10px] text-green-800/90 text-center mt-0.5">Tous les contributeurs</span>
                         </div>
                       )}
-                      {(() => {
-                        const actifAdmins = usersList.filter(
-                          (u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif')
-                        );
-                        const creatorId = item.createdById || item.createdBy?.id;
-                        const droitsComplet = 'modification + suppression + gestion des droits + lecture';
-                        return (
-                          <>
-                            {actifAdmins.map((a: any) => {
-                              const isCreator = creatorId === a.id;
-                              return (
-                                <div key={`adm-${item.id}-${a.id}`} className="min-w-0">
-                                  <span className="font-medium text-gray-900">
-                                    {a.prenom} {a.nom}
-                                  </span>
-                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                                    {isCreator
-                                      ? `(Administrateur et créateur : ${droitsComplet})`
-                                      : `(Admin : ${droitsComplet})`}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                            {item.createdBy &&
-                              creatorId &&
-                              !actifAdmins.some((a: any) => a.id === creatorId) && (
-                                <div className="min-w-0">
-                                  <span className="font-medium text-gray-900">
-                                    {item.createdBy.prenom} {item.createdBy.nom}
-                                  </span>
-                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                                    (Créateur : {droitsComplet})
-                                  </span>
-                                </div>
-                              )}
-                          </>
-                        );
-                      })()}
+                      <AccessContratLikeAdminLines
+                        users={usersList}
+                        createdById={item.createdById}
+                        createdBy={item.createdBy}
+                        adminSansAccesUserIds={item.adminSansAccesUserIds}
+                        permissions={cfPermissionsForAdminLines(item.accesApercu?.delegations || [])}
+                        droitsAdminCompletLabel={droitsAdminCfLigne}
+                        niveauLabel={(n) => n}
+                        keyPrefix={`liste-cf-${item.id}`}
+                        creatorRightsLabel={droitsAdminCfLigne}
+                      />
                       {(item.accesApercu?.delegations || []).map((d: any) => (
                         <div key={d.user.id} className="min-w-0">
                           <span className="font-medium text-gray-900">
@@ -676,8 +735,8 @@ export default function ClientsFournisseurs() {
                         </div>
                       ))}
                       <p className="text-[10px] text-gray-500 w-full basis-full">
-                        Les fiches client / fournisseur n’ont pas d’« exclusion admin » par fiche : tout administrateur
-                        actif a un accès complet, comme indiqué dans la modale « Accès ».
+                        Aligné sur les contrats : exclusion ou droits explicites pour les administrateurs sont visibles ici
+                        et gérés dans la modale « Accès » (créateur ou habilitation gestion sur la fiche).
                       </p>
                     </div>
                   </div>
@@ -919,58 +978,201 @@ export default function ClientsFournisseurs() {
           <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
             <h3 className="text-xl font-semibold mb-2">Accès — {accesModalItem.nom}</h3>
             <p className="text-sm text-gray-600 mb-5 leading-relaxed">
-              Les comptes <span className="font-medium">administrateur</span> ont tous les droits sur toutes les fiches. Le{' '}
-              <span className="font-medium">créateur</span> de la fiche dispose par défaut de la modification, de la suppression et de la gestion des droits.
+              Le <span className="font-medium">créateur</span> de la fiche et les utilisateurs habilités (selon les règles
+              métier) peuvent gérer les accès. Pour un administrateur : sans ligne dans « Accès partagés » et sans exclusion,
+              accès complet ; une ligne limite les droits ; « Retirer l&apos;accès » retire tout accès jusqu&apos;à octroi via
+              « Accorder un accès » ; « Rétablir l&apos;accès admin par défaut » annule une exclusion.
             </p>
+            {accesDetail && !accesDetail.canManagePermissions && (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2 mb-4">
+                Vous consultez la liste en lecture seule. Pour modifier les droits, connectez-vous avec un compte autorisé à
+                gérer cette fiche (créateur ou droits de gestion).
+              </p>
+            )}
             {accesLoading ? (
               <p className="text-sm text-gray-500">Chargement…</p>
             ) : accesDetail ? (
               <div className="space-y-5 text-sm">
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
-                  <ul className="space-y-1.5 text-gray-700 text-base">
-                    {(accesDetail.admins || []).map((a: any) => (
-                      <li key={a.id}>
-                        <span className="font-medium">{a.prenom} {a.nom}</span>
-                        <span className="text-gray-400"> (accès complet)</span>
-                      </li>
-                    ))}
+                  <p className="text-xs text-gray-500 mb-2">
+                    Limitez un admin avec « Limiter l&apos;accès », retirez-le entièrement avec « Retirer l&apos;accès », ou
+                    rétablissez l&apos;accès complet implicite s&apos;il était exclu.
+                  </p>
+                  <ul className="space-y-3 text-gray-700 text-sm">
+                    {(accesDetail.admins || []).map((a: any) => {
+                      const userDelegations = (accesDetail.delegations || []).filter((d: any) => d.user?.id === a.id);
+                      const primaryDelegation = userDelegations[0];
+                      const explicite = userDelegations.length > 0;
+                      const isCreatorAdmin = accesDetail.creator?.id === a.id;
+                      const refuse = (accesDetail.adminSansAccesUserIds || []).includes(a.id);
+                      return (
+                        <li
+                          key={a.id}
+                          className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 border border-gray-100 rounded-lg px-3 py-2 bg-white"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <span className="font-medium text-base">
+                              {a.prenom} {a.nom}
+                            </span>
+                            <span className="text-gray-500 ml-1">({a.email})</span>
+                            {refuse && !explicite && (
+                              <span className="text-red-700 block sm:inline sm:ml-1 text-xs font-medium">
+                                — aucun accès (exclu ; accorder un accès via la liste ci-dessous pour le réintégrer)
+                              </span>
+                            )}
+                            {!refuse && !explicite && (
+                              <span className="text-gray-400 block sm:inline sm:ml-1">
+                                — accès complet (défaut administrateur)
+                              </span>
+                            )}
+                            {explicite && (
+                              <span className="text-amber-800 block sm:inline sm:ml-1 text-xs font-medium">
+                                — accès limité (ligne « Accès partagés »)
+                              </span>
+                            )}
+                          </div>
+                          {accesDetail.canManagePermissions && !isCreatorAdmin && (
+                            <div className="flex flex-wrap items-center gap-2 shrink-0">
+                              {refuse && !explicite ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRestoreAdminDefaultCf(a.id)}
+                                  className="text-xs px-3 py-1.5 bg-green-100 text-green-800 rounded-md hover:bg-green-200"
+                                >
+                                  Rétablir l&apos;accès admin par défaut
+                                </button>
+                              ) : !explicite ? (
+                                <>
+                                  <select
+                                    value={adminLimitPerm[a.id] ?? 'lecture'}
+                                    onChange={(e) =>
+                                      setAdminLimitPerm((prev) => ({ ...prev, [a.id]: e.target.value }))
+                                    }
+                                    className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                                  >
+                                    {CF_PERM_LEVELS.map((n) => (
+                                      <option key={n.value} value={n.value}>
+                                        {n.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => void quickLimitAdminCf(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                                  >
+                                    Limiter l&apos;accès
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleRevokeAdminImplicitCf(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                  >
+                                    Retirer l&apos;accès
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <select
+                                    value={primaryDelegation?.permission ?? 'lecture'}
+                                    onChange={(e) => {
+                                      const permission = e.target.value;
+                                      if (!accesModalItem || permission === primaryDelegation?.permission) return;
+                                      void replaceAdminCfPermissionLevel(a.id, permission);
+                                    }}
+                                    className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                                  >
+                                    {CF_PERM_LEVELS.map((n) => (
+                                      <option key={n.value} value={n.value}>
+                                        {n.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => void revokeAllCfDelegationsForUser(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                  >
+                                    Révoquer l&apos;accès
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                          {accesDetail.canManagePermissions && isCreatorAdmin && (
+                            <span className="text-xs text-gray-500">Créateur : accès complet, non modérable ici.</span>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Créateur</p>
                   {accesDetail.creator ? (
                     <p>
-                      <span className="font-medium">{accesDetail.creator.prenom} {accesDetail.creator.nom}</span>
+                      <span className="font-medium">
+                        {accesDetail.creator.prenom} {accesDetail.creator.nom}
+                      </span>
                       <span className="text-gray-400"> — modification, suppression, octroi des droits</span>
                     </p>
                   ) : (
                     <p className="text-amber-800 text-sm leading-relaxed">
-                      Aucun créateur enregistré (fiche existante avant la traçabilité). Tous les contributeurs peuvent modifier tant qu’aucun créateur n’est défini ; seuls les administrateurs peuvent attribuer des droits explicites.
+                      Aucun créateur enregistré (fiche existante avant la traçabilité). Les règles de modification et de
+                      gestion des accès suivent la configuration métier en vigueur.
                     </p>
                   )}
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Droits explicites</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Accès partagés</p>
                   {(accesDetail.delegations || []).length === 0 ? (
-                    <p className="text-gray-400 text-xs italic">Aucun droit délégué</p>
+                    <p className="text-gray-400 text-xs italic">Aucun accès délégué</p>
                   ) : (
                     <ul className="space-y-2">
                       {(accesDetail.delegations || []).map((d: any) => (
-                        <li key={d.id} className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50">
-                          <span className="font-medium">{d.user.prenom} {d.user.nom}</span>
-                          <span className="text-gray-500">— {LABEL_PERM[d.permission] || d.permission}</span>
+                        <li
+                          key={d.id}
+                          className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50"
+                        >
+                          <span className="font-medium">
+                            {d.user.prenom} {d.user.nom}
+                            {d.user.role === 'admin' && (
+                              <span className="text-xs font-normal text-gray-500 ml-1">(admin)</span>
+                            )}
+                          </span>
                           {d.grantedBy && (
-                            <span className="text-xs text-gray-400">par {d.grantedBy.prenom} {d.grantedBy.nom}</span>
+                            <span className="text-xs text-gray-400">
+                              par {d.grantedBy.prenom} {d.grantedBy.nom}
+                            </span>
                           )}
-                          {accesDetail.canManagePermissions && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemovePermission(d.id)}
-                              className="text-xs text-red-600 hover:underline ml-auto"
-                            >
-                              Retirer
-                            </button>
+                          {accesDetail.canManagePermissions ? (
+                            <>
+                              <select
+                                value={d.permission}
+                                onChange={(e) => {
+                                  const permission = e.target.value;
+                                  if (!accesModalItem || permission === d.permission) return;
+                                  void replaceAdminCfPermissionLevel(d.user.id, permission);
+                                }}
+                                className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                              >
+                                {CF_PERM_LEVELS.map((n) => (
+                                  <option key={n.value} value={n.value}>
+                                    {n.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => void handleRemovePermission(d.id, d.user?.role === 'admin')}
+                                className="text-xs text-red-600 hover:underline ml-auto"
+                              >
+                                {d.user?.role === 'admin' ? 'Révoquer' : 'Retirer'}
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-gray-500">— {LABEL_PERM[d.permission] || d.permission}</span>
                           )}
                         </li>
                       ))}
@@ -979,7 +1181,7 @@ export default function ClientsFournisseurs() {
                 </div>
                 {accesDetail.canManagePermissions && (
                   <div className="border-t border-gray-200 pt-4 space-y-3">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accorder un droit</p>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accorder un accès</p>
                     <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3 items-end">
                       <select
                         value={newPermUserId}
@@ -987,25 +1189,50 @@ export default function ClientsFournisseurs() {
                         className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm"
                       >
                         <option value="">— Utilisateur —</option>
-                        {usersList
-                          .filter((u: any) => (!u.statut || u.statut === 'actif') && u.role !== 'admin' && u.id !== accesDetail.creator?.id)
-                          .map((u: any) => (
-                            <option key={u.id} value={u.id}>{u.prenom} {u.nom} ({u.email})</option>
-                          ))}
+                        {(() => {
+                          const actifs = usersList.filter(
+                            (u: any) => (!u.statut || u.statut === 'actif') && u.id !== accesDetail.creator?.id
+                          );
+                          const adminsPick = actifs.filter((u: any) => u.role === 'admin');
+                          const autresPick = actifs.filter((u: any) => u.role !== 'admin');
+                          return (
+                            <>
+                              {adminsPick.length > 0 && (
+                                <optgroup label="Administrateurs">
+                                  {adminsPick.map((u: any) => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.prenom} {u.nom} — {u.email}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              {autresPick.length > 0 && (
+                                <optgroup label="Autres utilisateurs">
+                                  {autresPick.map((u: any) => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.prenom} {u.nom} — {u.email}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                            </>
+                          );
+                        })()}
                       </select>
                       <select
                         value={newPermType}
                         onChange={(e) => setNewPermType(e.target.value)}
                         className="w-full lg:w-56 border border-gray-300 rounded-md px-3 py-2 text-sm"
                       >
-                        <option value="lecture">Consultation</option>
-                        <option value="modification">Modification</option>
-                        <option value="suppression">Suppression (fiche)</option>
-                        <option value="gestion">Gestion</option>
+                        {CF_PERM_LEVELS.map((n) => (
+                          <option key={n.value} value={n.value}>
+                            {n.label}
+                          </option>
+                        ))}
                       </select>
                       <button
                         type="button"
-                        onClick={handleAddPermission}
+                        onClick={() => void handleAddPermission()}
                         disabled={!newPermUserId}
                         className="w-full lg:w-auto px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shrink-0"
                       >
@@ -1102,37 +1329,6 @@ export default function ClientsFournisseurs() {
               <p className="text-xs text-gray-400 pt-2">
                 La suppression définitive reste réservée aux administrateurs (corbeille globale).
               </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {noAccesModalOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="no-acces-title"
-          onClick={() => setNoAccesModalOpen(false)}
-        >
-          <div
-            className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 id="no-acces-title" className="text-lg font-semibold text-gray-900 mb-2">Accès au bouton « Accès »</h3>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              Vous n&apos;avez pas les droits nécessaires pour ouvrir la gestion des accès de cette fiche. Seuls les{' '}
-              <span className="font-medium">administrateurs</span> et le <span className="font-medium">créateur</span>{' '}
-              de la fiche peuvent utiliser ce bouton.
-            </p>
-            <div className="flex justify-end mt-5">
-              <button
-                type="button"
-                onClick={() => setNoAccesModalOpen(false)}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                Fermer
-              </button>
             </div>
           </div>
         </div>

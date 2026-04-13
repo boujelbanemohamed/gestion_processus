@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto';
 import { prisma } from '../utils/prisma';
 import { PermissionType } from '../generated/prisma/enums';
+import { fetchProjetAdminExcludedByProjetIds, fetchProjetAdminExcludedForUser } from '../utils/resourceAdminSansAcces';
 
 const TACHE_TERMINEES = ['termine', 'archive'] as const;
 
@@ -92,9 +93,15 @@ function canViewProjet(
   row: { id: string; createdById: string | null },
   auth: ProjetAuth,
   permTypes: PermissionType[],
-  gov: boolean
+  gov: boolean,
+  adminImplicitRefused: boolean
 ) {
-  if (isAdminRole(auth.role)) return true;
+  if (isAdminRole(auth.role)) {
+    if (row.createdById === auth.userId) return true;
+    if (gov) return true;
+    if (adminImplicitRefused && (permTypes ?? []).length === 0) return false;
+    return true;
+  }
   if (row.createdById == null) return true;
   if (row.createdById === auth.userId) return true;
   if (gov) return true;
@@ -105,9 +112,18 @@ function canModifyProjet(
   row: { createdById: string | null; responsableId: string | null; gestionnaireId: string | null },
   auth: ProjetAuth,
   permTypes: PermissionType[],
-  gov: boolean
+  gov: boolean,
+  adminImplicitRefused: boolean
 ) {
-  if (isAdminRole(auth.role)) return true;
+  if (isAdminRole(auth.role)) {
+    if (row.createdById === auth.userId) return true;
+    if (row.responsableId === auth.userId || row.gestionnaireId === auth.userId) return true;
+    if (gov) return true;
+    if (adminImplicitRefused) {
+      return (permTypes ?? []).some((t) => ['modification', 'suppression', 'gestion'].includes(t));
+    }
+    return true;
+  }
   if (row.createdById === auth.userId) return true;
   if (row.responsableId === auth.userId || row.gestionnaireId === auth.userId) return true;
   if (gov) return true;
@@ -115,15 +131,26 @@ function canModifyProjet(
   return perms.some((t) => ['modification', 'suppression', 'gestion'].includes(t));
 }
 
-function canSoftDeleteProjet(row: { createdById: string | null }, auth: ProjetAuth, permTypes: PermissionType[]) {
-  if (isAdminRole(auth.role)) return true;
+function canSoftDeleteProjet(
+  row: { createdById: string | null },
+  auth: ProjetAuth,
+  permTypes: PermissionType[],
+  adminImplicitRefused: boolean
+) {
+  if (isAdminRole(auth.role)) {
+    if (row.createdById === auth.userId) return true;
+    if (adminImplicitRefused) {
+      return (permTypes ?? []).some((t) => ['suppression', 'gestion'].includes(t));
+    }
+    return true;
+  }
   if (row.createdById === auth.userId) return true;
   const perms = permTypes ?? [];
   return perms.some((t) => ['suppression', 'gestion'].includes(t));
 }
 
+/** Créateur ou délégation « gestion » uniquement (admin implicite ne gère plus les accès — aligné contrat). */
 function canManageProjetPermissions(row: { createdById: string | null }, auth: ProjetAuth, permTypes: PermissionType[]) {
-  if (isAdminRole(auth.role)) return true;
   if (row.createdById === auth.userId) return true;
   return (permTypes ?? []).includes('gestion');
 }
@@ -137,15 +164,39 @@ function capabilitiesProjet(
   },
   auth: ProjetAuth,
   permTypes: PermissionType[],
-  gov: boolean
+  gov: boolean,
+  adminImplicitRefused: boolean
 ) {
-  const view = canViewProjet(row, auth, permTypes, gov);
+  const view = canViewProjet(row, auth, permTypes, gov, adminImplicitRefused);
   return {
     canView: view,
-    canModify: view && canModifyProjet(row, auth, permTypes, gov),
-    canDelete: view && canSoftDeleteProjet(row, auth, permTypes),
+    canModify: view && canModifyProjet(row, auth, permTypes, gov, adminImplicitRefused),
+    canDelete: view && canSoftDeleteProjet(row, auth, permTypes, adminImplicitRefused),
     canManagePermissions: view && canManageProjetPermissions(row, auth, permTypes),
   };
+}
+
+async function maybeExcludeAdminAfterProjetPermissionRemoved(
+  projetId: string,
+  projetCreatedById: string | null,
+  targetUserId: string
+) {
+  if (targetUserId === projetCreatedById) return;
+  const u = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
+  if (u?.role !== 'admin') return;
+  const remaining = await prisma.permission.count({
+    where: { ressourceType: 'projet', ressourceId: projetId, userId: targetUserId },
+  });
+  if (remaining > 0) return;
+  try {
+    await prisma.projetAdminSansAcces.upsert({
+      where: { projetId_userId: { projetId, userId: targetUserId } },
+      create: { projetId, userId: targetUserId },
+      update: {},
+    });
+  } catch {
+    /* table absente */
+  }
 }
 
 async function loadPermissionsForProjets(projetIds: string[]) {
@@ -253,6 +304,8 @@ function mapProjetListItem(
   auth: ProjetAuth,
   permTypes: PermissionType[],
   perms: any[],
+  adminImplicitRefused: boolean,
+  adminSansAccesUserIds: string[],
   enrich: {
     tacheStats: Map<string, Record<string, number>>;
     tachesEnRetard: Map<string, number>;
@@ -269,7 +322,8 @@ function mapProjetListItem(
     },
     auth,
     permTypes,
-    gov
+    gov,
+    adminImplicitRefused
   );
 
   const stats = enrich.tacheStats.get(p.id) ?? {};
@@ -298,6 +352,7 @@ function mapProjetListItem(
 
   return {
     ...p,
+    adminSansAccesUserIds,
     partiesPrenantes: p.partiesPrenantes ? JSON.parse(p.partiesPrenantes) : [],
     kpis: p.kpis ? JSON.parse(p.kpis) : [],
     objectifsStrategiques: p.objectifsStrategiques ? JSON.parse(p.objectifsStrategiques) : [],
@@ -406,19 +461,38 @@ export class ProjetService {
     });
 
     const permMap = await loadPermissionsForProjets(projetList.map((p) => p.id));
+    const adminExcludedForViewer = await fetchProjetAdminExcludedForUser(
+      auth.userId,
+      projetList.map((p) => p.id)
+    );
     const visible = projetList.filter((p) => {
       const perms = permMap.get(p.id) ?? [];
       const permTypes = perms.map((x: any) => x.permission as PermissionType);
       const gov = isGovernanceMember(p, auth.userId);
-      return canViewProjet({ id: p.id, createdById: p.createdById }, auth, permTypes, gov);
+      return canViewProjet(
+        { id: p.id, createdById: p.createdById },
+        auth,
+        permTypes,
+        gov,
+        adminExcludedForViewer.has(p.id)
+      );
     });
 
     const enrich = await enrichTachesEtDocuments(visible.map((p) => p.id));
+    const adminExclAll = await fetchProjetAdminExcludedByProjetIds(visible.map((p) => p.id));
 
     return visible.map((p) => {
       const perms = permMap.get(p.id) ?? [];
       const permTypes = perms.map((x: any) => x.permission as PermissionType);
-      return mapProjetListItem(p, auth, permTypes, perms, enrich);
+      return mapProjetListItem(
+        p,
+        auth,
+        permTypes,
+        perms,
+        adminExcludedForViewer.has(p.id),
+        adminExclAll.get(p.id) ?? [],
+        enrich
+      );
     });
   }
 
@@ -452,11 +526,13 @@ export class ProjetService {
     }
     const permTypes = await myPermTypesForProjet(projetId, userId);
     const gov = isGovernanceMember(projet as any, userId);
+    const adminExcl = await fetchProjetAdminExcludedForUser(userId, [projet.id]);
     const ok = canViewProjet(
       { id: projet.id, createdById: projet.createdById },
       { userId, role: userRole },
       permTypes,
-      gov
+      gov,
+      adminExcl.has(projet.id)
     );
     if (!ok) {
       return { canAccess: false, reason: 'Accès refusé à ce projet' };
@@ -475,12 +551,23 @@ export class ProjetService {
     const perms = (await loadPermissionsForProjets([id])).get(id) ?? [];
     const permTypes = perms.map((x: any) => x.permission as PermissionType);
     const gov = isGovernanceMember(projet, auth.userId);
-    if (!canViewProjet({ id: projet.id, createdById: projet.createdById }, auth, permTypes, gov)) {
+    const adminExclViewer = await fetchProjetAdminExcludedForUser(auth.userId, [id]);
+    const adminImplicitRefused = adminExclViewer.has(id);
+    if (!canViewProjet({ id: projet.id, createdById: projet.createdById }, auth, permTypes, gov, adminImplicitRefused)) {
       return null;
     }
 
     const enrich = await enrichTachesEtDocuments([id]);
-    return mapProjetListItem(projet, auth, permTypes, perms, enrich);
+    const adminExclAll = await fetchProjetAdminExcludedByProjetIds([id]);
+    return mapProjetListItem(
+      projet,
+      auth,
+      permTypes,
+      perms,
+      adminImplicitRefused,
+      adminExclAll.get(id) ?? [],
+      enrich
+    );
   }
 
   async getAccesDetail(projetId: string, auth: ProjetAuth) {
@@ -501,8 +588,10 @@ export class ProjetService {
     if (!p) throw new Error('NOT_FOUND');
     const permTypes = await myPermTypesForProjet(projetId, auth.userId);
     const gov = isGovernanceMember(p as any, auth.userId);
-    if (!canViewProjet({ id: p.id, createdById: p.createdById }, auth, permTypes, gov)) throw new Error('FORBIDDEN');
-    if (!canManageProjetPermissions({ createdById: p.createdById }, auth, permTypes)) throw new Error('FORBIDDEN');
+    const adminExclViewer = await fetchProjetAdminExcludedForUser(auth.userId, [projetId]);
+    if (!canViewProjet({ id: p.id, createdById: p.createdById }, auth, permTypes, gov, adminExclViewer.has(projetId))) {
+      throw new Error('FORBIDDEN');
+    }
 
     const admins = await prisma.user.findMany({
       where: { role: 'admin', statut: 'actif' },
@@ -525,6 +614,18 @@ export class ProjetService {
       orderBy: { createdAt: 'asc' },
     });
 
+    let adminSansAccesUserIds: string[] = [];
+    try {
+      adminSansAccesUserIds = (
+        await prisma.projetAdminSansAcces.findMany({
+          where: { projetId },
+          select: { userId: true },
+        })
+      ).map((x) => x.userId);
+    } catch {
+      /* table absente */
+    }
+
     return {
       ficheNom: p.nom,
       admins,
@@ -536,7 +637,8 @@ export class ProjetService {
         grantedBy: r.grantedBy,
         createdAt: r.createdAt,
       })),
-      canManagePermissions: true,
+      canManagePermissions: canManageProjetPermissions({ createdById: p.createdById }, auth, permTypes),
+      adminSansAccesUserIds,
     };
   }
 
@@ -551,8 +653,13 @@ export class ProjetService {
       select: { id: true, role: true, nom: true, prenom: true },
     });
     if (!target) throw new Error('Utilisateur introuvable');
-    if (target.role === 'admin') throw new Error('Les administrateurs ont déjà tous les droits');
     if (p.createdById === targetUserId) throw new Error('Le créateur du projet a déjà tous les droits');
+
+    try {
+      await prisma.projetAdminSansAcces.deleteMany({ where: { projetId, userId: targetUserId } });
+    } catch {
+      /* table absente */
+    }
 
     return prisma.permission.create({
       data: {
@@ -579,14 +686,66 @@ export class ProjetService {
       where: { id: permissionId, ressourceType: 'projet', ressourceId: projetId },
     });
     if (!perm) throw new Error('NOT_FOUND');
+    const targetUserId = perm.userId;
     await prisma.permission.delete({ where: { id: permissionId } });
+    await maybeExcludeAdminAfterProjetPermissionRemoved(projetId, p.createdById, targetUserId);
+  }
+
+  async blockAdminImplicitAccess(projetId: string, targetUserId: string, auth: ProjetAuth) {
+    const p = await prisma.projet.findFirst({ where: { id: projetId, deletedAt: null } });
+    if (!p) throw new Error('NOT_FOUND');
+    const permTypes = await myPermTypesForProjet(projetId, auth.userId);
+    if (!canManageProjetPermissions({ createdById: p.createdById }, auth, permTypes)) throw new Error('FORBIDDEN');
+    if (p.createdById === targetUserId) throw new Error('Le créateur du projet ne peut pas être exclu');
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { role: true, nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    if (target.role !== 'admin') {
+      throw new Error("Seuls les comptes administrateur peuvent être privés de l'accès implicite au projet");
+    }
+    await prisma.permission.deleteMany({
+      where: { ressourceType: 'projet', ressourceId: projetId, userId: targetUserId },
+    });
+    try {
+      await prisma.projetAdminSansAcces.upsert({
+        where: { projetId_userId: { projetId, userId: targetUserId } },
+        create: { projetId, userId: targetUserId },
+        update: {},
+      });
+    } catch {
+      throw new Error(
+        "Impossible d'enregistrer l'exclusion admin : table absente. Exécutez « prisma migrate deploy » sur l'API."
+      );
+    }
+  }
+
+  async restoreAdminImplicitAccess(projetId: string, targetUserId: string, auth: ProjetAuth) {
+    const p = await prisma.projet.findFirst({ where: { id: projetId, deletedAt: null } });
+    if (!p) throw new Error('NOT_FOUND');
+    const permTypes = await myPermTypesForProjet(projetId, auth.userId);
+    if (!canManageProjetPermissions({ createdById: p.createdById }, auth, permTypes)) throw new Error('FORBIDDEN');
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    try {
+      await prisma.projetAdminSansAcces.deleteMany({ where: { projetId, userId: targetUserId } });
+    } catch {
+      throw new Error(
+        "Impossible de restaurer l'accès : table absente. Exécutez « prisma migrate deploy » sur l'API."
+      );
+    }
   }
 
   async softDelete(id: string, auth: ProjetAuth) {
     const existing = await prisma.projet.findFirst({ where: { id, deletedAt: null } });
     if (!existing) throw new Error('Projet non trouvé');
     const permTypes = await myPermTypesForProjet(id, auth.userId);
-    if (!canSoftDeleteProjet({ createdById: existing.createdById }, auth, permTypes)) {
+    const adminExcl = await fetchProjetAdminExcludedForUser(auth.userId, [id]);
+    if (!canSoftDeleteProjet({ createdById: existing.createdById }, auth, permTypes, adminExcl.has(id))) {
       throw new Error('Accès refusé');
     }
     await prisma.projet.update({ where: { id }, data: { deletedAt: new Date() } });
@@ -606,6 +765,11 @@ export class ProjetService {
     const row = await prisma.projet.findFirst({ where: { id, deletedAt: { not: null } } });
     if (!row) throw new Error('Élément introuvable ou non en corbeille');
     await prisma.permission.deleteMany({ where: { ressourceType: 'projet', ressourceId: id } });
+    try {
+      await prisma.projetAdminSansAcces.deleteMany({ where: { projetId: id } });
+    } catch {
+      /* table absente */
+    }
     return prisma.projet.delete({ where: { id } });
   }
 
@@ -807,7 +971,8 @@ export class ProjetService {
     if (!existing) throw new Error('Projet non trouvé');
     const permTypes = await myPermTypesForProjet(id, auth.userId);
     const gov = isGovernanceMember(existing as any, auth.userId);
-    if (!canModifyProjet(existing as any, auth, permTypes, gov)) {
+    const adminExcl = await fetchProjetAdminExcludedForUser(auth.userId, [id]);
+    if (!canModifyProjet(existing as any, auth, permTypes, gov, adminExcl.has(id))) {
       throw new Error('Accès refusé');
     }
 

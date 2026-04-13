@@ -103,6 +103,8 @@ app.get("/api/v1/entites", entiteController.getAllEntites);
 app.get("/api/v1/entites/tree", entiteController.getEntiteTree);
 app.get("/api/v1/entites/corbeille", entiteController.getEntitesCorbeille);
 app.get("/api/v1/entites/:id/acces", entiteController.getEntiteAcces);
+app.post("/api/v1/entites/:id/admin-sans-acces", entiteController.postEntiteAdminSansAcces);
+app.delete("/api/v1/entites/:id/admin-sans-acces/:userId", entiteController.deleteEntiteAdminSansAcces);
 app.get("/api/v1/entites/:id/history", entiteController.getEntiteHistory);
 app.post("/api/v1/entites/:id/permissions", entiteController.addEntitePermission);
 app.delete("/api/v1/entites/:id/permissions/:permissionId", entiteController.removeEntitePermission);
@@ -115,6 +117,11 @@ app.delete("/api/v1/entites/:id", entiteController.deleteEntite);
 app.get("/api/v1/processus", processusController.getAllProcessus);
 app.get("/api/v1/processus/corbeille", processusController.getProcessusCorbeille);
 app.get("/api/v1/processus/:id/acces", processusController.getProcessusAcces);
+app.post("/api/v1/processus/:id/admin-sans-acces", processusController.postProcessusAdminSansAcces);
+app.delete(
+  "/api/v1/processus/:id/admin-sans-acces/:userId",
+  processusController.deleteProcessusAdminSansAcces
+);
 app.post("/api/v1/processus/:id/permissions", processusController.addProcessusPermission);
 app.delete(
   "/api/v1/processus/:id/permissions/:permissionId",
@@ -132,6 +139,8 @@ app.delete("/api/v1/processus/:id", processusController.deleteProcessus);
 app.get("/api/v1/projets", projetController.getAllProjets);
 app.get("/api/v1/projets/corbeille", projetController.getProjetsCorbeille);
 app.get("/api/v1/projets/:id/acces", projetController.getProjetAcces);
+app.post("/api/v1/projets/:id/admin-sans-acces", projetController.postProjetAdminSansAcces);
+app.delete("/api/v1/projets/:id/admin-sans-acces/:userId", projetController.deleteProjetAdminSansAcces);
 app.get("/api/v1/projets/:id/history", projetController.getProjetHistory);
 app.post("/api/v1/projets/:id/permissions", projetController.addProjetPermission);
 app.delete("/api/v1/projets/:id/permissions/:permissionId", projetController.removeProjetPermission);
@@ -278,6 +287,14 @@ app.get(
   clientFournisseurController.getClientsFournisseursCorbeille
 );
 app.get("/api/v1/clients-fournisseurs/:id/acces", clientFournisseurController.getClientFournisseurAcces);
+app.post(
+  "/api/v1/clients-fournisseurs/:id/admin-sans-acces",
+  clientFournisseurController.postClientFournisseurAdminSansAcces
+);
+app.delete(
+  "/api/v1/clients-fournisseurs/:id/admin-sans-acces/:userId",
+  clientFournisseurController.deleteClientFournisseurAdminSansAcces
+);
 app.get("/api/v1/clients-fournisseurs/:id/historique", clientFournisseurController.getClientFournisseurHistorique);
 app.post("/api/v1/clients-fournisseurs/:id/permissions", clientFournisseurController.addClientFournisseurPermission);
 app.delete(

@@ -1,6 +1,10 @@
 import { prisma } from '../utils/prisma';
 import { ProcessusStatut } from '@prisma/client';
 import { PermissionType } from '../generated/prisma/enums';
+import {
+  fetchProcessusAdminExcludedByProcessusIds,
+  fetchProcessusAdminExcludedForUser,
+} from '../utils/resourceAdminSansAcces';
 
 export type ProcessusAuth = { userId: string; role: string };
 
@@ -57,11 +61,18 @@ function canViewProcessusRow(
     proprietaireId: string | null;
   },
   auth: ProcessusAuth,
-  permTypes: PermissionType[]
+  permTypes: PermissionType[],
+  adminImplicitRefused: boolean
 ) {
-  if (isAdminRole(auth.role)) return true;
-
   const archived = row.statut === 'archive' || row.statut === 'obsolete';
+
+  if (isAdminRole(auth.role)) {
+    if (row.proprietaireId === auth.userId || row.createdById === auth.userId) return true;
+    if (adminImplicitRefused && permTypes.length === 0) return false;
+    if (archived) return permTypes.length > 0;
+    return true;
+  }
+
   if (archived) {
     if (row.proprietaireId === auth.userId || row.createdById === auth.userId) return true;
     return permTypes.length > 0;
@@ -75,9 +86,16 @@ function canViewProcessusRow(
 function canModifyProcessusRow(
   row: { proprietaireId: string | null; createdById: string | null },
   auth: ProcessusAuth,
-  permTypes: PermissionType[]
+  permTypes: PermissionType[],
+  adminImplicitRefused: boolean
 ) {
-  if (isAdminRole(auth.role)) return true;
+  if (isAdminRole(auth.role)) {
+    if (row.proprietaireId === auth.userId || row.createdById === auth.userId) return true;
+    if (adminImplicitRefused) {
+      return permTypes.some((t) => ['modification', 'suppression', 'gestion'].includes(t));
+    }
+    return true;
+  }
   if (row.proprietaireId === auth.userId || row.createdById === auth.userId) return true;
   return permTypes.some((t) => ['modification', 'suppression', 'gestion'].includes(t));
 }
@@ -85,19 +103,26 @@ function canModifyProcessusRow(
 function canSoftDeleteProcessusRow(
   row: { proprietaireId: string | null; createdById: string | null },
   auth: ProcessusAuth,
-  permTypes: PermissionType[]
+  permTypes: PermissionType[],
+  adminImplicitRefused: boolean
 ) {
-  if (isAdminRole(auth.role)) return true;
+  if (isAdminRole(auth.role)) {
+    if (row.proprietaireId === auth.userId || row.createdById === auth.userId) return true;
+    if (adminImplicitRefused) {
+      return permTypes.some((t) => ['suppression', 'gestion'].includes(t));
+    }
+    return true;
+  }
   if (row.proprietaireId === auth.userId || row.createdById === auth.userId) return true;
   return permTypes.some((t) => ['suppression', 'gestion'].includes(t));
 }
 
+/** Propriétaire, créateur ou délégation « gestion » (admin implicite ne gère plus les accès). */
 function canManageProcessusPermissionsRow(
   row: { proprietaireId: string | null; createdById: string | null },
   auth: ProcessusAuth,
   permTypes: PermissionType[]
 ) {
-  if (isAdminRole(auth.role)) return true;
   if (row.proprietaireId === auth.userId || row.createdById === auth.userId) return true;
   return permTypes.includes('gestion');
 }
@@ -109,15 +134,40 @@ function capabilitiesProcessus(
     createdById: string | null;
   },
   auth: ProcessusAuth,
-  permTypes: PermissionType[]
+  permTypes: PermissionType[],
+  adminImplicitRefused: boolean
 ) {
-  const view = canViewProcessusRow(row, auth, permTypes);
+  const view = canViewProcessusRow(row, auth, permTypes, adminImplicitRefused);
   return {
     canView: view,
-    canModify: view && canModifyProcessusRow(row, auth, permTypes),
-    canDelete: view && canSoftDeleteProcessusRow(row, auth, permTypes),
+    canModify: view && canModifyProcessusRow(row, auth, permTypes, adminImplicitRefused),
+    canDelete: view && canSoftDeleteProcessusRow(row, auth, permTypes, adminImplicitRefused),
     canManagePermissions: view && canManageProcessusPermissionsRow(row, auth, permTypes),
   };
+}
+
+async function maybeExcludeAdminAfterProcessusPermissionRemoved(
+  processusId: string,
+  createdById: string | null,
+  proprietaireId: string | null,
+  targetUserId: string
+) {
+  if (targetUserId === createdById || targetUserId === proprietaireId) return;
+  const u = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
+  if (u?.role !== 'admin') return;
+  const remaining = await prisma.permission.count({
+    where: { ressourceType: 'processus', ressourceId: processusId, userId: targetUserId },
+  });
+  if (remaining > 0) return;
+  try {
+    await prisma.processusAdminSansAcces.upsert({
+      where: { processusId_userId: { processusId, userId: targetUserId } },
+      create: { processusId, userId: targetUserId },
+      update: {},
+    });
+  } catch {
+    /* table absente */
+  }
 }
 
 function mapAccesDelegations(perms: any[]) {
@@ -224,6 +274,8 @@ function mapListItem(
   auth: ProcessusAuth,
   permTypes: PermissionType[],
   perms: any[],
+  adminImplicitRefused: boolean,
+  adminSansAccesUserIds: string[],
   liens: {
     documentsByProc: Map<string, { id: string; nom: string }[]>;
     licencesByProc: Map<string, { id: string; nom: string; reference: string }[]>;
@@ -239,10 +291,12 @@ function mapListItem(
       createdById: p.createdById,
     },
     auth,
-    permTypes
+    permTypes,
+    adminImplicitRefused
   );
   return {
     ...p,
+    adminSansAccesUserIds,
     permissions: perms,
     capabilities: caps,
     accesApercu: { delegations: mapAccesDelegations(perms) },
@@ -335,12 +389,17 @@ export class ProcessusService {
     }
 
     const permMap = await loadPermissionsForProcessus(filteredList.map((p) => p.id));
+    const adminExcludedViewer = await fetchProcessusAdminExcludedForUser(
+      auth.userId,
+      filteredList.map((p) => p.id)
+    );
     const visible = filteredList.filter((p) => {
       const permTypes = (permMap.get(p.id) ?? []).map((x: any) => x.permission as PermissionType);
       return canViewProcessusRow(
         { statut: p.statut, createdById: p.createdById, proprietaireId: p.proprietaireId },
         auth,
-        permTypes
+        permTypes,
+        adminExcludedViewer.has(p.id)
       );
     });
 
@@ -367,10 +426,21 @@ export class ProcessusService {
       }))
     );
 
+    const adminExclAll = await fetchProcessusAdminExcludedByProcessusIds(ids);
+
     return visible.map((p) => {
       const perms = permMap.get(p.id) ?? [];
       const permTypes = perms.map((x: any) => x.permission as PermissionType);
-      return mapListItem(p, auth, permTypes, perms, liens, docCountMap.get(p.id) ?? 0);
+      return mapListItem(
+        p,
+        auth,
+        permTypes,
+        perms,
+        adminExcludedViewer.has(p.id),
+        adminExclAll.get(p.id) ?? [],
+        liens,
+        docCountMap.get(p.id) ?? 0
+      );
     });
   }
 
@@ -392,11 +462,14 @@ export class ProcessusService {
     });
     if (!p) return null;
     const permTypes = await myPermTypesForProcessus(id, auth.userId);
+    const adminExclViewer = await fetchProcessusAdminExcludedForUser(auth.userId, [id]);
+    const adminImplicitRefused = adminExclViewer.has(id);
     if (
       !canViewProcessusRow(
         { statut: p.statut, createdById: p.createdById, proprietaireId: p.proprietaireId },
         auth,
-        permTypes
+        permTypes,
+        adminImplicitRefused
       )
     ) {
       return null;
@@ -409,7 +482,17 @@ export class ProcessusService {
     const nd = await prisma.document.count({
       where: { referenceType: 'processus', referenceId: id, deletedAt: null },
     });
-    return mapListItem(p, auth, permTypes, perms, liens, nd);
+    const adminExclAll = await fetchProcessusAdminExcludedByProcessusIds([id]);
+    return mapListItem(
+      p,
+      auth,
+      permTypes,
+      perms,
+      adminImplicitRefused,
+      adminExclAll.get(id) ?? [],
+      liens,
+      nd
+    );
   }
 
   async getAccesDetail(processusId: string, auth: ProcessusAuth) {
@@ -425,20 +508,13 @@ export class ProcessusService {
     });
     if (!row) throw new Error('NOT_FOUND');
     const permTypes = await myPermTypesForProcessus(processusId, auth.userId);
+    const adminExclViewer = await fetchProcessusAdminExcludedForUser(auth.userId, [processusId]);
     if (
       !canViewProcessusRow(
         { statut: row.statut, createdById: row.createdById, proprietaireId: row.proprietaireId },
         auth,
-        permTypes
-      )
-    ) {
-      throw new Error('FORBIDDEN');
-    }
-    if (
-      !canManageProcessusPermissionsRow(
-        { createdById: row.createdById, proprietaireId: row.proprietaireId },
-        auth,
-        permTypes
+        permTypes,
+        adminExclViewer.has(processusId)
       )
     ) {
       throw new Error('FORBIDDEN');
@@ -466,6 +542,18 @@ export class ProcessusService {
       orderBy: { createdAt: 'asc' },
     });
 
+    let adminSansAccesUserIds: string[] = [];
+    try {
+      adminSansAccesUserIds = (
+        await prisma.processusAdminSansAcces.findMany({
+          where: { processusId },
+          select: { userId: true },
+        })
+      ).map((x) => x.userId);
+    } catch {
+      /* table absente */
+    }
+
     return {
       ficheNom: row.nom,
       admins,
@@ -477,7 +565,12 @@ export class ProcessusService {
         grantedBy: r.grantedBy,
         createdAt: r.createdAt,
       })),
-      canManagePermissions: true,
+      canManagePermissions: canManageProcessusPermissionsRow(
+        { createdById: row.createdById, proprietaireId: row.proprietaireId },
+        auth,
+        permTypes
+      ),
+      adminSansAccesUserIds,
     };
   }
 
@@ -499,9 +592,13 @@ export class ProcessusService {
       select: { id: true, role: true, nom: true, prenom: true },
     });
     if (!target) throw new Error('Utilisateur introuvable');
-    if (target.role === 'admin') throw new Error('Les administrateurs ont déjà tous les droits');
     if (row.createdById === targetUserId || row.proprietaireId === targetUserId) {
       throw new Error('Le créateur ou le propriétaire a déjà tous les droits');
+    }
+    try {
+      await prisma.processusAdminSansAcces.deleteMany({ where: { processusId, userId: targetUserId } });
+    } catch {
+      /* table absente */
     }
     return prisma.permission.create({
       data: {
@@ -535,7 +632,69 @@ export class ProcessusService {
       where: { id: permissionId, ressourceType: 'processus', ressourceId: processusId },
     });
     if (!perm) throw new Error('NOT_FOUND');
+    const targetUserId = perm.userId;
     await prisma.permission.delete({ where: { id: permissionId } });
+    await maybeExcludeAdminAfterProcessusPermissionRemoved(
+      processusId,
+      row.createdById,
+      row.proprietaireId,
+      targetUserId
+    );
+  }
+
+  async blockAdminImplicitAccess(processusId: string, targetUserId: string, auth: ProcessusAuth) {
+    const row = await prisma.processus.findFirst({ where: { id: processusId, deletedAt: null } });
+    if (!row) throw new Error('NOT_FOUND');
+    const permTypes = await myPermTypesForProcessus(processusId, auth.userId);
+    if (!canManageProcessusPermissionsRow({ createdById: row.createdById, proprietaireId: row.proprietaireId }, auth, permTypes)) {
+      throw new Error('FORBIDDEN');
+    }
+    if (targetUserId === row.createdById || targetUserId === row.proprietaireId) {
+      throw new Error('Le créateur ou le propriétaire ne peut pas être exclu');
+    }
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { role: true, nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    if (target.role !== 'admin') {
+      throw new Error("Seuls les comptes administrateur peuvent être privés de l'accès implicite au processus");
+    }
+    await prisma.permission.deleteMany({
+      where: { ressourceType: 'processus', ressourceId: processusId, userId: targetUserId },
+    });
+    try {
+      await prisma.processusAdminSansAcces.upsert({
+        where: { processusId_userId: { processusId, userId: targetUserId } },
+        create: { processusId, userId: targetUserId },
+        update: {},
+      });
+    } catch {
+      throw new Error(
+        "Impossible d'enregistrer l'exclusion admin : table absente. Exécutez « prisma migrate deploy » sur l'API."
+      );
+    }
+  }
+
+  async restoreAdminImplicitAccess(processusId: string, targetUserId: string, auth: ProcessusAuth) {
+    const row = await prisma.processus.findFirst({ where: { id: processusId, deletedAt: null } });
+    if (!row) throw new Error('NOT_FOUND');
+    const permTypes = await myPermTypesForProcessus(processusId, auth.userId);
+    if (!canManageProcessusPermissionsRow({ createdById: row.createdById, proprietaireId: row.proprietaireId }, auth, permTypes)) {
+      throw new Error('FORBIDDEN');
+    }
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { nom: true, prenom: true },
+    });
+    if (!target) throw new Error('Utilisateur introuvable');
+    try {
+      await prisma.processusAdminSansAcces.deleteMany({ where: { processusId, userId: targetUserId } });
+    } catch {
+      throw new Error(
+        "Impossible de restaurer l'accès : table absente. Exécutez « prisma migrate deploy » sur l'API."
+      );
+    }
   }
 
   async canModifyForUser(processusId: string, auth: ProcessusAuth): Promise<boolean> {
@@ -545,7 +704,8 @@ export class ProcessusService {
     });
     if (!row) return false;
     const permTypes = await myPermTypesForProcessus(processusId, auth.userId);
-    return canModifyProcessusRow(row, auth, permTypes);
+    const excl = await fetchProcessusAdminExcludedForUser(auth.userId, [processusId]);
+    return canModifyProcessusRow(row, auth, permTypes, excl.has(processusId));
   }
 
   async canSoftDeleteForUser(processusId: string, auth: ProcessusAuth): Promise<boolean> {
@@ -555,7 +715,8 @@ export class ProcessusService {
     });
     if (!row) return false;
     const permTypes = await myPermTypesForProcessus(processusId, auth.userId);
-    return canSoftDeleteProcessusRow(row, auth, permTypes);
+    const excl = await fetchProcessusAdminExcludedForUser(auth.userId, [processusId]);
+    return canSoftDeleteProcessusRow(row, auth, permTypes, excl.has(processusId));
   }
 
   async create(
@@ -597,8 +758,17 @@ export class ProcessusService {
           where: { id: row.userId },
           select: { id: true, role: true },
         });
-        if (!target || target.role === 'admin') continue;
+        if (!target) continue;
         if (row.userId === data.createdById || row.userId === data.proprietaireId) continue;
+        if (target.role === 'admin') {
+          try {
+            await tx.processusAdminSansAcces.deleteMany({
+              where: { processusId: p.id, userId: row.userId },
+            });
+          } catch {
+            /* table absente */
+          }
+        }
         try {
           await tx.permission.create({
             data: {
@@ -711,13 +881,19 @@ export class ProcessusService {
   }
 
   async canModifyCode(id: string, userId: string, userRole: string): Promise<boolean> {
-    if (userRole === 'admin') return true;
     const processus = await prisma.processus.findUnique({
       where: { id },
       select: { proprietaireId: true, createdById: true },
     });
     if (!processus) return false;
-    return processus.proprietaireId === userId || processus.createdById === userId;
+    const permTypes = await myPermTypesForProcessus(id, userId);
+    const excl = await fetchProcessusAdminExcludedForUser(userId, [id]);
+    return canModifyProcessusRow(
+      processus,
+      { userId, role: userRole },
+      permTypes,
+      excl.has(id)
+    );
   }
 
   async canAccess(id: string, userId: string, userRole: string): Promise<{ canAccess: boolean; reason?: string }> {
@@ -729,6 +905,7 @@ export class ProcessusService {
       return { canAccess: false, reason: 'Processus non trouvé' };
     }
     const permTypes = await myPermTypesForProcessus(id, userId);
+    const excl = await fetchProcessusAdminExcludedForUser(userId, [id]);
     const ok = canViewProcessusRow(
       {
         statut: processus.statut,
@@ -736,7 +913,8 @@ export class ProcessusService {
         createdById: processus.createdById,
       },
       { userId, role: userRole },
-      permTypes
+      permTypes,
+      excl.has(id)
     );
     if (!ok) {
       if (processus.statut === 'archive' || processus.statut === 'obsolete') {

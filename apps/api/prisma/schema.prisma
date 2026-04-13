@@ -192,6 +192,11 @@ model User {
   contratHistorique              ContratHistorique[]
   entitesCreees                  Entite[]                         @relation("EntiteCreatedBy")
 
+  projetsAdminSansAcces             ProjetAdminSansAcces[]             @relation("ProjetAdminSansAcces")
+  processusAdminSansAcces           ProcessusAdminSansAcces[]          @relation("ProcessusAdminSansAcces")
+  clientsFournisseursAdminSansAcces ClientFournisseurAdminSansAcces[]  @relation("ClientFournisseurAdminSansAcces")
+  entitesAdminSansAcces             EntiteAdminSansAcces[]             @relation("EntiteAdminSansAcces")
+
   userUiModuleAccesses          UserUiModuleAccess[]
 
   pvReunionsCrees               PvReunion[]              @relation("PvReunionCreatedBy")
@@ -252,12 +257,26 @@ model Entite {
   projets           ProjetEntite[]
   tachesAssignees   TacheEntite[]
   epicEntites       EpicEntite[]
+  adminSansAcces    EntiteAdminSansAcces[]
 
   @@index([parentId])
   @@index([code])
   @@index([deletedAt])
   @@index([createdById])
   @@index([typeEntiteId])
+}
+
+/// Administrateurs explicitement privés d’accès implicite (aligné ContratAdminSansAcces).
+model EntiteAdminSansAcces {
+  id       String @id @default(uuid())
+  entiteId String
+  userId   String
+  entite   Entite @relation(fields: [entiteId], references: [id], onDelete: Cascade)
+  user     User   @relation("EntiteAdminSansAcces", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([entiteId, userId])
+  @@index([entiteId])
+  @@index([userId])
 }
 
 model UserEntite {
@@ -313,10 +332,24 @@ model Processus {
   favoris                FavorisProcessus[]
   licenceLiens LicenceProcessus[]
   pvReunions             PvReunionProcessus[]
+  adminSansAcces         ProcessusAdminSansAcces[]
 
   @@index([statut])
   @@index([codeProcessus])
   @@index([deletedAt])
+}
+
+/// Administrateurs explicitement privés d’accès implicite (aligné ContratAdminSansAcces).
+model ProcessusAdminSansAcces {
+  id          String    @id @default(uuid())
+  processusId String
+  userId      String
+  processus   Processus @relation(fields: [processusId], references: [id], onDelete: Cascade)
+  user        User      @relation("ProcessusAdminSansAcces", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([processusId, userId])
+  @@index([processusId])
+  @@index([userId])
 }
 
 model ProcessusCategorie {
@@ -410,6 +443,20 @@ model Projet {
   taches                Tache[]
   epics                 Epic[]
   pvReunions            PvReunionProjet[]
+  adminSansAcces        ProjetAdminSansAcces[]
+}
+
+/// Administrateurs explicitement privés d’accès implicite (aligné ContratAdminSansAcces).
+model ProjetAdminSansAcces {
+  id       String @id @default(uuid())
+  projetId String
+  userId   String
+  projet   Projet @relation(fields: [projetId], references: [id], onDelete: Cascade)
+  user     User   @relation("ProjetAdminSansAcces", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projetId, userId])
+  @@index([projetId])
+  @@index([userId])
 }
 
 model ProjetEntite {
@@ -693,6 +740,20 @@ model ClientFournisseur {
   licenceLiens     LicenceClientFournisseur[]
   historique       ClientFournisseurHistorique[]
   pvReunionPresents PvReunionPresentClientFournisseur[]
+  adminSansAcces    ClientFournisseurAdminSansAcces[]
+}
+
+/// Administrateurs explicitement privés d’accès implicite (aligné ContratAdminSansAcces).
+model ClientFournisseurAdminSansAcces {
+  id                  String            @id @default(uuid())
+  clientFournisseurId String
+  userId              String
+  clientFournisseur   ClientFournisseur @relation(fields: [clientFournisseurId], references: [id], onDelete: Cascade)
+  user                User              @relation("ClientFournisseurAdminSansAcces", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clientFournisseurId, userId])
+  @@index([clientFournisseurId])
+  @@index([userId])
 }
 
 model ClientFournisseurHistorique {

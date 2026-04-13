@@ -11,40 +11,91 @@ export function isLegacyOpen(cf: CfAclRow) {
   return cf.createdById == null;
 }
 
-export function canViewCf(cf: CfAclRow, auth: CfAuth, userPermTypes: PermissionType[]) {
-  if (isAdminRole(auth.role)) return true;
+export function canViewCf(
+  cf: CfAclRow,
+  auth: CfAuth,
+  userPermTypes: PermissionType[],
+  adminImplicitRefused = false
+) {
+  if (isAdminRole(auth.role)) {
+    if (cf.createdById === auth.userId) return true;
+    if (adminImplicitRefused && userPermTypes.length === 0) return false;
+    return true;
+  }
   if (cf.createdById === auth.userId) return true;
   if (userPermTypes.length > 0) return true;
   if (isLegacyOpen(cf) && auth.role === 'contributeur') return true;
   return false;
 }
 
-export function canModifyCf(cf: CfAclRow, auth: CfAuth, userPermTypes: PermissionType[]) {
-  if (isAdminRole(auth.role)) return true;
+export function canModifyCf(
+  cf: CfAclRow,
+  auth: CfAuth,
+  userPermTypes: PermissionType[],
+  adminImplicitRefused = false
+) {
+  if (isAdminRole(auth.role)) {
+    if (cf.createdById === auth.userId) return true;
+    if (adminImplicitRefused) {
+      return userPermTypes.some((p) => p === 'modification' || p === 'suppression' || p === 'gestion');
+    }
+    return true;
+  }
   if (cf.createdById === auth.userId) return true;
   if (isLegacyOpen(cf) && auth.role === 'contributeur') return true;
   return userPermTypes.some((p) => p === 'modification' || p === 'suppression' || p === 'gestion');
 }
 
-export function canDeleteCf(cf: CfAclRow, auth: CfAuth, userPermTypes: PermissionType[]) {
-  if (isAdminRole(auth.role)) return true;
+export function canDeleteCf(
+  cf: CfAclRow,
+  auth: CfAuth,
+  userPermTypes: PermissionType[],
+  adminImplicitRefused = false
+) {
+  if (isAdminRole(auth.role)) {
+    if (cf.createdById === auth.userId) return true;
+    if (adminImplicitRefused) {
+      return userPermTypes.includes('suppression');
+    }
+    return true;
+  }
   if (cf.createdById === auth.userId) return true;
   if (isLegacyOpen(cf) && auth.role === 'contributeur') return true;
   return userPermTypes.includes('suppression');
 }
 
-/** Octroi / retrait de droits : administrateur ou créateur de la fiche (fiches sans créateur : admin uniquement). */
-export function canManageCfPermissions(cf: CfAclRow, auth: CfAuth) {
-  if (isAdminRole(auth.role)) return true;
+/**
+ * Créateur ; fiche sans créateur : admin implicite (sauf exclusion) ou admin exclu avec « gestion » ;
+ * sinon : admin implicite ne gère plus les accès (aligné contrat).
+ */
+export function canManageCfPermissions(
+  cf: CfAclRow,
+  auth: CfAuth,
+  userPermTypes: PermissionType[] = [],
+  adminImplicitRefused = false
+) {
   if (cf.createdById && cf.createdById === auth.userId) return true;
+  if (isLegacyOpen(cf) && isAdminRole(auth.role)) {
+    if (adminImplicitRefused) return userPermTypes.includes('gestion');
+    return true;
+  }
+  if (isAdminRole(auth.role)) {
+    if (adminImplicitRefused) return userPermTypes.includes('gestion');
+    return false;
+  }
   return false;
 }
 
-export function capabilitiesFor(cf: CfAclRow, auth: CfAuth, userPermTypes: PermissionType[]) {
+export function capabilitiesFor(
+  cf: CfAclRow,
+  auth: CfAuth,
+  userPermTypes: PermissionType[],
+  adminImplicitRefused = false
+) {
   return {
-    canView: canViewCf(cf, auth, userPermTypes),
-    canModify: canModifyCf(cf, auth, userPermTypes),
-    canDelete: canDeleteCf(cf, auth, userPermTypes),
-    canManagePermissions: canManageCfPermissions(cf, auth),
+    canView: canViewCf(cf, auth, userPermTypes, adminImplicitRefused),
+    canModify: canModifyCf(cf, auth, userPermTypes, adminImplicitRefused),
+    canDelete: canDeleteCf(cf, auth, userPermTypes, adminImplicitRefused),
+    canManagePermissions: canManageCfPermissions(cf, auth, userPermTypes, adminImplicitRefused),
   };
 }

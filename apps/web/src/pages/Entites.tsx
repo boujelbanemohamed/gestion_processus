@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
 import { getPaginationPageNumbers } from '../utils/pagination';
@@ -17,6 +18,13 @@ const LABEL_PERM_MODAL: Record<string, string> = {
   suppression: 'Suppression',
   gestion: 'Gestion des droits',
 };
+
+const ENTITE_PERM_LEVELS = [
+  { value: 'lecture', label: '👁 Consultation' },
+  { value: 'modification', label: '✏️ Modification' },
+  { value: 'suppression', label: '🗑 Suppression (mise en corbeille)' },
+  { value: 'gestion', label: '🔐 Gestion des droits' },
+];
 
 const ACTION_JOURNAL: Record<string, string> = {
   connexion: 'Connexion',
@@ -38,6 +46,14 @@ function isAccesRestreintEntite(e: any) {
 }
 
 const droitsAdminLigne = 'modification + suppression + gestion des accès + lecture';
+
+function entitePermissionsForAdminLines(delegations: any[]) {
+  return (delegations || []).map((d: any) => ({
+    userId: d.user?.id,
+    niveau: permSummaryLine(d.permissions || []),
+    user: d.user,
+  }));
+}
 
 function countEntitesInTree(nodes: any[]): number {
   if (!nodes?.length) return 0;
@@ -184,9 +200,9 @@ export default function Entites() {
   const [accesModalEntite, setAccesModalEntite] = useState<any | null>(null);
   const [accesDetail, setAccesDetail] = useState<any | null>(null);
   const [accesLoading, setAccesLoading] = useState(false);
+  const [adminLimitPerm, setAdminLimitPerm] = useState<Record<string, string>>({});
   const [newPermUserId, setNewPermUserId] = useState('');
   const [newPermType, setNewPermType] = useState('lecture');
-  const [noAccesModalOpen, setNoAccesModalOpen] = useState(false);
   const [histModalEntite, setHistModalEntite] = useState<any | null>(null);
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
@@ -279,13 +295,7 @@ export default function Entites() {
     canManagePermissions: !!e.capabilities?.canManagePermissions,
   });
 
-  const canManagePermissionsEntite = (e: any) => cap(e).canManagePermissions;
-
   const onAccesButtonClick = (e: any) => {
-    if (!canManagePermissionsEntite(e)) {
-      setNoAccesModalOpen(true);
-      return;
-    }
     void openAccesModal(e);
   };
 
@@ -294,6 +304,7 @@ export default function Entites() {
     setAccesDetail(null);
     setNewPermUserId('');
     setNewPermType('lecture');
+    setAdminLimitPerm({});
     setAccesLoading(true);
     try {
       const { data } = await api.get(`/entites/${entite.id}/acces`);
@@ -326,10 +337,86 @@ export default function Entites() {
     }
   };
 
-  const handleRemovePermission = async (permissionId: string) => {
-    if (!accesModalEntite || !confirm('Retirer ce droit ?')) return;
+  const handleRemovePermission = async (permissionId: string, targetIsAdmin?: boolean) => {
+    const msg = targetIsAdmin
+      ? "Révoquer cet accès ? L'administrateur n'aura plus aucun droit explicite sur cette entité. Vous pourrez lui accorder à nouveau un accès via « Accorder un accès »."
+      : 'Retirer ce droit ?';
+    if (!accesModalEntite || !window.confirm(msg)) return;
     try {
       await api.delete(`/entites/${accesModalEntite.id}/permissions/${permissionId}`);
+      await refreshAccesDetail(accesModalEntite.id);
+      loadEntites();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur');
+    }
+  };
+
+  const revokeAllEntiteDelegationsForUser = async (userId: string) => {
+    if (!accesModalEntite || !accesDetail) return;
+    const rows = (accesDetail.delegations || []).filter((d: any) => d.user?.id === userId);
+    if (rows.length === 0) return;
+    if (!window.confirm('Révoquer tous les droits explicites pour cet utilisateur sur cette entité ?')) return;
+    try {
+      for (const r of rows) {
+        await api.delete(`/entites/${accesModalEntite.id}/permissions/${r.id}`);
+      }
+      await refreshAccesDetail(accesModalEntite.id);
+      loadEntites();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur');
+    }
+  };
+
+  const handleRestoreAdminDefaultEntite = async (userId: string) => {
+    if (!accesModalEntite) return;
+    if (!window.confirm("Rétablir l'accès administrateur par défaut (complet) pour cet utilisateur ?")) return;
+    try {
+      await api.delete(`/entites/${accesModalEntite.id}/admin-sans-acces/${userId}`);
+      await refreshAccesDetail(accesModalEntite.id);
+      loadEntites();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur');
+    }
+  };
+
+  const handleRevokeAdminImplicitEntite = async (userId: string) => {
+    if (!accesModalEntite) return;
+    if (
+      !window.confirm(
+        "Retirer tout accès à cet administrateur ? Il ne verra plus l'entité tant que vous ne lui aurez pas accordé un accès via la liste ci-dessous."
+      )
+    ) {
+      return;
+    }
+    try {
+      await api.post(`/entites/${accesModalEntite.id}/admin-sans-acces`, { userId });
+      await refreshAccesDetail(accesModalEntite.id);
+      loadEntites();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur');
+    }
+  };
+
+  const quickLimitAdminEntite = async (userId: string) => {
+    if (!accesModalEntite) return;
+    const permission = adminLimitPerm[userId] || 'lecture';
+    try {
+      await api.post(`/entites/${accesModalEntite.id}/permissions`, { userId, permission });
+      await refreshAccesDetail(accesModalEntite.id);
+      loadEntites();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur');
+    }
+  };
+
+  const replaceAdminEntitePermissionLevel = async (userId: string, permission: string) => {
+    if (!accesModalEntite || !accesDetail) return;
+    const rows = (accesDetail.delegations || []).filter((d: any) => d.user?.id === userId);
+    try {
+      for (const r of rows) {
+        await api.delete(`/entites/${accesModalEntite.id}/permissions/${r.id}`);
+      }
+      await api.post(`/entites/${accesModalEntite.id}/permissions`, { userId, permission });
       await refreshAccesDetail(accesModalEntite.id);
       loadEntites();
     } catch (err: any) {
@@ -939,35 +1026,17 @@ export default function Entites() {
                           <span className="text-[10px] text-green-800/90 text-center mt-0.5">Tous les utilisateurs authentifiés</span>
                         </div>
                       )}
-                      {(() => {
-                        const actifAdmins = users.filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'));
-                        const creatorId = e.createdById || e.createdBy?.id;
-                        return (
-                          <>
-                            {actifAdmins.map((a: any) => {
-                              const isCreator = creatorId === a.id;
-                              return (
-                                <div key={`adm-${e.id}-${a.id}`} className="min-w-0">
-                                  <span className="font-medium text-gray-900">
-                                    {a.prenom} {a.nom}
-                                  </span>
-                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                                    {isCreator ? `(Administrateur et créateur : ${droitsAdminLigne})` : `(Admin : ${droitsAdminLigne})`}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                            {e.createdBy && creatorId && !actifAdmins.some((a: any) => a.id === creatorId) && (
-                              <div className="min-w-0">
-                                <span className="font-medium text-gray-900">
-                                  {e.createdBy.prenom} {e.createdBy.nom}
-                                </span>
-                                <span className="text-gray-500 italic block sm:inline sm:ml-1">(Créateur : {droitsAdminLigne})</span>
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
+                      <AccessContratLikeAdminLines
+                        users={users}
+                        createdById={e.createdById}
+                        createdBy={e.createdBy}
+                        adminSansAccesUserIds={e.adminSansAccesUserIds}
+                        permissions={entitePermissionsForAdminLines(e.accesApercu?.delegations || [])}
+                        droitsAdminCompletLabel={droitsAdminLigne}
+                        niveauLabel={(n) => n}
+                        keyPrefix={`liste-ent-${e.id}`}
+                        creatorRightsLabel={droitsAdminLigne}
+                      />
                       {(e.accesApercu?.delegations || []).map((d: any) => (
                         <div key={d.user.id} className="min-w-0">
                           <span className="font-medium text-gray-900">
@@ -982,6 +1051,10 @@ export default function Entites() {
                           </span>
                         </div>
                       ))}
+                      <p className="text-[10px] text-gray-500 w-full basis-full">
+                        Aligné sur les contrats : exclusion ou droits explicites pour les administrateurs sont visibles ici et
+                        gérés dans la modale « Accès » (créateur ou délégation « Gestion des droits »).
+                      </p>
                     </div>
                   </div>
                     </div>
@@ -1080,23 +1153,139 @@ export default function Entites() {
           <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
             <h3 className="text-xl font-semibold mb-2">Accès — {accesModalEntite.nom}</h3>
             <p className="text-sm text-gray-600 mb-5 leading-relaxed">
-              Les <span className="font-medium">administrateurs</span> ont tous les droits. Le <span className="font-medium">créateur</span> peut modifier l’entité, la mettre en corbeille et gérer les droits délégués.
+              Le <span className="font-medium">créateur</span> de l&apos;entité et les utilisateurs avec la permission{' '}
+              <span className="font-medium">« Gestion des droits »</span> peuvent gérer les accès. Pour un administrateur :
+              sans ligne dans « Accès partagés » et sans exclusion, accès complet ; une ligne limite les droits ; « Retirer
+              l&apos;accès » retire tout accès jusqu&apos;à octroi via « Accorder un accès » ; « Rétablir l&apos;accès admin par
+              défaut » annule une exclusion. Le <span className="font-medium">responsable</span> ne peut pas être exclu ni
+              limité depuis cette liste.
             </p>
+            {accesDetail && !accesDetail.canManagePermissions && (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2 mb-4">
+                Vous consultez la liste en lecture seule. Pour modifier les droits, connectez-vous en tant que créateur ou
+                avec la délégation « Gestion des droits ».
+              </p>
+            )}
             {accesLoading ? (
               <p className="text-sm text-gray-500">Chargement…</p>
             ) : accesDetail ? (
               <div className="space-y-5 text-sm">
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
-                  <ul className="space-y-1.5 text-gray-700 text-base">
-                    {(accesDetail.admins || []).map((a: any) => (
-                      <li key={a.id}>
-                        <span className="font-medium">
-                          {a.prenom} {a.nom}
-                        </span>
-                        <span className="text-gray-400"> (accès complet)</span>
-                      </li>
-                    ))}
+                  <p className="text-xs text-gray-500 mb-2">
+                    Limitez un admin avec « Limiter l&apos;accès », retirez-le entièrement avec « Retirer l&apos;accès », ou
+                    rétablissez l&apos;accès complet implicite s&apos;il était exclu.
+                  </p>
+                  <ul className="space-y-3 text-gray-700 text-sm">
+                    {(accesDetail.admins || []).map((a: any) => {
+                      const userDelegations = (accesDetail.delegations || []).filter((d: any) => d.user?.id === a.id);
+                      const primaryDelegation = userDelegations[0];
+                      const explicite = userDelegations.length > 0;
+                      const isPrivilegedAdmin =
+                        accesDetail.creator?.id === a.id || accesModalEntite.responsableId === a.id;
+                      const refuse = (accesDetail.adminSansAccesUserIds || []).includes(a.id);
+                      return (
+                        <li
+                          key={a.id}
+                          className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 border border-gray-100 rounded-lg px-3 py-2 bg-white"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <span className="font-medium text-base">
+                              {a.prenom} {a.nom}
+                            </span>
+                            <span className="text-gray-500 ml-1">({a.email})</span>
+                            {refuse && !explicite && (
+                              <span className="text-red-700 block sm:inline sm:ml-1 text-xs font-medium">
+                                — aucun accès (exclu ; accorder un accès via la liste ci-dessous pour le réintégrer)
+                              </span>
+                            )}
+                            {!refuse && !explicite && (
+                              <span className="text-gray-400 block sm:inline sm:ml-1">
+                                — accès complet (défaut administrateur)
+                              </span>
+                            )}
+                            {explicite && (
+                              <span className="text-amber-800 block sm:inline sm:ml-1 text-xs font-medium">
+                                — accès limité (ligne « Accès partagés »)
+                              </span>
+                            )}
+                          </div>
+                          {accesDetail.canManagePermissions && !isPrivilegedAdmin && (
+                            <div className="flex flex-wrap items-center gap-2 shrink-0">
+                              {refuse && !explicite ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRestoreAdminDefaultEntite(a.id)}
+                                  className="text-xs px-3 py-1.5 bg-green-100 text-green-800 rounded-md hover:bg-green-200"
+                                >
+                                  Rétablir l&apos;accès admin par défaut
+                                </button>
+                              ) : !explicite ? (
+                                <>
+                                  <select
+                                    value={adminLimitPerm[a.id] ?? 'lecture'}
+                                    onChange={(ev) =>
+                                      setAdminLimitPerm((prev) => ({ ...prev, [a.id]: ev.target.value }))
+                                    }
+                                    className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                                  >
+                                    {ENTITE_PERM_LEVELS.map((n) => (
+                                      <option key={n.value} value={n.value}>
+                                        {n.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => void quickLimitAdminEntite(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                                  >
+                                    Limiter l&apos;accès
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleRevokeAdminImplicitEntite(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                  >
+                                    Retirer l&apos;accès
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <select
+                                    value={primaryDelegation?.permission ?? 'lecture'}
+                                    onChange={(ev) => {
+                                      const permission = ev.target.value;
+                                      if (!accesModalEntite || permission === primaryDelegation?.permission) return;
+                                      void replaceAdminEntitePermissionLevel(a.id, permission);
+                                    }}
+                                    className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                                  >
+                                    {ENTITE_PERM_LEVELS.map((n) => (
+                                      <option key={n.value} value={n.value}>
+                                        {n.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => void revokeAllEntiteDelegationsForUser(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                  >
+                                    Révoquer l&apos;accès
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                          {accesDetail.canManagePermissions && isPrivilegedAdmin && (
+                            <span className="text-xs text-gray-500">
+                              Créateur ou responsable : accès étendu, non modérable ici.
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
                 <div>
@@ -1106,37 +1295,61 @@ export default function Entites() {
                       <span className="font-medium">
                         {accesDetail.creator.prenom} {accesDetail.creator.nom}
                       </span>
-                      <span className="text-gray-400"> — modification, mise en corbeille, gestion des accès</span>
+                      <span className="text-gray-400"> — modification, mise en corbeille, gestion des accès (si habilité)</span>
                     </p>
                   ) : (
                     <p className="text-amber-800 text-sm">Aucun créateur enregistré (données historiques).</p>
                   )}
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Droits explicites</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Accès partagés</p>
                   {(accesDetail.delegations || []).length === 0 ? (
-                    <p className="text-gray-400 text-xs italic">Aucun droit délégué</p>
+                    <p className="text-gray-400 text-xs italic">Aucun accès délégué</p>
                   ) : (
                     <ul className="space-y-2">
                       {(accesDetail.delegations || []).map((d: any) => (
-                        <li key={d.id} className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50">
+                        <li
+                          key={d.id}
+                          className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50"
+                        >
                           <span className="font-medium">
                             {d.user.prenom} {d.user.nom}
+                            {d.user.role === 'admin' && (
+                              <span className="text-xs font-normal text-gray-500 ml-1">(admin)</span>
+                            )}
                           </span>
-                          <span className="text-gray-500">— {LABEL_PERM_MODAL[d.permission] || d.permission}</span>
                           {d.grantedBy && (
                             <span className="text-xs text-gray-400">
                               par {d.grantedBy.prenom} {d.grantedBy.nom}
                             </span>
                           )}
-                          {accesDetail.canManagePermissions && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemovePermission(d.id)}
-                              className="text-xs text-red-600 hover:underline ml-auto"
-                            >
-                              Retirer
-                            </button>
+                          {accesDetail.canManagePermissions ? (
+                            <>
+                              <select
+                                value={d.permission}
+                                onChange={(ev) => {
+                                  const permission = ev.target.value;
+                                  if (!accesModalEntite || permission === d.permission) return;
+                                  void replaceAdminEntitePermissionLevel(d.user.id, permission);
+                                }}
+                                className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                              >
+                                {ENTITE_PERM_LEVELS.map((n) => (
+                                  <option key={n.value} value={n.value}>
+                                    {n.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => void handleRemovePermission(d.id, d.user?.role === 'admin')}
+                                className="text-xs text-red-600 hover:underline ml-auto"
+                              >
+                                {d.user?.role === 'admin' ? 'Révoquer' : 'Retirer'}
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-gray-500">— {LABEL_PERM_MODAL[d.permission] || d.permission}</span>
                           )}
                         </li>
                       ))}
@@ -1145,7 +1358,7 @@ export default function Entites() {
                 </div>
                 {accesDetail.canManagePermissions && (
                   <div className="border-t border-gray-200 pt-4 space-y-3">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accorder un droit</p>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accorder un accès</p>
                     <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3 items-end">
                       <select
                         value={newPermUserId}
@@ -1153,30 +1366,53 @@ export default function Entites() {
                         className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm"
                       >
                         <option value="">— Utilisateur —</option>
-                        {users
-                          .filter(
+                        {(() => {
+                          const actifs = users.filter(
                             (u: any) =>
-                              (!u.statut || u.statut === 'actif') && u.role !== 'admin' && u.id !== accesDetail.creator?.id
-                          )
-                          .map((u: any) => (
-                            <option key={u.id} value={u.id}>
-                              {u.prenom} {u.nom} ({u.email})
-                            </option>
-                          ))}
+                              (!u.statut || u.statut === 'actif') &&
+                              u.id !== accesDetail.creator?.id &&
+                              u.id !== accesModalEntite.responsableId
+                          );
+                          const adminsPick = actifs.filter((u: any) => u.role === 'admin');
+                          const autresPick = actifs.filter((u: any) => u.role !== 'admin');
+                          return (
+                            <>
+                              {adminsPick.length > 0 && (
+                                <optgroup label="Administrateurs">
+                                  {adminsPick.map((u: any) => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.prenom} {u.nom} — {u.email}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              {autresPick.length > 0 && (
+                                <optgroup label="Autres utilisateurs">
+                                  {autresPick.map((u: any) => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.prenom} {u.nom} — {u.email}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                            </>
+                          );
+                        })()}
                       </select>
                       <select
                         value={newPermType}
                         onChange={(ev) => setNewPermType(ev.target.value)}
                         className="w-full lg:w-56 border border-gray-300 rounded-md px-3 py-2 text-sm"
                       >
-                        <option value="lecture">Consultation</option>
-                        <option value="modification">Modification</option>
-                        <option value="suppression">Suppression (mise en corbeille)</option>
-                        <option value="gestion">Gestion des droits</option>
+                        {ENTITE_PERM_LEVELS.map((n) => (
+                          <option key={n.value} value={n.value}>
+                            {n.label}
+                          </option>
+                        ))}
                       </select>
                       <button
                         type="button"
-                        onClick={handleAddPermission}
+                        onClick={() => void handleAddPermission()}
                         disabled={!newPermUserId}
                         className="w-full lg:w-auto px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shrink-0"
                       >
@@ -1283,32 +1519,6 @@ export default function Entites() {
             )}
             <div className="flex justify-end mt-4">
               <button type="button" onClick={() => setHistModalEntite(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">
-                Fermer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {noAccesModalOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="no-acces-entite-title"
-          onClick={() => setNoAccesModalOpen(false)}
-        >
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full" onClick={(ev) => ev.stopPropagation()}>
-            <h3 id="no-acces-entite-title" className="text-lg font-semibold text-gray-900 mb-2">
-              Accès au bouton « Accès »
-            </h3>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              Vous n&apos;avez pas les droits nécessaires pour gérer les accès de cette entité. Seuls les{' '}
-              <span className="font-medium">administrateurs</span>, le <span className="font-medium">créateur</span> ou les utilisateurs avec la permission{' '}
-              <span className="font-medium">gestion des droits</span> peuvent utiliser ce bouton.
-            </p>
-            <div className="flex justify-end mt-5">
-              <button type="button" onClick={() => setNoAccesModalOpen(false)} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700">
                 Fermer
               </button>
             </div>
