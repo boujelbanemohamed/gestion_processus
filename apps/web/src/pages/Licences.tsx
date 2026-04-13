@@ -255,7 +255,7 @@ export default function Licences() {
     setAdminLimitNiveau({});
     setAccesLoading(true);
     try {
-      const { data } = await api.get(`/licences/${l.id}/acces`);
+      const { data } = await api.get(`/licence-acces/${l.id}`);
       setAccesDetail(data);
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur chargement accès');
@@ -270,7 +270,7 @@ export default function Licences() {
   };
 
   const refreshAccesDetail = async (licenceId: string) => {
-    const { data } = await api.get(`/licences/${licenceId}/acces`);
+    const { data } = await api.get(`/licence-acces/${licenceId}`);
     setAccesDetail(data);
     try {
       const res = await api.get(`/licences/${licenceId}`);

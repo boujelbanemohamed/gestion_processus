@@ -401,6 +401,8 @@ app.put("/api/v1/user-stories/:id", epicController.updateUserStory);
 app.get("/api/v1/licences/corbeille", licenceController.getLicencesCorbeille);
 app.get("/api/v1/licences", licenceController.getLicences);
 app.post("/api/v1/licences", licenceController.createLicence);
+// Détail accès : route plate en premier (même handler) — certains reverse-proxy / anciennes API ne servent pas …/licences/:id/acces
+app.get("/api/v1/licence-acces/:id", licenceController.getLicenceAcces);
 app.get("/api/v1/licences/:id/history", licenceController.getLicenceHistory);
 app.get("/api/v1/licences/:id/acces", licenceController.getLicenceAcces);
 app.get("/api/v1/licences/:id", licenceController.getLicence);
