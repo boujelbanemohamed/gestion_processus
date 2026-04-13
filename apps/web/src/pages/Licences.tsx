@@ -3,6 +3,7 @@ import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 import { getPaginationPageNumbers } from '../utils/pagination';
 import { documentTypeLabel } from '../constants/documentTypes';
+import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
 import axios from 'axios';
 
 /** Documents qu’on peut encore rattacher à une licence (pas déjà liés à une fiche licence). */
@@ -843,56 +844,22 @@ export default function Licences() {
                             <span className="text-[10px] text-green-800/90 text-center mt-0.5">Visibilité selon droits</span>
                           </div>
                         )}
-                        {(() => {
-                          const actifAdmins = users.filter(
-                            (u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif')
-                          );
-                          const creatorId = l.createdById || l.createdBy?.id;
-                          const excludedAdminIds = new Set<string>(l.adminSansAccesUserIds || []);
-                          const permByUserId = new Map<string, any>(
-                            (l.permissions || []).map((p: any) => [p.userId, p]),
-                          );
-                          return (
-                            <>
-                              {actifAdmins.map((a: any) => {
-                                const isCreator = creatorId === a.id;
-                                const perm = permByUserId.get(a.id);
-                                const adminExclu = excludedAdminIds.has(a.id) && !perm;
-                                const adminLimite = !!perm && !isCreator;
-                                return (
-                                  <div key={`adm-${l.id}-${a.id}`} className="min-w-0">
-                                    <span className="font-medium text-gray-900">{a.prenom} {a.nom}</span>
-                                    {isCreator ? (
-                                      <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                                        (Administrateur et créateur : {droitsCreateurLicence})
-                                      </span>
-                                    ) : adminExclu ? (
-                                      <span className="text-red-700 font-medium block sm:inline sm:ml-1">
-                                        — accès administrateur retiré (aucune visibilité sur cette fiche)
-                                      </span>
-                                    ) : adminLimite ? (
-                                      <span className="text-amber-800 block sm:inline sm:ml-1">
-                                        (Admin : accès limité —{' '}
-                                        {NIVEAUX.find((n) => n.value === perm.niveau)?.label || perm.niveau} ; voir aussi accès
-                                        partagés ci-dessous)
-                                      </span>
-                                    ) : (
-                                      <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                                        (Admin : {droitsAdminLigneLicence})
-                                      </span>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                              {l.createdBy && creatorId && !actifAdmins.some((a: any) => a.id === creatorId) && (
-                                <div className="min-w-0">
-                                  <span className="font-medium text-gray-900">{l.createdBy.prenom} {l.createdBy.nom}</span>
-                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">(Créateur : {droitsCreateurLicence})</span>
-                                </div>
-                              )}
-                            </>
-                          );
-                        })()}
+                        <AccessContratLikeAdminLines
+                          keyPrefix={l.id}
+                          users={users}
+                          createdById={l.createdById}
+                          createdBy={l.createdBy}
+                          adminSansAccesUserIds={l.adminSansAccesUserIds}
+                          permissions={(l.permissions || []).map((p: any) => ({
+                            userId: p.userId,
+                            niveau: p.niveau,
+                            user: p.user,
+                          }))}
+                          creatorRightsLabel={droitsCreateurLicence}
+                          droitsAdminCompletLabel={droitsAdminLigneLicence}
+                          niveauLabel={(n) => NIVEAUX.find((x) => x.value === n)?.label || n}
+                          limitedPrefix="Admin : accès limité —"
+                        />
                         {(l.permissions || []).map((p: any) => (
                           <div key={p.id} className="min-w-0">
                             <span className="font-medium text-gray-900">{p.user?.prenom} {p.user?.nom}</span>

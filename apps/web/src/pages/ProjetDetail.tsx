@@ -1316,6 +1316,10 @@ export default function ProjetDetail() {
                         <span className="text-gray-500 italic block sm:inline sm:ml-1">({permSummaryLine(d.permissions || [])})</span>
                       </div>
                     ))}
+                    <p className="text-[10px] text-gray-500 w-full basis-full">
+                      Les projets n’ont pas d’« exclusion admin » par fiche : tout administrateur actif conserve un accès
+                      complet, comme dans la modale « Accès ».
+                    </p>
                   </div>
                 </div>
               </div>

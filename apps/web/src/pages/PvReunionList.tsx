@@ -6,6 +6,7 @@ import { useAuth } from '../store/auth';
 import { canModifyModule } from '../utils/uiModuleRoute';
 import { getPaginationPageNumbers } from '../utils/pagination';
 import { PvReunionAccesModal } from '../components/PvReunionAccesModal';
+import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
 
 const PAGE_SIZE = 15;
 
@@ -755,8 +756,6 @@ export default function PvReunionList() {
               ? `${API_BASE_URL}/documents/${r.document.id}/view${tokenQs()}`
               : '';
             const accesRows = delegationsRowsForPv(r);
-            const actifAdmins = users.filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'));
-            const creatorId = r.createdById || r.createdBy?.id;
             return (
               <div key={r.id} className="bg-white rounded-lg shadow overflow-hidden">
                 <button
@@ -991,31 +990,23 @@ export default function PvReunionList() {
                                   </span>
                                 </div>
                               )}
-                              {actifAdmins.map((a: any) => {
-                                const isCreator = creatorId === a.id;
-                                return (
-                                  <div key={`adm-${r.id}-${a.id}`} className="min-w-0">
-                                    <span className="font-medium text-gray-900">
-                                      {a.prenom} {a.nom}
-                                    </span>
-                                    <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                                      {isCreator
-                                        ? `(Administrateur et créateur : ${DROITS_ADMIN_LIGNE_PV})`
-                                        : `(Admin : ${DROITS_ADMIN_LIGNE_PV})`}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                              {r.createdBy && creatorId && !actifAdmins.some((a: any) => a.id === creatorId) && (
-                                <div className="min-w-0">
-                                  <span className="font-medium text-gray-900">
-                                    {r.createdBy.prenom} {r.createdBy.nom}
-                                  </span>
-                                  <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                                    (Créateur : {DROITS_ADMIN_LIGNE_PV})
-                                  </span>
-                                </div>
-                              )}
+                              <AccessContratLikeAdminLines
+                                keyPrefix={r.id}
+                                users={users}
+                                createdById={r.createdById}
+                                createdBy={r.createdBy}
+                                adminSansAccesUserIds={
+                                  r.adminSansAccesUserIds ??
+                                  (r.adminSansAcces || []).map((x: { userId: string }) => x.userId)
+                                }
+                                permissions={(r.permissions || []).map((p: any) => ({
+                                  userId: p.userId,
+                                  niveau: p.niveau,
+                                  user: p.user,
+                                }))}
+                                droitsAdminCompletLabel={DROITS_ADMIN_LIGNE_PV}
+                                niveauLabel={(n) => PV_NIVEAU_LABELS[n] || n}
+                              />
                               {accesRows.map((row: { key: string; user: any; label: string }) => (
                                 <div key={row.key} className="min-w-0">
                                   <span className="font-medium text-gray-900">

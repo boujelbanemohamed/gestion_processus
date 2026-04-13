@@ -215,8 +215,15 @@ export class DocumentService {
         id: string;
         nom: string;
         reference: string;
+        createdById: string | null;
         createdBy: { id: string; prenom: string; nom: string; email: string } | null;
-        permissions: { niveau: string; user: { id: string; prenom: string; nom: string; email: string } }[];
+        permissions: {
+          id: string;
+          userId: string;
+          niveau: string;
+          user: { id: string; prenom: string; nom: string; email: string };
+        }[];
+        adminSansAcces: { userId: string }[];
       } | null
     >();
     const documentsWithProcessus = await Promise.all(
@@ -250,22 +257,58 @@ export class DocumentService {
                   id: true,
                   nom: true,
                   reference: true,
+                  createdById: true,
                   createdBy: { select: { id: true, prenom: true, nom: true, email: true } },
                   permissions: {
                     include: { user: { select: { id: true, prenom: true, nom: true, email: true } } },
                   },
+                  adminSansAcces: { select: { userId: true } },
                 },
               }),
             );
           }
-          licence = licenceCache.get(licenceRefId) ?? null;
+          const rawLic = licenceCache.get(licenceRefId) ?? null;
+          if (rawLic) {
+            licence = {
+              id: rawLic.id,
+              nom: rawLic.nom,
+              reference: rawLic.reference,
+              createdById: rawLic.createdById,
+              createdBy: rawLic.createdBy,
+              permissions: rawLic.permissions,
+              adminSansAccesUserIds: (rawLic.adminSansAcces || []).map((x) => x.userId),
+            };
+          }
         }
-        // Récupérer les contrats liés
-        const contrats = await prisma.contratDocument.findMany({
+        // Contrats liés + droits (affichage page Documents aligné sur la fiche contrat)
+        const contratsRaw = await prisma.contratDocument.findMany({
           where: { documentId: doc.id },
-          include: { contrat: { select: { id: true, nom: true, statut: true } } },
+          include: {
+            contrat: {
+              select: {
+                id: true,
+                nom: true,
+                statut: true,
+                createdById: true,
+                createdBy: { select: { id: true, prenom: true, nom: true, email: true } },
+                permissions: {
+                  include: { user: { select: { id: true, prenom: true, nom: true, email: true, role: true } } },
+                },
+                adminSansAcces: { select: { userId: true } },
+              },
+            },
+          },
         });
-        
+        const contrats = contratsRaw.map((cd) => ({
+          ...cd,
+          contrat: cd.contrat
+            ? {
+                ...cd.contrat,
+                adminSansAccesUserIds: (cd.contrat.adminSansAcces || []).map((x) => x.userId),
+              }
+            : cd.contrat,
+        }));
+
         // Compter les téléchargements et visualisations
         const [telechargements, visualisations] = await Promise.all([
           prisma.journalAcces.count({

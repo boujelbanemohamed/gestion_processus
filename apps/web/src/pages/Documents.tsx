@@ -4,7 +4,28 @@ import { api } from '../services/api';
 import { useAuth } from '../store/auth';
 import { DOCUMENT_TYPE_OPTIONS, documentTypeLabel } from '../constants/documentTypes';
 import { getPaginationPageNumbers } from '../utils/pagination';
+import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
 import * as XLSX from 'xlsx';
+
+const NIVEAUX_CONTRAT_DOC = [
+  { value: 'lecture', label: '👁 Lecture' },
+  { value: 'modification', label: '✏️ Modification' },
+  { value: 'suppression', label: '🗑 Suppression' },
+] as const;
+
+const DROITS_ADMIN_CONTRAT_DOC =
+  'droits étendus — gestion des accès partagés réservée au créateur du contrat';
+
+const DROITS_CREATEUR_LICENCE_DOC = 'gestion des accès + modification + suppression + lecture';
+const DROITS_ADMIN_LICENCE_DOC =
+  'modification + suppression + lecture (sans gestion des accès — réservée au créateur)';
+
+function niveauSummaryContratDoc(niveau: string) {
+  if (niveau === 'lecture') return 'lecture';
+  if (niveau === 'modification') return 'modification + lecture';
+  if (niveau === 'suppression') return 'suppression + modification + lecture';
+  return niveau;
+}
 
 /** Avec `responseType: 'blob'`, les erreurs JSON arrivent en Blob : extraire `error` pour l’affichage. */
 async function apiErrorMessageFromAxios(error: any): Promise<string | undefined> {
@@ -113,6 +134,15 @@ export default function Documents() {
     loadUsers();
     loadFavorisStatus();
     loadAttachmentLists();
+  }, []);
+
+  /** Reprend les droits contrat / licence à jour après modification sur une autre page (autre onglet ou retour ici). */
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void loadDocuments();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
   }, []);
 
   const loadAttachmentLists = async () => {
@@ -990,7 +1020,9 @@ export default function Documents() {
           )}
           {pagedDocuments.map((d) => {
             const isLicenceLinkedDoc = d.typeDocument === 'licence' || d.referenceType === 'licence';
-            const showRestrictedAccess = d.estConfidentiel || isLicenceLinkedDoc;
+            const linkedContrat = d.contrats?.[0]?.contrat;
+            const isContratLinkedDoc = !!linkedContrat;
+            const showRestrictedAccess = d.estConfidentiel || isLicenceLinkedDoc || isContratLinkedDoc;
             const statut =
               d.typeDocument === 'contrat' && d.contrats?.[0]?.contrat?.statut
                 ? d.contrats[0].contrat.statut
@@ -1141,56 +1173,127 @@ export default function Documents() {
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
                               🔒 Accès restreint
                             </span>
-                            {isLicenceLinkedDoc && (
-                              <p className="mt-1 text-xs text-amber-800">Aligné sur les droits de la licence</p>
+                            {isLicenceLinkedDoc && !d.licence && (
+                              <p className="mt-1 text-xs text-amber-700">
+                                Document rattaché à une licence : les droits détaillés n’ont pas pu être chargés. Rechargez la
+                                page ou rouvrez le détail.
+                              </p>
                             )}
-                            <div className="mt-1 text-xs text-gray-600 space-y-0.5">
-                              {(() => {
-                                const ayantsDroit: { nom: string; roles: string[] }[] = [];
-                                const addPerson = (id: string, nom: string, role: string) => {
-                                  const existing = ayantsDroit.find((a) => a.nom === nom);
-                                  if (existing) {
-                                    if (!existing.roles.includes(role)) existing.roles.push(role);
-                                  } else ayantsDroit.push({ nom, roles: [role] });
-                                };
-                                usersList
-                                  .filter((u) => u.role === 'admin')
-                                  .forEach((u) => addPerson(u.id, `${u.prenom} ${u.nom}`, 'Admin'));
-                                if (d.uploadedBy)
-                                  addPerson(d.uploadedBy.id, `${d.uploadedBy.prenom} ${d.uploadedBy.nom}`, 'Uploadeur');
-                                (d.permissionsUtilisateurs || []).forEach((p: any) => {
-                                  if (p.user) addPerson(p.user.id, `${p.user.prenom} ${p.user.nom}`, 'Accès document');
-                                });
-                                if (d.licence?.createdBy) {
-                                  addPerson(
-                                    d.licence.createdBy.id,
-                                    `${d.licence.createdBy.prenom} ${d.licence.createdBy.nom}`,
-                                    'Créateur licence'
-                                  );
-                                }
-                                (d.licence?.permissions || []).forEach((lp: any) => {
-                                  if (lp.user) {
-                                    const niveau =
-                                      lp.niveau === 'lecture'
-                                        ? 'Lecture'
-                                        : lp.niveau === 'modification'
-                                          ? 'Modification'
-                                          : lp.niveau === 'suppression'
-                                            ? 'Suppression'
-                                            : lp.niveau;
-                                    addPerson(lp.user.id, `${lp.user.prenom} ${lp.user.nom}`, `Licence (${niveau})`);
-                                  }
-                                });
-                                if (ayantsDroit.length === 0)
-                                  return <span className="italic text-gray-400">Aucun utilisateur défini</span>;
-                                return ayantsDroit.map((a, idx) => (
-                                  <div key={idx}>
-                                    <span className="font-medium">{a.nom}</span>{' '}
-                                    <span className="text-gray-400">({a.roles.join(', ')})</span>
-                                  </div>
-                                ));
-                              })()}
-                            </div>
+                            {isLicenceLinkedDoc && d.licence && (
+                              <>
+                                <p className="mt-1 text-xs text-amber-800">
+                                  Aligné sur la fiche licence — actualisez la liste documents après un changement d’accès
+                                  sur Licences / certifications.
+                                </p>
+                                <div className="mt-2 text-xs text-gray-700 space-y-1">
+                                  <AccessContratLikeAdminLines
+                                    keyPrefix={`doc-${d.id}-lic`}
+                                    users={usersList}
+                                    createdById={d.licence.createdById}
+                                    createdBy={d.licence.createdBy}
+                                    adminSansAccesUserIds={
+                                      d.licence.adminSansAccesUserIds ??
+                                      (d.licence.adminSansAcces || []).map((x: { userId: string }) => x.userId)
+                                    }
+                                    permissions={(d.licence.permissions || []).map((p: any) => ({
+                                      userId: p.userId,
+                                      niveau: p.niveau,
+                                      user: p.user,
+                                    }))}
+                                    creatorRightsLabel={DROITS_CREATEUR_LICENCE_DOC}
+                                    droitsAdminCompletLabel={DROITS_ADMIN_LICENCE_DOC}
+                                    niveauLabel={(n) => NIVEAUX_CONTRAT_DOC.find((x) => x.value === n)?.label || n}
+                                  />
+                                  {(d.licence.permissions || []).map((lp: any) => (
+                                    <div key={lp.id} className="min-w-0">
+                                      <span className="font-medium text-gray-900">
+                                        {lp.user?.prenom} {lp.user?.nom}
+                                      </span>
+                                      <span className="text-gray-500 italic ml-1">
+                                        (
+                                        {NIVEAUX_CONTRAT_DOC.find((x) => x.value === lp.niveau)?.label || lp.niveau} :{' '}
+                                        {lp.niveau === 'lecture'
+                                          ? 'lecture'
+                                          : niveauSummaryContratDoc(lp.niveau)}
+                                        )
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                            {isContratLinkedDoc && linkedContrat && !isLicenceLinkedDoc && (
+                              <>
+                                <p className="mt-1 text-xs text-purple-800">
+                                  Aligné sur la fiche contrat — actualisez la liste documents après un changement d’accès
+                                  sur Contrats.
+                                </p>
+                                <div className="mt-2 text-xs text-gray-700 space-y-1">
+                                  <AccessContratLikeAdminLines
+                                    keyPrefix={`doc-${d.id}-ct`}
+                                    users={usersList}
+                                    createdById={linkedContrat.createdById}
+                                    createdBy={linkedContrat.createdBy}
+                                    adminSansAccesUserIds={
+                                      linkedContrat.adminSansAccesUserIds ??
+                                      (linkedContrat.adminSansAcces || []).map((x: { userId: string }) => x.userId)
+                                    }
+                                    permissions={(linkedContrat.permissions || []).map((p: any) => ({
+                                      userId: p.userId,
+                                      niveau: p.niveau,
+                                      user: p.user,
+                                    }))}
+                                    droitsAdminCompletLabel={DROITS_ADMIN_CONTRAT_DOC}
+                                    niveauLabel={(n) => NIVEAUX_CONTRAT_DOC.find((x) => x.value === n)?.label || n}
+                                  />
+                                  {(linkedContrat.permissions || []).map((cp: any) => (
+                                    <div key={cp.id} className="min-w-0">
+                                      <span className="font-medium text-gray-900">
+                                        {cp.user?.prenom} {cp.user?.nom}
+                                      </span>
+                                      <span className="text-gray-500 italic ml-1">
+                                        (
+                                        {NIVEAUX_CONTRAT_DOC.find((x) => x.value === cp.niveau)?.label || cp.niveau} :{' '}
+                                        {cp.niveau === 'lecture'
+                                          ? 'lecture'
+                                          : niveauSummaryContratDoc(cp.niveau)}
+                                        )
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                            {d.estConfidentiel && !isLicenceLinkedDoc && !isContratLinkedDoc && (
+                              <div className="mt-1 text-xs text-gray-600 space-y-0.5">
+                                <p className="text-xs text-gray-500 mb-1">Document confidentiel (hors contrat / licence)</p>
+                                {(() => {
+                                  const ayantsDroit: { nom: string; roles: string[] }[] = [];
+                                  const addPerson = (id: string, nom: string, role: string) => {
+                                    const existing = ayantsDroit.find((a) => a.nom === nom);
+                                    if (existing) {
+                                      if (!existing.roles.includes(role)) existing.roles.push(role);
+                                    } else ayantsDroit.push({ nom, roles: [role] });
+                                  };
+                                  usersList
+                                    .filter((u) => u.role === 'admin')
+                                    .forEach((u) => addPerson(u.id, `${u.prenom} ${u.nom}`, 'Admin'));
+                                  if (d.uploadedBy)
+                                    addPerson(d.uploadedBy.id, `${d.uploadedBy.prenom} ${d.uploadedBy.nom}`, 'Uploadeur');
+                                  (d.permissionsUtilisateurs || []).forEach((p: any) => {
+                                    if (p.user) addPerson(p.user.id, `${p.user.prenom} ${p.user.nom}`, 'Accès document');
+                                  });
+                                  if (ayantsDroit.length === 0)
+                                    return <span className="italic text-gray-400">Aucun utilisateur défini</span>;
+                                  return ayantsDroit.map((a, idx) => (
+                                    <div key={idx}>
+                                      <span className="font-medium">{a.nom}</span>{' '}
+                                      <span className="text-gray-400">({a.roles.join(', ')})</span>
+                                    </div>
+                                  ));
+                                })()}
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <div>

@@ -5,6 +5,17 @@ import axios from 'axios';
 import { useAuth } from '../store/auth';
 import { canModifyModule } from '../utils/uiModuleRoute';
 import { PvReunionAccesModal, type PvReunionAccesDetail } from '../components/PvReunionAccesModal';
+import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
+
+const PV_DETAIL_DROITS_ADMIN =
+  'consultation, modification, mise en corbeille, gestion des accès';
+
+const PV_DETAIL_NIVEAU_LABEL: Record<string, string> = {
+  lecture: 'Consultation',
+  modification: 'Modification',
+  suppression: 'Suppression',
+  gestion: 'Gestion des accès',
+};
 
 const PV_STATUTS = [
   { value: 'brouillon', label: 'Brouillon', color: 'bg-gray-100 text-gray-800' },
@@ -604,16 +615,27 @@ export default function PvReunionDetail() {
               <div className="space-y-4 text-sm text-gray-700">
                 <p className="text-gray-600 leading-relaxed">{accesSynth.visibilityNote}</p>
                 <div>
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Administrateurs actifs</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {(accesSynth.admins || []).map((a) => (
-                      <span key={a.id} className="px-2 py-1 bg-slate-100 rounded text-xs">
-                        {a.prenom} {a.nom}
-                      </span>
-                    ))}
-                    {(accesSynth.admins || []).length === 0 && (
-                      <span className="text-gray-400 italic">Aucun</span>
-                    )}
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2">Administrateurs</h3>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Même lecture que la modale « Accès » : exclu, limité (ligne partagée) ou accès complet.
+                  </p>
+                  <div className="flex flex-col gap-2 text-xs">
+                    <AccessContratLikeAdminLines
+                      keyPrefix={`pv-detail-${id || 'pv'}`}
+                      users={users}
+                      createdById={pv?.createdById ?? accesSynth.creator?.id}
+                      createdBy={accesSynth.creator}
+                      adminSansAccesUserIds={accesSynth.adminSansAccesUserIds}
+                      permissions={(accesSynth.delegations || [])
+                        .filter((d: any) => d.user?.id)
+                        .map((d: any) => ({
+                          userId: d.user.id,
+                          niveau: d.permission,
+                          user: d.user,
+                        }))}
+                      droitsAdminCompletLabel={PV_DETAIL_DROITS_ADMIN}
+                      niveauLabel={(n) => PV_DETAIL_NIVEAU_LABEL[n] || n}
+                    />
                   </div>
                 </div>
                 <div>

@@ -5,6 +5,7 @@ import axios from 'axios';
 import { useAuth } from '../store/auth';
 import { getPaginationPageNumbers } from '../utils/pagination';
 import { PvReunionsLieesBlock } from '../components/PvReunionsLieesBlock';
+import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
 
 const uploadApi = axios.create({ baseURL: API_BASE_URL });
 uploadApi.interceptors.request.use((config) => {
@@ -861,59 +862,23 @@ export default function Contrats() {
                               <span className="text-[10px] font-semibold leading-tight text-center">Accès élargi</span>
                             </div>
                           )}
-                          {(() => {
-                            const actifAdmins = users.filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'));
-                            const creatorId = c.createdById || c.createdBy?.id;
-                            const excludedAdminIds = new Set<string>(
+                          <AccessContratLikeAdminLines
+                            keyPrefix={c.id}
+                            users={users}
+                            createdById={c.createdById}
+                            createdBy={c.createdBy}
+                            adminSansAccesUserIds={
                               c.adminSansAccesUserIds ??
-                                (c.adminSansAcces || []).map((x: { userId: string }) => x.userId),
-                            );
-                            const permByUserId = new Map<string, any>(
-                              (c.permissions || []).map((p: any) => [p.userId, p]),
-                            );
-                            return (
-                              <>
-                                {actifAdmins.map((a: any) => {
-                                  const isCreator = creatorId === a.id;
-                                  const perm = permByUserId.get(a.id);
-                                  const adminExclu = excludedAdminIds.has(a.id) && !perm;
-                                  const adminLimite = !!perm && !isCreator;
-                                  return (
-                                    <div key={`adm-${c.id}-${a.id}`} className="min-w-0">
-                                      <span className="font-medium text-gray-900">
-                                        {a.prenom} {a.nom}
-                                      </span>
-                                      {isCreator ? (
-                                        <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                                          (Administrateur et créateur : {droitsAdminLigne})
-                                        </span>
-                                      ) : adminExclu ? (
-                                        <span className="text-red-700 font-medium block sm:inline sm:ml-1">
-                                          — aucun accès (exclu ; réintégration via « Accès » → Accorder un accès)
-                                        </span>
-                                      ) : adminLimite ? (
-                                        <span className="text-amber-800 block sm:inline sm:ml-1">
-                                          (Admin : accès limité —{' '}
-                                          {NIVEAUX.find((n) => n.value === perm.niveau)?.label || perm.niveau} ; voir accès
-                                          partagés ci-dessous)
-                                        </span>
-                                      ) : (
-                                        <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                                          (Admin : {droitsAdminLigne})
-                                        </span>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                                {c.createdBy && creatorId && !actifAdmins.some((a: any) => a.id === creatorId) && (
-                                  <div className="min-w-0">
-                                    <span className="font-medium text-gray-900">{c.createdBy.prenom} {c.createdBy.nom}</span>
-                                    <span className="text-gray-500 italic block sm:inline sm:ml-1">(Créateur : {droitsAdminLigne})</span>
-                                  </div>
-                                )}
-                              </>
-                            );
-                          })()}
+                              (c.adminSansAcces || []).map((x: { userId: string }) => x.userId)
+                            }
+                            permissions={(c.permissions || []).map((p: any) => ({
+                              userId: p.userId,
+                              niveau: p.niveau,
+                              user: p.user,
+                            }))}
+                            droitsAdminCompletLabel={droitsAdminLigne}
+                            niveauLabel={(n) => NIVEAUX.find((x) => x.value === n)?.label || n}
+                          />
                           {rows.map((d: any) => (
                             <div key={d.id} className="min-w-0">
                               <span className="font-medium text-gray-900">{d.user.prenom} {d.user.nom}</span>

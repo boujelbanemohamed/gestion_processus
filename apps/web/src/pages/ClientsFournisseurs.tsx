@@ -675,6 +675,10 @@ export default function ClientsFournisseurs() {
                           </span>
                         </div>
                       ))}
+                      <p className="text-[10px] text-gray-500 w-full basis-full">
+                        Les fiches client / fournisseur n’ont pas d’« exclusion admin » par fiche : tout administrateur
+                        actif a un accès complet, comme indiqué dans la modale « Accès ».
+                      </p>
                     </div>
                   </div>
                         </div>

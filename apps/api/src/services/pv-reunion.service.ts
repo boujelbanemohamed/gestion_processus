@@ -218,10 +218,14 @@ const pvIncludeList = {
 function mapPvWithCaps<T extends object>(pv: T, userId: string, role: string) {
   const acl = toPvAcl(pv as any);
   const caps = capabilitiesPvReunion(acl, userId, role);
+  const adminSansAccesUserIds = ((pv as { adminSansAcces?: { userId: string }[] }).adminSansAcces || []).map(
+    (x) => x.userId,
+  );
   return {
     ...pv,
     liensExplicites: parseLiensExplicites((pv as { liensExplicites?: unknown }).liensExplicites),
     capabilities: caps,
+    adminSansAccesUserIds,
     accesApercu: {
       delegations: (((pv as { permissions?: unknown[] }).permissions || []) as any[]).map((p: any) => ({
         id: p.id,
@@ -232,6 +236,7 @@ function mapPvWithCaps<T extends object>(pv: T, userId: string, role: string) {
   } as T & {
     liensExplicites: LiensExplicites;
     capabilities: ReturnType<typeof capabilitiesPvReunion>;
+    adminSansAccesUserIds: string[];
     accesApercu: { delegations: Array<{ id?: string; user?: unknown; niveau: string }> };
   };
 }
