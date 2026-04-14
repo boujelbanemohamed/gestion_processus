@@ -1,14 +1,48 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { prisma } from '../utils/prisma';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import PDFDocument from 'pdfkit';
+import {
+  Document as DocxDocument,
+  Packer,
+  Paragraph,
+  TextRun,
+  HeadingLevel,
+} from 'docx';
+import { AuthRequest } from '../middleware/auth';
+import { logAccess } from '../middleware/logger';
+import { DocumentService } from '../services/document.service';
+import { LogAction, ResourceType } from '../generated/prisma/enums';
 
 const execFileAsync = promisify(execFile);
+const documentService = new DocumentService();
 
 /** Buffer sortie tesseract (pages denses). */
 const TESSERACT_MAX_BUFFER = 32 * 1024 * 1024;
+
+const DOCX_RUN_MAX = 8000;
+
+function safeExportBasename(nom: string): string {
+  const base = (nom || 'document').replace(/[/\\?%*:|"<>]/g, '_').replace(/\.[^.]+$/i, '');
+  return (base.length > 0 ? base : 'document').slice(0, 120);
+}
+
+function contentDispositionAttachment(filename: string): string {
+  const ascii = filename.replace(/[^\x20-\x7E]/g, '_');
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
+function chunkForDocxRuns(text: string): string[] {
+  if (text.length <= DOCX_RUN_MAX) return [text];
+  const parts: string[] = [];
+  for (let i = 0; i < text.length; i += DOCX_RUN_MAX) {
+    parts.push(text.slice(i, i + DOCX_RUN_MAX));
+  }
+  return parts;
+}
 
 const UPLOADS_DIR = '/app/uploads';
 const OCR_DIR = '/app/uploads/ocr';
@@ -16,10 +50,6 @@ const OCR_DIR = '/app/uploads/ocr';
 // Créer les dossiers si inexistants
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 if (!fs.existsSync(OCR_DIR)) fs.mkdirSync(OCR_DIR, { recursive: true });
-
-interface AuthRequest extends Request {
-  user?: any;
-}
 
 // Convertir PDF en images puis OCR (execFile async : ne bloque pas la boucle d’événements — autres routes restent servies)
 async function ocrPdf(filePath: string, docId: string): Promise<string> {
@@ -152,6 +182,111 @@ export const scanDocument = async (req: AuthRequest, res: Response) => {
     res.json({ success: true, documentId: id, longueurTexte: texte.length, apercu: texte.substring(0, 300) });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+};
+
+// GET /api/v1/ocr/export/:id?format=pdf|docx|txt — texte OCR complet (Word / PDF / TXT)
+export const exportOcrDocument = async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const formatRaw = String(req.query.format || 'docx').toLowerCase();
+  if (!['pdf', 'docx', 'txt'].includes(formatRaw)) {
+    return res.status(400).json({ error: 'Paramètre format invalide (pdf, docx ou txt)' });
+  }
+  const format = formatRaw as 'pdf' | 'docx' | 'txt';
+
+  try {
+    const userId = req.user?.userId;
+    const role = req.user?.role;
+    if (!userId) return res.status(401).json({ error: 'Non authentifié' });
+
+    const row = await prisma.document.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, nom: true, texteOcr: true, ocrTraite: true },
+    });
+    if (!row) return res.status(404).json({ error: 'Document non trouvé' });
+    if (!row.ocrTraite || !row.texteOcr || !String(row.texteOcr).trim()) {
+      return res.status(400).json({ error: 'Aucun texte OCR disponible. Lancez d’abord un scan.' });
+    }
+
+    const canAccess = await documentService.canUserAccessDocument(id, userId, role);
+    if (!canAccess) {
+      return res.status(403).json({ error: 'Accès non autorisé à ce document' });
+    }
+
+    const base = safeExportBasename(row.nom);
+    const texte = row.texteOcr;
+
+    await logAccess(req, res, LogAction.telechargement, ResourceType.document, row.id, row.nom, {
+      typeAction: 'export_texte_ocr',
+      format,
+    });
+
+    if (format === 'txt') {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', contentDispositionAttachment(`${base}_OCR.txt`));
+      return res.send(texte);
+    }
+
+    if (format === 'docx') {
+      const lines = texte.split(/\r?\n/);
+      const bodyParas = lines.map(
+        (line) =>
+          new Paragraph({
+            children: chunkForDocxRuns(line.length > 0 ? line : '\u00a0').map(
+              (chunk) => new TextRun({ text: chunk }),
+            ),
+          }),
+      );
+      const wordDoc = new DocxDocument({
+        sections: [
+          {
+            properties: {},
+            children: [
+              new Paragraph({
+                heading: HeadingLevel.HEADING_1,
+                children: [new TextRun({ text: row.nom })],
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: 'Texte extrait par OCR. Recherche (Ctrl+F), copie et annotations possibles dans Word.',
+                    italics: true,
+                  }),
+                ],
+              }),
+              new Paragraph({ children: [new TextRun({ text: '' })] }),
+              ...bodyParas,
+            ],
+          },
+        ],
+      });
+      const buffer = await Packer.toBuffer(wordDoc);
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+      res.setHeader('Content-Disposition', contentDispositionAttachment(`${base}_OCR.docx`));
+      return res.send(buffer);
+    }
+
+    const pdfBuf = await new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      const pdf = new PDFDocument({ margin: 50 });
+      pdf.on('data', (chunk: Buffer) => chunks.push(chunk));
+      pdf.on('end', () => resolve(Buffer.concat(chunks)));
+      pdf.on('error', reject);
+      try {
+        pdf.fontSize(10).fillColor('#000000').text(texte, { width: 500, align: 'left' });
+        pdf.end();
+      } catch (err) {
+        reject(err);
+      }
+    });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', contentDispositionAttachment(`${base}_OCR.pdf`));
+    return res.send(pdfBuf);
+  } catch (e: any) {
+    if (!res.headersSent) res.status(500).json({ error: e.message });
   }
 };
 

@@ -12,8 +12,41 @@ export default function OCR() {
   const [activeTab, setActiveTab] = useState<'scanner' | 'resultats' | 'recherche'>('scanner');
   const [filter, setFilter] = useState<'all' | 'traite' | 'non_traite' | 'non_supporte'>('all');
   const [progress, setProgress] = useState({ done: 0, total: 0, actif: false });
+  const [exportReadyFor, setExportReadyFor] = useState<{ id: string; nom: string } | null>(null);
 
   useEffect(() => { loadDocuments(); }, []);
+
+  const downloadOcrExport = async (docId: string, docNom: string, format: 'pdf' | 'docx' | 'txt') => {
+    try {
+      const res = await api.get(`/ocr/export/${docId}`, {
+        params: { format },
+        responseType: 'blob',
+        timeout: 180_000,
+      });
+      const ext = format === 'docx' ? '.docx' : format === 'pdf' ? '.pdf' : '.txt';
+      const safeName = (docNom || 'document').replace(/[/\\?%*:|"<>]/g, '_').replace(/\.[^.]+$/i, '');
+      const fileName = `${safeName.slice(0, 80)}_OCR${ext}`;
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (e: any) {
+      const data = e?.response?.data;
+      if (data instanceof Blob) {
+        try {
+          const text = await data.text();
+          const j = JSON.parse(text);
+          alert(j.error || 'Erreur export');
+        } catch {
+          alert('Erreur export');
+        }
+      } else {
+        alert('Erreur export : ' + (e?.response?.data?.error || e?.message || ''));
+      }
+    }
+  };
 
   const loadDocuments = async () => {
     setLoading(true);
@@ -26,8 +59,11 @@ export default function OCR() {
 
   const scanDocument = async (id: string) => {
     setScanning(id);
+    setExportReadyFor(null);
     try {
       await api.post(`/ocr/scan/${id}`, {}, { timeout: 600_000 });
+      const d = documents.find((x) => x.id === id);
+      setExportReadyFor({ id, nom: d?.nom || 'document' });
       await loadDocuments();
     } catch (e: any) {
       alert('Erreur OCR: ' + (e?.response?.data?.error || e.message));
@@ -125,6 +161,47 @@ export default function OCR() {
         </div>
       </div>
 
+      {exportReadyFor && (
+        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-green-900">Scan terminé — téléchargez le texte reconnu pour le parcourir et rechercher (Ctrl+F dans Word ou le lecteur PDF).</p>
+            <p className="text-xs text-green-700 mt-1 truncate max-w-xl" title={exportReadyFor.nom}>
+              {exportReadyFor.nom}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => downloadOcrExport(exportReadyFor.id, exportReadyFor.nom, 'docx')}
+              className="px-3 py-1.5 bg-white border border-green-300 text-green-900 rounded-lg text-xs font-medium hover:bg-green-100"
+            >
+              Word (.docx)
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadOcrExport(exportReadyFor.id, exportReadyFor.nom, 'pdf')}
+              className="px-3 py-1.5 bg-white border border-green-300 text-green-900 rounded-lg text-xs font-medium hover:bg-green-100"
+            >
+              PDF
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadOcrExport(exportReadyFor.id, exportReadyFor.nom, 'txt')}
+              className="px-3 py-1.5 bg-white border border-green-300 text-green-900 rounded-lg text-xs font-medium hover:bg-green-100"
+            >
+              Texte (.txt)
+            </button>
+            <button
+              type="button"
+              onClick={() => setExportReadyFor(null)}
+              className="px-3 py-1.5 text-gray-600 text-xs hover:underline"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
+
       {progress.actif && (
         <div className="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-lg">
           <div className="flex justify-between text-sm text-blue-800 mb-1">
@@ -211,6 +288,7 @@ export default function OCR() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut OCR</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date traitement</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Aperçu</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Texte reconnu</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Accès</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
                   </tr>
@@ -251,6 +329,38 @@ export default function OCR() {
                       </td>
                       <td className="px-4 py-3 text-gray-500 text-xs max-w-48 truncate">
                         {doc.ocrTraite ? 'Texte indexé — onglet Recherche' : '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        {doc.ocrTraite ? (
+                          <div className="flex flex-wrap gap-1">
+                            <button
+                              type="button"
+                              onClick={() => downloadOcrExport(doc.id, doc.nom, 'docx')}
+                              className="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
+                              title="Ouvrir dans Word, recherche Ctrl+F"
+                            >
+                              Word
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => downloadOcrExport(doc.id, doc.nom, 'pdf')}
+                              className="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100"
+                              title="PDF du texte extrait"
+                            >
+                              PDF
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => downloadOcrExport(doc.id, doc.nom, 'txt')}
+                              className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100"
+                              title="Fichier texte brut UTF-8"
+                            >
+                              TXT
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-gray-300 text-xs">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-0.5 max-w-48">
@@ -373,8 +483,33 @@ export default function OCR() {
                   <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-sm text-gray-700 font-mono whitespace-pre-wrap">
                     {doc.extrait}
                   </div>
-                  <div className="text-xs text-gray-400 mt-2">
-                    Traité le {new Date(doc.ocrDate).toLocaleString('fr-FR')} • {doc.uploadedBy?.prenom} {doc.uploadedBy?.nom}
+                  <div className="flex flex-wrap items-center gap-2 mt-3">
+                    <span className="text-xs text-gray-400">
+                      Traité le {new Date(doc.ocrDate).toLocaleString('fr-FR')} • {doc.uploadedBy?.prenom} {doc.uploadedBy?.nom}
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        onClick={() => downloadOcrExport(doc.id, doc.nom, 'docx')}
+                        className="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
+                      >
+                        Word
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadOcrExport(doc.id, doc.nom, 'pdf')}
+                        className="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100"
+                      >
+                        PDF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadOcrExport(doc.id, doc.nom, 'txt')}
+                        className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100"
+                      >
+                        TXT
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

@@ -351,6 +351,7 @@ app.post("/api/v1/contrats/:id/documents", contratController.addDocumentToContra
 app.post("/api/v1/contrats/:id/link-document", contratController.linkDocument);
 // Routes OCR
 app.get("/api/v1/ocr/documents", authenticate, ocrController.getDocumentsOcr);
+app.get("/api/v1/ocr/export/:id", authenticate, ocrController.exportOcrDocument);
 app.post("/api/v1/ocr/scan/:id", authenticate, ocrController.scanDocument);
 app.post("/api/v1/ocr/scan-all", authenticate, ocrController.scanAll);
 app.get("/api/v1/ocr/search", authenticate, ocrController.searchOcr);
