@@ -80,6 +80,16 @@ function isNativeProjetUploadDoc(doc: any) {
 const DROITS_ADMIN_DOC_PROJET_NATIF =
   'visualisation, modification statut, accès, suppression (admin non exclu de la pièce)';
 
+const PMO_DOCUMENTS_ACCES_CHANGED = 'pmo-documents-acces-changed';
+
+function notifyDocumentsListAccesSync() {
+  try {
+    window.dispatchEvent(new CustomEvent(PMO_DOCUMENTS_ACCES_CHANGED));
+  } catch {
+    /* ignore */
+  }
+}
+
 function permSummaryLine(perms: string[]) {
   return perms.map((p) => LABEL_PERM_ROW[p] || p).join(' + ');
 }
@@ -1088,6 +1098,7 @@ export default function ProjetDetail() {
       await api.delete(`/documents/${acceDoc.id}/admin-sans-acces/${userId}`);
       await refreshDocAccesDetail(acceDoc.id);
       await loadDocuments();
+      notifyDocumentsListAccesSync();
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
@@ -1106,6 +1117,7 @@ export default function ProjetDetail() {
       await api.post(`/documents/${acceDoc.id}/admin-sans-acces`, { userId });
       await refreshDocAccesDetail(acceDoc.id);
       await loadDocuments();
+      notifyDocumentsListAccesSync();
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
@@ -1117,6 +1129,7 @@ export default function ProjetDetail() {
       await api.post(`/documents/${acceDoc.id}/permissions`, { userId });
       await refreshDocAccesDetail(acceDoc.id);
       await loadDocuments();
+      notifyDocumentsListAccesSync();
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
@@ -1132,6 +1145,7 @@ export default function ProjetDetail() {
       await api.delete(`/documents/${acceDoc.id}/permissions/${permissionId}`);
       await refreshDocAccesDetail(acceDoc.id);
       await loadDocuments();
+      notifyDocumentsListAccesSync();
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
@@ -1144,6 +1158,7 @@ export default function ProjetDetail() {
       setNewDocPermUserId('');
       await refreshDocAccesDetail(acceDoc.id);
       await loadDocuments();
+      notifyDocumentsListAccesSync();
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
@@ -1158,6 +1173,7 @@ export default function ProjetDetail() {
       setShowAccesModal(false);
       setAcceDoc(null);
       await loadDocuments();
+      notifyDocumentsListAccesSync();
     } catch (err: any) {
       alert(err.response?.data?.error || 'Erreur lors de la modification de l\'accès');
     }

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
 import { DOCUMENT_TYPE_OPTIONS, documentTypeLabel } from '../constants/documentTypes';
@@ -19,6 +19,21 @@ const DROITS_ADMIN_CONTRAT_DOC =
 const DROITS_CREATEUR_LICENCE_DOC = 'gestion des accès + modification + suppression + lecture';
 const DROITS_ADMIN_LICENCE_DOC =
   'modification + suppression + lecture (sans gestion des accès — réservée au créateur)';
+
+const DROITS_ADMIN_DOC_PROJET_NATIF =
+  'visualisation, modification statut, accès, suppression (admin non exclu de la pièce)';
+
+const PMO_DOCUMENTS_ACCES_CHANGED = 'pmo-documents-acces-changed';
+
+/** Pièce confidentielle déposée depuis la fiche projet (type métier = projet sur le projet). */
+function isNativeProjetUploadDoc(d: any) {
+  return (
+    !!d?.estConfidentiel &&
+    d?.typeDocument === 'projet' &&
+    d?.referenceType === 'projet' &&
+    !!d?.referenceId
+  );
+}
 
 function niveauSummaryContratDoc(niveau: string) {
   if (niveau === 'lecture') return 'lecture';
@@ -44,6 +59,8 @@ async function apiErrorMessageFromAxios(error: any): Promise<string | undefined>
 
 export default function Documents() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const prevPathRef = useRef<string | null>(null);
   const { user: currentUser } = useAuth();
   const isLecteur = currentUser?.role === 'lecteur';
   const isAdmin = currentUser?.role === 'admin';
@@ -143,6 +160,21 @@ export default function Documents() {
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
+
+  /** Retour depuis la fiche projet (ou autre) : recharger la liste pour refléter exclusions admin document, etc. */
+  useEffect(() => {
+    const prev = prevPathRef.current;
+    prevPathRef.current = location.pathname;
+    if (location.pathname === '/documents' && prev !== null && prev !== '/documents') {
+      void loadDocuments();
+    }
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const onAccesSync = () => void loadDocuments();
+    window.addEventListener(PMO_DOCUMENTS_ACCES_CHANGED, onAccesSync);
+    return () => window.removeEventListener(PMO_DOCUMENTS_ACCES_CHANGED, onAccesSync);
   }, []);
 
   const loadAttachmentLists = async () => {
@@ -1266,32 +1298,75 @@ export default function Documents() {
                             )}
                             {d.estConfidentiel && !isLicenceLinkedDoc && !isContratLinkedDoc && (
                               <div className="mt-1 text-xs text-gray-600 space-y-0.5">
-                                <p className="text-xs text-gray-500 mb-1">Document confidentiel (hors contrat / licence)</p>
-                                {(() => {
-                                  const ayantsDroit: { nom: string; roles: string[] }[] = [];
-                                  const addPerson = (id: string, nom: string, role: string) => {
-                                    const existing = ayantsDroit.find((a) => a.nom === nom);
-                                    if (existing) {
-                                      if (!existing.roles.includes(role)) existing.roles.push(role);
-                                    } else ayantsDroit.push({ nom, roles: [role] });
-                                  };
-                                  usersList
-                                    .filter((u) => u.role === 'admin')
-                                    .forEach((u) => addPerson(u.id, `${u.prenom} ${u.nom}`, 'Admin'));
-                                  if (d.uploadedBy)
-                                    addPerson(d.uploadedBy.id, `${d.uploadedBy.prenom} ${d.uploadedBy.nom}`, 'Uploadeur');
-                                  (d.permissionsUtilisateurs || []).forEach((p: any) => {
-                                    if (p.user) addPerson(p.user.id, `${p.user.prenom} ${p.user.nom}`, 'Accès document');
-                                  });
-                                  if (ayantsDroit.length === 0)
-                                    return <span className="italic text-gray-400">Aucun utilisateur défini</span>;
-                                  return ayantsDroit.map((a, idx) => (
-                                    <div key={idx}>
-                                      <span className="font-medium">{a.nom}</span>{' '}
-                                      <span className="text-gray-400">({a.roles.join(', ')})</span>
+                                {isNativeProjetUploadDoc(d) ? (
+                                  <>
+                                    <p className="text-xs text-amber-800 mb-1">
+                                      Pièce déposée sur le projet — aligné sur la fiche projet (exclusions admin, accès
+                                      explicites).
+                                    </p>
+                                    <div className="mt-2 text-xs text-gray-700 space-y-1">
+                                      <AccessContratLikeAdminLines
+                                        keyPrefix={`doc-list-${d.id}-proj`}
+                                        users={usersList}
+                                        createdById={d.uploadedById}
+                                        createdBy={d.uploadedBy}
+                                        adminSansAccesUserIds={d.adminSansAccesUserIds}
+                                        permissions={(d.permissionsUtilisateurs || [])
+                                          .filter((p: any) => p.user?.role === 'admin')
+                                          .map((p: any) => ({
+                                            userId: p.userId || p.user?.id,
+                                            niveau: 'lecture',
+                                            user: p.user,
+                                          }))}
+                                        droitsAdminCompletLabel={DROITS_ADMIN_DOC_PROJET_NATIF}
+                                        creatorRightsLabel="auteur — tous les droits sur ce document"
+                                        niveauLabel={() => 'Lecture'}
+                                        limitedPrefix="Admin : accès limité —"
+                                      />
+                                      {(d.permissionsUtilisateurs || [])
+                                        .filter((p: any) => p.user && p.user.role !== 'admin')
+                                        .map((p: any) => (
+                                          <div key={p.id} className="min-w-0">
+                                            <span className="font-medium text-gray-900">
+                                              {p.user.prenom} {p.user.nom}
+                                            </span>
+                                            <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                              (Accès explicite : lecture)
+                                            </span>
+                                          </div>
+                                        ))}
                                     </div>
-                                  ));
-                                })()}
+                                  </>
+                                ) : (
+                                  <>
+                                    <p className="text-xs text-gray-500 mb-1">Document confidentiel (hors contrat / licence)</p>
+                                    {(() => {
+                                      const ayantsDroit: { nom: string; roles: string[] }[] = [];
+                                      const addPerson = (id: string, nom: string, role: string) => {
+                                        const existing = ayantsDroit.find((a) => a.nom === nom);
+                                        if (existing) {
+                                          if (!existing.roles.includes(role)) existing.roles.push(role);
+                                        } else ayantsDroit.push({ nom, roles: [role] });
+                                      };
+                                      usersList
+                                        .filter((u) => u.role === 'admin')
+                                        .forEach((u) => addPerson(u.id, `${u.prenom} ${u.nom}`, 'Admin'));
+                                      if (d.uploadedBy)
+                                        addPerson(d.uploadedBy.id, `${d.uploadedBy.prenom} ${d.uploadedBy.nom}`, 'Uploadeur');
+                                      (d.permissionsUtilisateurs || []).forEach((p: any) => {
+                                        if (p.user) addPerson(p.user.id, `${p.user.prenom} ${p.user.nom}`, 'Accès document');
+                                      });
+                                      if (ayantsDroit.length === 0)
+                                        return <span className="italic text-gray-400">Aucun utilisateur défini</span>;
+                                      return ayantsDroit.map((a, idx) => (
+                                        <div key={idx}>
+                                          <span className="font-medium">{a.nom}</span>{' '}
+                                          <span className="text-gray-400">({a.roles.join(', ')})</span>
+                                        </div>
+                                      ));
+                                    })()}
+                                  </>
+                                )}
                               </div>
                             )}
                           </div>
