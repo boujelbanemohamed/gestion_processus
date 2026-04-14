@@ -2,7 +2,13 @@ import { Request, Response } from 'express';
 import { prisma } from '../utils/prisma';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
+
+/** Buffer sortie tesseract (pages denses). */
+const TESSERACT_MAX_BUFFER = 32 * 1024 * 1024;
 
 const UPLOADS_DIR = '/app/uploads';
 const OCR_DIR = '/app/uploads/ocr';
@@ -15,22 +21,32 @@ interface AuthRequest extends Request {
   user?: any;
 }
 
-// Convertir PDF en images puis OCR
-function ocrPdf(filePath: string, docId: string): string {
+// Convertir PDF en images puis OCR (execFile async : ne bloque pas la boucle d’événements — autres routes restent servies)
+async function ocrPdf(filePath: string, docId: string): Promise<string> {
   try {
     const outDir = path.join(OCR_DIR, docId);
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-    // Convertir PDF en images avec pdftoppm
-    execSync(`pdftoppm -r 200 "${filePath}" "${outDir}/page"`, { timeout: 60000 });
-    // OCR sur chaque image
-    const images = fs.readdirSync(outDir).filter(f => f.endsWith('.ppm') || f.endsWith('.png') || f.endsWith('.jpg'));
+    const pagePrefix = path.join(outDir, 'page');
+    await execFileAsync('pdftoppm', ['-r', '200', filePath, pagePrefix], {
+      timeout: 300_000,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    const images = (await fs.promises.readdir(outDir)).filter(
+      (f) => f.endsWith('.ppm') || f.endsWith('.png') || f.endsWith('.jpg'),
+    );
     let fullText = '';
     for (const img of images.sort()) {
       const imgPath = path.join(outDir, img);
       try {
-        const text = execSync(`tesseract "${imgPath}" stdout -l fra+eng+ara`, { timeout: 30000 }).toString();
-        fullText += text + '\n';
-      } catch (e) { /* continuer si une page échoue */ }
+        const { stdout } = await execFileAsync('tesseract', [imgPath, 'stdout', '-l', 'fra+eng+ara'], {
+          timeout: 120_000,
+          maxBuffer: TESSERACT_MAX_BUFFER,
+          encoding: 'utf8',
+        });
+        fullText += String(stdout) + '\n';
+      } catch {
+        /* continuer si une page échoue */
+      }
     }
     return fullText.trim();
   } catch (e: any) {
@@ -39,10 +55,14 @@ function ocrPdf(filePath: string, docId: string): string {
 }
 
 // OCR sur image directe
-function ocrImage(filePath: string): string {
+async function ocrImage(filePath: string): Promise<string> {
   try {
-    const text = execSync(`tesseract "${filePath}" stdout -l fra+eng+ara`, { timeout: 30000 }).toString();
-    return text.trim();
+    const { stdout } = await execFileAsync('tesseract', [filePath, 'stdout', '-l', 'fra+eng+ara'], {
+      timeout: 120_000,
+      maxBuffer: TESSERACT_MAX_BUFFER,
+      encoding: 'utf8',
+    });
+    return String(stdout).trim();
   } catch (e: any) {
     throw new Error(`Erreur OCR image: ${e.message}`);
   }
@@ -110,9 +130,9 @@ export const scanDocument = async (req: AuthRequest, res: Response) => {
     const ext = path.extname(doc.fichierUrl).toLowerCase();
 
     if (mime === 'application/pdf' || ext === '.pdf') {
-      texte = ocrPdf(filePath, doc.id);
+      texte = await ocrPdf(filePath, doc.id);
     } else if (mime.startsWith('image/') || ['.png', '.jpg', '.jpeg', '.tiff', '.bmp'].includes(ext)) {
-      texte = ocrImage(filePath);
+      texte = await ocrImage(filePath);
     } else if (mime.includes('word') || ext === '.docx' || ext === '.doc') {
       texte = await ocrDocx(filePath);
     } else {
@@ -120,14 +140,14 @@ export const scanDocument = async (req: AuthRequest, res: Response) => {
     }
 
     // Sauvegarder en BDD
-    const updated = await prisma.document.update({
+    await prisma.document.update({
       where: { id },
       data: { texteOcr: texte, ocrTraite: true, ocrDate: new Date() }
     });
 
     // Sauvegarder en fichier .txt
     const txtPath = path.join(OCR_DIR, `${doc.id}.txt`);
-    fs.writeFileSync(txtPath, texte, 'utf8');
+    await fs.promises.writeFile(txtPath, texte, 'utf8');
 
     res.json({ success: true, documentId: id, longueurTexte: texte.length, apercu: texte.substring(0, 300) });
   } catch (e: any) {
