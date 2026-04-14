@@ -12,6 +12,32 @@ const PROC_PERM_LABELS: Record<string, string> = {
   gestion: 'Gestion des accès',
 };
 
+const PROC_PERM_OPTIONS = [
+  { value: 'lecture', label: '👁 Lecture' },
+  { value: 'modification', label: '✏️ Modification' },
+  { value: 'suppression', label: '🗑 Suppression' },
+  { value: 'gestion', label: '🔐 Gestion des accès' },
+];
+
+const PMO_DOCUMENTS_ACCES_CHANGED = 'pmo-documents-acces-changed';
+const PMO_PROCESSUS_ACCES_CHANGED = 'pmo-processus-acces-changed';
+
+function notifyDocumentsListAccesSync() {
+  try {
+    window.dispatchEvent(new CustomEvent(PMO_DOCUMENTS_ACCES_CHANGED));
+  } catch {
+    /* ignore */
+  }
+}
+
+function notifyProcessusAccesChanged(processusId?: string) {
+  try {
+    window.dispatchEvent(new CustomEvent(PMO_PROCESSUS_ACCES_CHANGED, { detail: { processusId } }));
+  } catch {
+    /* ignore */
+  }
+}
+
 type DelegationRow = { key: string; userId?: string; nom: string; label: string };
 
 function processusAccesDelegationsRows(p: any): DelegationRow[] {
@@ -212,7 +238,17 @@ export default function ProcessusDetail() {
     entiteIds: [] as string[],
     categorieIds: [] as string[],
     tags: [] as string[],
+    description: '',
   });
+  const [showProcAccesModal, setShowProcAccesModal] = useState(false);
+  const [procAccesDetail, setProcAccesDetail] = useState<any>(null);
+  const [procAccesLoading, setProcAccesLoading] = useState(false);
+  const [procAccesAdminLimitPerm, setProcAccesAdminLimitPerm] = useState<Record<string, string>>({});
+  const [procAccesNewUserId, setProcAccesNewUserId] = useState('');
+  const [procAccesNewPermType, setProcAccesNewPermType] = useState('lecture');
+  const [docAccesModalDoc, setDocAccesModalDoc] = useState<any>(null);
+  const [docAccesEstConfidentiel, setDocAccesEstConfidentiel] = useState(false);
+  const [docAccesPermissionUserIds, setDocAccesPermissionUserIds] = useState<string[]>([]);
   const [viewingDocument, setViewingDocument] = useState<any | null>(null);
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
   const [excelData, setExcelData] = useState<any[]>([]);
@@ -291,6 +327,7 @@ export default function ProcessusDetail() {
         entiteIds: processus.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean) || [],
         categorieIds: processus.categories?.map((pc: any) => pc.categorie?.id || pc.categorieId).filter(Boolean) || [],
         tags: tags,
+        description: processus.description ?? '',
       });
       setTagsInput(tags.join(', '));
       
@@ -328,6 +365,18 @@ export default function ProcessusDetail() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!id) return;
+    const onSync = (e: Event) => {
+      const pid = (e as CustomEvent<{ processusId?: string }>).detail?.processusId;
+      if (pid != null && pid !== id) return;
+      void loadProcessus();
+    };
+    window.addEventListener(PMO_PROCESSUS_ACCES_CHANGED, onSync);
+    return () => window.removeEventListener(PMO_PROCESSUS_ACCES_CHANGED, onSync);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   const loadDocuments = async () => {
     try {
@@ -909,12 +958,192 @@ export default function ProcessusDetail() {
       setEditPermissionUserIds([]);
       loadDocuments();
       loadHistory(1);
+      notifyDocumentsListAccesSync();
     } catch (err: any) {
       if (err.response?.status === 403) {
         alert('Vous n\'avez pas accès à ce document confidentiel');
       } else {
         alert(err.response?.data?.error || 'Erreur lors de la modification');
       }
+    }
+  };
+
+  const canModifierAccesDocument = (doc: any): boolean => {
+    if (!currentUser || !processus) return false;
+    if (!hasProcessViewForDocuments()) return false;
+    if (isLecteur) return false;
+    if (currentUser.role === 'admin') return true;
+    if (doc.uploadedById === currentUser.id) return true;
+    return !!doc.permissionsUtilisateurs?.some(
+      (p: any) => p.userId === currentUser.id || p.user?.id === currentUser.id
+    );
+  };
+
+  const openDocumentAccesModal = (doc: any) => {
+    setDocAccesModalDoc(doc);
+    setDocAccesEstConfidentiel(!!doc.estConfidentiel);
+    setDocAccesPermissionUserIds(
+      doc.permissionsUtilisateurs?.map((p: any) => p.userId || p.user?.id).filter(Boolean) || []
+    );
+  };
+
+  const closeDocumentAccesModal = () => {
+    setDocAccesModalDoc(null);
+    setDocAccesEstConfidentiel(false);
+    setDocAccesPermissionUserIds([]);
+  };
+
+  const handleSaveDocumentAccesModal = async () => {
+    if (!docAccesModalDoc) return;
+    if (docAccesEstConfidentiel && docAccesPermissionUserIds.length === 0) {
+      alert('Au moins un utilisateur doit être sélectionné pour un document confidentiel');
+      return;
+    }
+    try {
+      await api.put(`/documents/${docAccesModalDoc.id}`, {
+        estConfidentiel: docAccesEstConfidentiel,
+        permissionUserIds: docAccesEstConfidentiel ? docAccesPermissionUserIds : [],
+      });
+      closeDocumentAccesModal();
+      loadDocuments();
+      loadHistory(1);
+      notifyDocumentsListAccesSync();
+    } catch (err: any) {
+      alert(err.response?.data?.error || "Erreur lors de la modification de l'accès");
+    }
+  };
+
+  const refreshProcAccesDetail = async () => {
+    if (!id) return;
+    const { data } = await api.get(`/processus/${id}/acces`);
+    setProcAccesDetail(data);
+  };
+
+  const openProcessusAccesModal = async () => {
+    if (!id || !processus) return;
+    setShowProcAccesModal(true);
+    setProcAccesDetail(null);
+    setProcAccesNewUserId('');
+    setProcAccesNewPermType('lecture');
+    setProcAccesAdminLimitPerm({});
+    setProcAccesLoading(true);
+    try {
+      const { data } = await api.get(`/processus/${id}/acces`);
+      setProcAccesDetail(data);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur chargement accès');
+      setShowProcAccesModal(false);
+    } finally {
+      setProcAccesLoading(false);
+    }
+  };
+
+  const handleProcAddPermission = async () => {
+    if (!id || !procAccesNewUserId) return;
+    try {
+      await api.post(`/processus/${id}/permissions`, {
+        userId: procAccesNewUserId,
+        permission: procAccesNewPermType,
+      });
+      setProcAccesNewUserId('');
+      await refreshProcAccesDetail();
+      await loadProcessus();
+      notifyProcessusAccesChanged(id);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleProcRemovePermissionEntry = async (permissionEntryId: string, targetIsAdmin?: boolean) => {
+    const msg = targetIsAdmin
+      ? "Révoquer cet accès ? L'administrateur n'aura plus aucun droit explicite sur ce processus. Vous pourrez lui accorder à nouveau un accès via « Accorder un accès »."
+      : 'Retirer ce droit ?';
+    if (!id || !window.confirm(msg)) return;
+    try {
+      await api.delete(`/processus/${id}/permissions/${permissionEntryId}`);
+      await refreshProcAccesDetail();
+      await loadProcessus();
+      notifyProcessusAccesChanged(id);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const revokeAllProcDelegationsForUser = async (userId: string) => {
+    if (!id || !procAccesDetail) return;
+    const rows = (procAccesDetail.delegations || []).filter((d: any) => d.user?.id === userId);
+    if (rows.length === 0) return;
+    if (!window.confirm('Révoquer tous les droits explicites pour cet utilisateur sur ce processus ?')) return;
+    try {
+      for (const r of rows) {
+        await api.delete(`/processus/${id}/permissions/${r.id}`);
+      }
+      await refreshProcAccesDetail();
+      await loadProcessus();
+      notifyProcessusAccesChanged(id);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleProcRestoreAdminDefault = async (userId: string) => {
+    if (!id) return;
+    if (!window.confirm("Rétablir l'accès administrateur par défaut (complet) pour cet utilisateur ?")) return;
+    try {
+      await api.delete(`/processus/${id}/admin-sans-acces/${userId}`);
+      await refreshProcAccesDetail();
+      await loadProcessus();
+      notifyProcessusAccesChanged(id);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleProcRevokeAdminImplicit = async (userId: string) => {
+    if (!id) return;
+    if (
+      !window.confirm(
+        "Retirer tout accès à cet administrateur ? Il ne verra plus le processus tant que vous ne lui aurez pas accordé un accès via la liste ci-dessous."
+      )
+    ) {
+      return;
+    }
+    try {
+      await api.post(`/processus/${id}/admin-sans-acces`, { userId });
+      await refreshProcAccesDetail();
+      await loadProcessus();
+      notifyProcessusAccesChanged(id);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const quickLimitProcAdmin = async (userId: string) => {
+    if (!id) return;
+    const permission = procAccesAdminLimitPerm[userId] || 'lecture';
+    try {
+      await api.post(`/processus/${id}/permissions`, { userId, permission });
+      await refreshProcAccesDetail();
+      await loadProcessus();
+      notifyProcessusAccesChanged(id);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const replaceProcAdminPermissionLevel = async (userId: string, permission: string) => {
+    if (!id || !procAccesDetail) return;
+    const rows = (procAccesDetail.delegations || []).filter((d: any) => d.user?.id === userId);
+    try {
+      for (const r of rows) {
+        await api.delete(`/processus/${id}/permissions/${r.id}`);
+      }
+      await api.post(`/processus/${id}/permissions`, { userId, permission });
+      await refreshProcAccesDetail();
+      await loadProcessus();
+      notifyProcessusAccesChanged(id);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
   };
 
@@ -969,7 +1198,12 @@ export default function ProcessusDetail() {
       if (JSON.stringify(currentTags) !== JSON.stringify(newTags)) {
         updateData.tags = editData.tags || [];
       }
-      
+      const curDesc = processus.description ?? '';
+      const newDesc = editData.description ?? '';
+      if (curDesc !== newDesc) {
+        updateData.description = newDesc;
+      }
+
       // Mettre à jour les autres champs seulement s'il y a des changements
       if (Object.keys(updateData).length > 0) {
         await api.put(`/processus/${id}`, updateData);
@@ -1131,21 +1365,29 @@ export default function ProcessusDetail() {
 
       {/* Informations générales */}
       <div className="bg-white rounded-lg shadow mb-6 p-6">
-        <div className="flex justify-between items-center mb-4">
+        <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
           <h2 className="text-lg font-semibold">Informations générales</h2>
           {!isEditing ? (
-            canModifyProcessus() && (
+            <div className="flex flex-wrap gap-2">
               <button
-                onClick={() => {
-                  setIsEditing(true);
-                  // Initialiser tagsInput avec les tags existants
-                  setTagsInput(editData.tags.join(', '));
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                type="button"
+                onClick={() => void openProcessusAccesModal()}
+                className="px-4 py-2 bg-slate-100 text-slate-800 rounded hover:bg-slate-200 text-sm border border-slate-200"
               >
-                Modifier
+                🔐 Accès
               </button>
-            )
+              {canModifyProcessus() && (
+                <button
+                  onClick={() => {
+                    setIsEditing(true);
+                    setTagsInput(editData.tags.join(', '));
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+                >
+                  Modifier
+                </button>
+              )}
+            </div>
           ) : (
             <div className="flex gap-2">
               <button
@@ -1160,6 +1402,7 @@ export default function ProcessusDetail() {
                       entiteIds: processus.entites?.map((pe: any) => pe.entite?.id || pe.entiteId).filter(Boolean) || [],
                       categorieIds: processus.categories?.map((pc: any) => pc.categorie?.id || pc.categorieId).filter(Boolean) || [],
                       tags: tags,
+                      description: processus.description ?? '',
                     });
                     setTagsInput(tags.join(', '));
                   }
@@ -1268,6 +1511,18 @@ export default function ProcessusDetail() {
               </select>
               <p className="text-xs text-gray-500 mt-1">Maintenez Ctrl (ou Cmd sur Mac) pour sélectionner plusieurs catégories</p>
             </div>
+            {canModifyProcessus() && (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea
+                  value={editData.description}
+                  onChange={(e) => setEditData({ ...editData, description: e.target.value })}
+                  rows={5}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Description du processus…"
+                />
+              </div>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -1431,21 +1686,24 @@ export default function ProcessusDetail() {
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Pour ajouter ou retirer des droits délégués, utilisez le bouton « Accès » sur la liste des processus.
+            Pour ajouter ou retirer des droits délégués, utilisez le bouton « Accès » ci-dessus ou sur la liste des
+            processus.
           </p>
         </div>
 
-        {/* Zone Description */}
-        <div className="mt-6">
-          <label className="text-sm font-medium text-gray-500 block mb-2">Description</label>
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 min-h-[100px]">
-            {processus.description ? (
-              <p className="text-sm text-gray-700 whitespace-pre-wrap">{processus.description}</p>
-            ) : (
-              <p className="text-sm text-gray-400 italic">Aucune description</p>
-            )}
+        {/* Zone Description (lecture seule ; édition dans « Modifier ») */}
+        {!isEditing && (
+          <div className="mt-6">
+            <label className="text-sm font-medium text-gray-500 block mb-2">Description</label>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 min-h-[100px]">
+              {processus.description ? (
+                <p className="text-sm text-gray-700 whitespace-pre-wrap">{processus.description}</p>
+              ) : (
+                <p className="text-sm text-gray-400 italic">Aucune description</p>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Zone Tags */}
         <div className="mt-6">
@@ -1748,6 +2006,16 @@ export default function ProcessusDetail() {
                       >
                         Télécharger
                       </button>
+                      {canModifierAccesDocument(doc) && (
+                        <button
+                          type="button"
+                          onClick={() => openDocumentAccesModal(doc)}
+                          className="px-3 py-1 text-sm bg-purple-100 hover:bg-purple-200 rounded text-purple-800"
+                          title="Gérer les accès au document"
+                        >
+                          🔐 Accès
+                        </button>
+                      )}
                       {!isLecteur && (
                         <button
                           onClick={() => handleEditDocument(doc)}
@@ -2318,6 +2586,377 @@ export default function ProcessusDetail() {
         </div>
       )}
 
+      {showProcAccesModal && processus && id && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-6">
+          <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
+            <h3 className="text-xl font-semibold mb-2">Accès — {processus.nom}</h3>
+            <p className="text-sm text-gray-600 mb-5 leading-relaxed">
+              Le <span className="font-medium">créateur</span>, le <span className="font-medium">propriétaire</span> du
+              processus et les utilisateurs avec la permission <span className="font-medium">« Gestion des accès »</span>{' '}
+              peuvent gérer les droits. Pour un administrateur : sans ligne dans « Accès partagés » et sans exclusion, accès
+              complet ; une ligne limite les droits ; « Retirer l&apos;accès » retire tout accès jusqu&apos;à octroi via «
+              Accorder un accès » ; « Rétablir l&apos;accès admin par défaut » annule une exclusion.
+            </p>
+            {procAccesDetail && !procAccesDetail.canManagePermissions && (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2 mb-4">
+                Vous consultez la liste en lecture seule. Pour modifier les droits, connectez-vous en tant que créateur,
+                propriétaire ou avec la permission « Gestion des accès ».
+              </p>
+            )}
+            {procAccesLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : procAccesDetail ? (
+              <div className="space-y-5 text-sm">
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Limitez un admin avec « Limiter l&apos;accès », retirez-le entièrement avec « Retirer l&apos;accès », ou
+                    rétablissez l&apos;accès complet implicite s&apos;il était exclu.
+                  </p>
+                  <ul className="space-y-3 text-gray-700 text-sm">
+                    {(procAccesDetail.admins || []).map((a: any) => {
+                      const userDelegations = (procAccesDetail.delegations || []).filter((d: any) => d.user?.id === a.id);
+                      const primaryDelegation = userDelegations[0];
+                      const explicite = userDelegations.length > 0;
+                      const isPrivilegedAdmin =
+                        procAccesDetail.creator?.id === a.id || processus.proprietaireId === a.id;
+                      const refuse = (procAccesDetail.adminSansAccesUserIds || []).includes(a.id);
+                      return (
+                        <li
+                          key={a.id}
+                          className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 border border-gray-100 rounded-lg px-3 py-2 bg-white"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <span className="font-medium text-base">
+                              {a.prenom} {a.nom}
+                            </span>
+                            <span className="text-gray-500 ml-1">({a.email})</span>
+                            {refuse && !explicite && (
+                              <span className="text-red-700 block sm:inline sm:ml-1 text-xs font-medium">
+                                — aucun accès (exclu ; accorder un accès via la liste ci-dessous pour le réintégrer)
+                              </span>
+                            )}
+                            {!refuse && !explicite && (
+                              <span className="text-gray-400 block sm:inline sm:ml-1">
+                                — accès complet (défaut administrateur)
+                              </span>
+                            )}
+                            {explicite && (
+                              <span className="text-amber-800 block sm:inline sm:ml-1 text-xs font-medium">
+                                — accès limité (ligne « Accès partagés »)
+                              </span>
+                            )}
+                          </div>
+                          {procAccesDetail.canManagePermissions && !isPrivilegedAdmin && (
+                            <div className="flex flex-wrap items-center gap-2 shrink-0">
+                              {refuse && !explicite ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleProcRestoreAdminDefault(a.id)}
+                                  className="text-xs px-3 py-1.5 bg-green-100 text-green-800 rounded-md hover:bg-green-200"
+                                >
+                                  Rétablir l&apos;accès admin par défaut
+                                </button>
+                              ) : !explicite ? (
+                                <>
+                                  <select
+                                    value={procAccesAdminLimitPerm[a.id] ?? 'lecture'}
+                                    onChange={(e) =>
+                                      setProcAccesAdminLimitPerm((prev) => ({ ...prev, [a.id]: e.target.value }))
+                                    }
+                                    className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                                  >
+                                    {PROC_PERM_OPTIONS.map((n) => (
+                                      <option key={n.value} value={n.value}>
+                                        {n.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => void quickLimitProcAdmin(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                                  >
+                                    Limiter l&apos;accès
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleProcRevokeAdminImplicit(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                  >
+                                    Retirer l&apos;accès
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <select
+                                    value={primaryDelegation?.permission ?? 'lecture'}
+                                    onChange={(e) => {
+                                      const permission = e.target.value;
+                                      if (!id || permission === primaryDelegation?.permission) return;
+                                      void replaceProcAdminPermissionLevel(a.id, permission);
+                                    }}
+                                    className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                                  >
+                                    {PROC_PERM_OPTIONS.map((n) => (
+                                      <option key={n.value} value={n.value}>
+                                        {n.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() => void revokeAllProcDelegationsForUser(a.id)}
+                                    className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                  >
+                                    Révoquer l&apos;accès
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                          {procAccesDetail.canManagePermissions && isPrivilegedAdmin && (
+                            <span className="text-xs text-gray-500">
+                              Créateur ou propriétaire : accès complet, non modérable ici.
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Créateur</p>
+                  {procAccesDetail.creator ? (
+                    <p>
+                      <span className="font-medium">
+                        {procAccesDetail.creator.prenom} {procAccesDetail.creator.nom}
+                      </span>
+                      <span className="text-gray-400"> — droits étendus et gestion des accès (si habilité)</span>
+                    </p>
+                  ) : (
+                    <p className="text-amber-800 text-sm">Créateur non résolu (processus système ou sans créateur).</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Accès partagés</p>
+                  {(procAccesDetail.delegations || []).length === 0 ? (
+                    <p className="text-gray-400 text-xs italic">Aucun accès délégué</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {(procAccesDetail.delegations || []).map((d: any) => (
+                        <li
+                          key={d.id}
+                          className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50"
+                        >
+                          <span className="font-medium">
+                            {d.user.prenom} {d.user.nom}
+                            {d.user.role === 'admin' && (
+                              <span className="text-xs font-normal text-gray-500 ml-1">(admin)</span>
+                            )}
+                          </span>
+                          {d.grantedBy && (
+                            <span className="text-xs text-gray-400">
+                              par {d.grantedBy.prenom} {d.grantedBy.nom}
+                            </span>
+                          )}
+                          {procAccesDetail.canManagePermissions ? (
+                            <>
+                              <select
+                                value={d.permission}
+                                onChange={(e) => {
+                                  const permission = e.target.value;
+                                  if (!id || permission === d.permission) return;
+                                  void replaceProcAdminPermissionLevel(d.user.id, permission);
+                                }}
+                                className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
+                              >
+                                {PROC_PERM_OPTIONS.map((n) => (
+                                  <option key={n.value} value={n.value}>
+                                    {n.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => void handleProcRemovePermissionEntry(d.id, d.user?.role === 'admin')}
+                                className="text-xs text-red-600 hover:underline ml-auto"
+                              >
+                                {d.user?.role === 'admin' ? 'Révoquer' : 'Retirer'}
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-gray-500">
+                              — {PROC_PERM_LABELS[d.permission] || d.permission}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {procAccesDetail.canManagePermissions && (
+                  <div className="border-t border-gray-200 pt-4 space-y-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accorder un accès</p>
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto] gap-3 items-end">
+                      <select
+                        value={procAccesNewUserId}
+                        onChange={(e) => setProcAccesNewUserId(e.target.value)}
+                        className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        <option value="">— Utilisateur —</option>
+                        {(() => {
+                          const actifs = usersList.filter(
+                            (u: any) =>
+                              (!u.statut || u.statut === 'actif') &&
+                              u.id !== procAccesDetail.creator?.id &&
+                              u.id !== processus.proprietaireId
+                          );
+                          const adminsPick = actifs.filter((u: any) => u.role === 'admin');
+                          const autresPick = actifs.filter((u: any) => u.role !== 'admin');
+                          return (
+                            <>
+                              {adminsPick.length > 0 && (
+                                <optgroup label="Administrateurs">
+                                  {adminsPick.map((u: any) => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.prenom} {u.nom} — {u.email}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                              {autresPick.length > 0 && (
+                                <optgroup label="Autres utilisateurs">
+                                  {autresPick.map((u: any) => (
+                                    <option key={u.id} value={u.id}>
+                                      {u.prenom} {u.nom} — {u.email}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </select>
+                      <select
+                        value={procAccesNewPermType}
+                        onChange={(e) => setProcAccesNewPermType(e.target.value)}
+                        className="w-full lg:w-56 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        {PROC_PERM_OPTIONS.map((n) => (
+                          <option key={n.value} value={n.value}>
+                            {n.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => void handleProcAddPermission()}
+                        disabled={!procAccesNewUserId}
+                        className="w-full lg:w-auto px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shrink-0"
+                      >
+                        Ajouter
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
+            <div className="flex justify-end mt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowProcAccesModal(false);
+                  setProcAccesDetail(null);
+                }}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {docAccesModalDoc && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto py-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 my-auto p-6">
+            <h2 className="text-lg font-semibold mb-1">🔑 Modifier l&apos;accès — {docAccesModalDoc.nom}</h2>
+            <p className="text-xs text-gray-500 mb-4">
+              Document rattaché au processus : les utilisateurs doivent déjà avoir accès au processus pour ouvrir le
+              fichier.
+            </p>
+            <div className="space-y-4">
+              <label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={docAccesEstConfidentiel}
+                  disabled={!canSetConfidentiel}
+                  onChange={(e) => {
+                    setDocAccesEstConfidentiel(e.target.checked);
+                    if (!e.target.checked) setDocAccesPermissionUserIds([]);
+                  }}
+                  className="mt-1"
+                />
+                <span className={`text-sm ${!canSetConfidentiel ? 'text-gray-400' : 'text-gray-700'}`}>
+                  Accès restreint (document confidentiel)
+                  {!canSetConfidentiel &&
+                    ' (Seul le propriétaire ou le créateur du processus peut activer ou désactiver la confidentialité.)'}
+                </span>
+              </label>
+              {docAccesEstConfidentiel && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Utilisateurs autorisés</label>
+                  <select
+                    multiple
+                    value={docAccesPermissionUserIds}
+                    onChange={(e) =>
+                      setDocAccesPermissionUserIds(Array.from(e.target.selectedOptions, (o) => o.value))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm min-h-[140px]"
+                    size={6}
+                  >
+                    {usersList.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.prenom} {u.nom}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Ctrl (Cmd sur Mac) pour sélectionner plusieurs utilisateurs
+                  </p>
+                  {docAccesPermissionUserIds.length === 0 && (
+                    <p className="text-xs text-red-500 mt-1">Au moins un utilisateur requis si le document est confidentiel</p>
+                  )}
+                </div>
+              )}
+              {!docAccesEstConfidentiel && (
+                <p className="text-sm text-green-600">
+                  Sans confidentialité au niveau document, l&apos;accès lecture suit les règles du processus.
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                type="button"
+                onClick={closeDocumentAccesModal}
+                className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveDocumentAccesModal()}
+                disabled={docAccesEstConfidentiel && docAccesPermissionUserIds.length === 0}
+                className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700 disabled:opacity-50"
+              >
+                Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Recap accès — au-dessus de l'historique */}
       {processus && (
         <div className="bg-white rounded-lg shadow mb-6 print:hidden">
@@ -2325,7 +2964,7 @@ export default function ProcessusDetail() {
             <h2 className="text-lg font-semibold mb-1 text-gray-900">Recap Accès</h2>
             <p className="text-xs text-gray-500 mb-5">
               Synthèse des habilitations sur ce processus et sur les fichiers rattachés. La gestion des droits délégués
-              se fait depuis la liste des processus (bouton « Accès »).
+              sur le processus se fait via le bouton « Accès » en haut de la fiche ou depuis la liste des processus.
             </p>
 
             <h3 className="text-sm font-semibold text-gray-800 mb-2">Accès au processus</h3>

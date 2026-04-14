@@ -7,6 +7,8 @@ import { getPaginationPageNumbers } from '../utils/pagination';
 
 const PAGE_SIZE = 15;
 
+const PMO_PROCESSUS_ACCES_CHANGED = 'pmo-processus-acces-changed';
+
 const PERMISSION_LABELS: Record<string, string> = {
   lecture: 'Consultation',
   modification: 'Modification',
@@ -163,6 +165,15 @@ export default function Processus() {
   }, []);
 
   useEffect(() => {
+    const onProcAccesSync = () => {
+      void loadProcessus();
+    };
+    window.addEventListener(PMO_PROCESSUS_ACCES_CHANGED, onProcAccesSync);
+    return () => window.removeEventListener(PMO_PROCESSUS_ACCES_CHANGED, onProcAccesSync);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     void loadProcessus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.search, filters.statut, filters.entiteId, filters.categorieId, sortConfig, location.search]);
@@ -237,6 +248,14 @@ export default function Processus() {
         setLoading(false);
         firstProcessusLoad.current = false;
       }
+    }
+  };
+
+  const notifyProcessusAccesChangedFromList = (processusId: string) => {
+    try {
+      window.dispatchEvent(new CustomEvent(PMO_PROCESSUS_ACCES_CHANGED, { detail: { processusId } }));
+    } catch {
+      /* ignore */
     }
   };
 
@@ -362,6 +381,7 @@ export default function Processus() {
       setNewPermUserId('');
       await refreshAccesDetail(accesModalProc.id);
       await loadProcessus();
+      notifyProcessusAccesChangedFromList(accesModalProc.id);
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
@@ -376,6 +396,7 @@ export default function Processus() {
       await api.delete(`/processus/${accesModalProc.id}/permissions/${permissionEntryId}`);
       await refreshAccesDetail(accesModalProc.id);
       await loadProcessus();
+      notifyProcessusAccesChangedFromList(accesModalProc.id);
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
@@ -392,6 +413,7 @@ export default function Processus() {
       }
       await refreshAccesDetail(accesModalProc.id);
       await loadProcessus();
+      notifyProcessusAccesChangedFromList(accesModalProc.id);
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
@@ -404,6 +426,7 @@ export default function Processus() {
       await api.delete(`/processus/${accesModalProc.id}/admin-sans-acces/${userId}`);
       await refreshAccesDetail(accesModalProc.id);
       await loadProcessus();
+      notifyProcessusAccesChangedFromList(accesModalProc.id);
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
@@ -422,6 +445,7 @@ export default function Processus() {
       await api.post(`/processus/${accesModalProc.id}/admin-sans-acces`, { userId });
       await refreshAccesDetail(accesModalProc.id);
       await loadProcessus();
+      notifyProcessusAccesChangedFromList(accesModalProc.id);
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
@@ -434,6 +458,7 @@ export default function Processus() {
       await api.post(`/processus/${accesModalProc.id}/permissions`, { userId, permission });
       await refreshAccesDetail(accesModalProc.id);
       await loadProcessus();
+      notifyProcessusAccesChangedFromList(accesModalProc.id);
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
@@ -449,6 +474,7 @@ export default function Processus() {
       await api.post(`/processus/${accesModalProc.id}/permissions`, { userId, permission });
       await refreshAccesDetail(accesModalProc.id);
       await loadProcessus();
+      notifyProcessusAccesChangedFromList(accesModalProc.id);
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
