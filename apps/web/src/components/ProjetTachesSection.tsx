@@ -166,6 +166,7 @@ export default function ProjetTachesSection({ projetId, projet, usersForTaches, 
           <TacheCard
             key={t.id}
             tache={t}
+            defaultExpanded
             onEdit={() => {
               setEditTache(t);
               setShowModal(true);

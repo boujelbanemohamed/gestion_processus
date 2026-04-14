@@ -1898,6 +1898,7 @@ export function TacheCard({
   onOpenUserStory,
   onSoftDelete,
   onRefreshData,
+  defaultExpanded = false,
 }: {
   tache: Tache;
   onEdit: () => void;
@@ -1909,8 +1910,10 @@ export function TacheCard({
   onOpenUserStory?: (userStoryId: string) => void;
   onSoftDelete?: (id: string) => void;
   onRefreshData?: () => void;
+  /** Ex. fiche projet : afficher directement le détail sans clic sur la ligne. */
+  defaultExpanded?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [showAccesModal, setShowAccesModal] = useState(false);
   const [accesDetail, setAccesDetail] = useState<any | null>(null);
   const [accesLoading, setAccesLoading] = useState(false);
@@ -1997,160 +2000,211 @@ export function TacheCard({
   };
 
   const assignedIds = new Set((accesDetail?.delegations || []).map((d: any) => d.user?.id).filter(Boolean));
+  const assignesRow = tache.assignesUtilisateurs || [];
+  const assignesRowShow = assignesRow.slice(0, 4);
+  const assignesRowMore = assignesRow.length - assignesRowShow.length;
 
   return (
     <>
-    <div className={`bg-white border rounded-lg shadow-sm overflow-hidden ${isLate ? 'border-red-300' : 'border-gray-200'}`}>
-      <div className="p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className="font-semibold text-gray-800 truncate">{tache.nom}</span>
-              <StatutBadge statut={tache.statut} />
-              {isLate && <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">⚠ En retard</span>}
-            </div>
-            <div className="flex flex-wrap gap-3 text-xs text-gray-500">
-              {tache.projet && <span>📁 {tache.projet.nom}</span>}
-              {tache.dateDebut && <span>🗓 {new Date(tache.dateDebut).toLocaleDateString('fr-FR')}</span>}
-              {tache.dateFinApprox && <span>⏰ {new Date(tache.dateFinApprox).toLocaleDateString('fr-FR')}</span>}
-              {tache.createur && <span>👤 {tache.createur.prenom} {tache.createur.nom}</span>}
-            </div>
-            <div className="mt-2 space-y-0.5 text-[11px] font-mono text-gray-500 break-all">
-              <div title="Identifiant de la tâche">
-                <span className="text-gray-400 font-sans">Tâche · </span>
-                {tache.id}
-              </div>
-              {tache.userStory && (
-                <div title="Identifiant de la user story">
-                  <span className="text-gray-400 font-sans">User story · </span>
-                  {tache.userStory.id}
-                </div>
-              )}
-              {tache.userStory?.epic && (
-                <div title="Identifiant de l’epic">
-                  <span className="text-gray-400 font-sans">Epic · </span>
-                  {tache.userStory.epic.id}
-                </div>
-              )}
-            </div>
-            {(tache.assignesUtilisateurs?.length || 0) > 0 && (
-              <div className="flex gap-1 mt-2 flex-wrap">
-                {tache.assignesUtilisateurs?.map(u => (
-                  <span key={u.id} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs">{u.prenom} {u.nom}</span>
-                ))}
-              </div>
-            )}
-            {(tache.assignesEntites?.length || 0) > 0 && (
-              <div className="flex gap-1 mt-1 flex-wrap">
-                {tache.assignesEntites?.map(e => (
-                  <span key={e.id} className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs">🏢 {e.nom}</span>
-                ))}
-              </div>
-            )}
-            {tache.userStory && (
-              <div className="flex flex-wrap gap-2 mt-2">
-                {tache.userStory.epic &&
-                  (onOpenEpic ? (
-                    <button
-                      type="button"
-                      onClick={() => onOpenEpic(tache.userStory!.epic!.id)}
-                      className="text-xs px-2 py-1 bg-indigo-50 text-indigo-800 rounded border border-indigo-200 hover:bg-indigo-100 text-left"
-                    >
-                      📗 Epic : {tache.userStory.epic.nom}
-                    </button>
-                  ) : (
-                    <span className="text-xs px-2 py-1 bg-indigo-50 text-indigo-800 rounded border border-indigo-200">
-                      📗 Epic : {tache.userStory.epic.nom}
-                    </span>
-                  ))}
-                {onOpenUserStory ? (
-                  <button
-                    type="button"
-                    onClick={() => onOpenUserStory(tache.userStory!.id)}
-                    className="text-xs px-2 py-1 bg-violet-50 text-violet-800 rounded border border-violet-200 hover:bg-violet-100"
-                  >
-                    📘 User story
-                  </button>
-                ) : (
-                  <span className="text-xs px-2 py-1 bg-violet-50 text-violet-800 rounded border border-violet-200">📘 User story</span>
-                )}
-              </div>
-            )}
-            {/* Liaisons */}
-            {(tache.liaisons?.length || 0) > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {tache.liaisons?.map(l => (
-                  <span key={l.id} className={`text-xs px-2 py-0.5 rounded-full ${l.type === 'concatenation' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}>
-                    {l.type === 'concatenation' ? '🔗' : '↔'} {l.tacheLiee?.nom}
-                    {l.type === 'concatenation' && l.tacheLiee?.statut !== 'termine' && (
-                      <span className="ml-1 text-red-500">(non terminée)</span>
-                    )}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="flex flex-col gap-2 shrink-0 items-stretch w-full sm:w-auto sm:min-w-[11rem]">
-            {canEdit ? (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium text-center sm:text-left" title="Vous pouvez modifier cette tâche">
-                ✏️ Modification
-              </span>
-            ) : onSoftDelete ? (
-              <span
-                className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 font-medium text-center sm:text-left border border-amber-200"
-                title="Pas d’édition du contenu : mise en corbeille / restauration autorisée selon votre délégation"
-              >
-                🗑 Corbeille (sans édition)
-              </span>
-            ) : (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium text-center sm:text-left" title="Vous avez uniquement accès en lecture">
-                👁 Lecture seule
-              </span>
-            )}
-            {canEdit && (
-              <button
-                type="button"
-                onClick={onEdit}
-                className="w-full px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-center"
-              >
-                ✏️ Modifier
-              </button>
-            )}
-            {onSoftDelete && (
-              <button
-                type="button"
-                onClick={() => onSoftDelete(tache.id)}
-                className="w-full px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 text-center"
-              >
-                🗑 Mettre en corbeille
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => void openAccesModal()}
-              className="w-full px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200 text-center"
+    <div className={`bg-white border rounded-lg shadow overflow-hidden ${isLate ? 'border-red-300' : 'border-gray-200'}`}>
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex flex-wrap items-center gap-2 sm:gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+        aria-expanded={expanded}
+        aria-label={expanded ? 'Replier le détail de la tâche' : 'Afficher le détail et les actions de la tâche'}
+      >
+        <span className="shrink-0" title={tache.statut}>
+          <StatutBadge statut={tache.statut} />
+        </span>
+        <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate text-left">{tache.nom}</h2>
+        <span
+          className="text-xs sm:text-sm text-gray-500 font-mono shrink-0 max-w-[min(12rem,40vw)] truncate"
+          title={tache.id}
+        >
+          {tache.id}
+        </span>
+        <div className="flex flex-wrap items-center gap-1 min-w-0 basis-full sm:basis-auto sm:max-w-[14rem] md:max-w-xs">
+          {assignesRowShow.map((u) => (
+            <span
+              key={u.id}
+              className="px-2 py-0.5 bg-blue-50 text-blue-800 rounded-full text-[11px] font-medium truncate max-w-[9rem]"
+              title={`${u.prenom} ${u.nom}`}
             >
-              🔐 Accès
-            </button>
-            <button
-              type="button"
-              onClick={() => void openHistModal()}
-              className="w-full px-3 py-1.5 text-xs bg-amber-50 text-amber-900 rounded hover:bg-amber-100 text-center border border-amber-200"
-            >
-              📜 Historique
-            </button>
-            <button
-              type="button"
-              onClick={() => setExpanded(!expanded)}
-              className="w-full px-3 py-1.5 text-xs border border-blue-300 text-blue-600 rounded hover:bg-blue-50 text-center"
-            >
-              {expanded ? '▲ Réduire' : '▼ Détails'}
-            </button>
-          </div>
+              {u.prenom} {u.nom}
+            </span>
+          ))}
+          {assignesRowMore > 0 && (
+            <span className="text-[11px] text-gray-500 font-medium">+{assignesRowMore}</span>
+          )}
+          {assignesRow.length === 0 && (
+            <span className="text-[11px] text-gray-400 italic">Non assignée</span>
+          )}
         </div>
-      </div>
+        {isLate && (
+          <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium shrink-0">⚠ Retard</span>
+        )}
+        {expanded && (
+          <span className="text-gray-400 shrink-0 ml-auto sm:ml-0" aria-hidden>
+            ▼
+          </span>
+        )}
+      </button>
 
       {expanded && (
+        <div className="border-t border-gray-100 bg-gray-50/80">
+          <div className="px-4 pt-3 pb-2 flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
+            <div className="min-w-0 flex-1 space-y-2 text-xs text-gray-600">
+              <div className="flex flex-wrap gap-3">
+                {tache.projet && <span>📁 {tache.projet.nom}</span>}
+                {tache.dateDebut && <span>🗓 {new Date(tache.dateDebut).toLocaleDateString('fr-FR')}</span>}
+                {tache.dateFinApprox && <span>⏰ {new Date(tache.dateFinApprox).toLocaleDateString('fr-FR')}</span>}
+                {tache.createur && (
+                  <span>
+                    👤 {tache.createur.prenom} {tache.createur.nom}
+                  </span>
+                )}
+              </div>
+              <div className="space-y-0.5 text-[11px] font-mono text-gray-500 break-all">
+                <div title="Identifiant de la tâche">
+                  <span className="text-gray-400 font-sans">Tâche · </span>
+                  {tache.id}
+                </div>
+                {tache.userStory && (
+                  <div title="Identifiant de la user story">
+                    <span className="text-gray-400 font-sans">User story · </span>
+                    {tache.userStory.id}
+                  </div>
+                )}
+                {tache.userStory?.epic && (
+                  <div title="Identifiant de l’epic">
+                    <span className="text-gray-400 font-sans">Epic · </span>
+                    {tache.userStory.epic.id}
+                  </div>
+                )}
+              </div>
+              {(tache.assignesEntites?.length || 0) > 0 && (
+                <div className="flex gap-1 flex-wrap">
+                  {tache.assignesEntites?.map((e) => (
+                    <span key={e.id} className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs">
+                      🏢 {e.nom}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {tache.userStory && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {tache.userStory.epic &&
+                    (onOpenEpic ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenEpic(tache.userStory!.epic!.id);
+                        }}
+                        className="text-xs px-2 py-1 bg-indigo-50 text-indigo-800 rounded border border-indigo-200 hover:bg-indigo-100 text-left"
+                      >
+                        📗 Epic : {tache.userStory.epic.nom}
+                      </button>
+                    ) : (
+                      <span className="text-xs px-2 py-1 bg-indigo-50 text-indigo-800 rounded border border-indigo-200">
+                        📗 Epic : {tache.userStory.epic.nom}
+                      </span>
+                    ))}
+                  {onOpenUserStory ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenUserStory(tache.userStory!.id);
+                      }}
+                      className="text-xs px-2 py-1 bg-violet-50 text-violet-800 rounded border border-violet-200 hover:bg-violet-100"
+                    >
+                      📘 User story
+                    </button>
+                  ) : (
+                    <span className="text-xs px-2 py-1 bg-violet-50 text-violet-800 rounded border border-violet-200">
+                      📘 User story
+                    </span>
+                  )}
+                </div>
+              )}
+              {(tache.liaisons?.length || 0) > 0 && (
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {tache.liaisons?.map((l) => (
+                    <span
+                      key={l.id}
+                      className={`text-xs px-2 py-0.5 rounded-full ${
+                        l.type === 'concatenation' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {l.type === 'concatenation' ? '🔗' : '↔'} {l.tacheLiee?.nom}
+                      {l.type === 'concatenation' && l.tacheLiee?.statut !== 'termine' && (
+                        <span className="ml-1 text-red-500">(non terminée)</span>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
+              {canEdit ? (
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium text-center lg:text-left"
+                  title="Vous pouvez modifier cette tâche"
+                >
+                  ✏️ Modification
+                </span>
+              ) : onSoftDelete ? (
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 font-medium text-center lg:text-left border border-amber-200"
+                  title="Pas d’édition du contenu : mise en corbeille / restauration autorisée selon votre délégation"
+                >
+                  🗑 Corbeille (sans édition)
+                </span>
+              ) : (
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium text-center lg:text-left"
+                  title="Vous avez uniquement accès en lecture"
+                >
+                  👁 Lecture seule
+                </span>
+              )}
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={onEdit}
+                  className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-center"
+                >
+                  ✏️ Modifier
+                </button>
+              )}
+              {onSoftDelete && (
+                <button
+                  type="button"
+                  onClick={() => onSoftDelete(tache.id)}
+                  className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 text-center"
+                >
+                  🗑 Mettre en corbeille
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void openAccesModal()}
+                className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200 text-center"
+              >
+                🔐 Accès
+              </button>
+              <button
+                type="button"
+                onClick={() => void openHistModal()}
+                className="px-3 py-1.5 text-xs bg-amber-50 text-amber-900 rounded hover:bg-amber-100 text-center border border-amber-200"
+              >
+                📜 Historique
+              </button>
+            </div>
+          </div>
+
         <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-4">
           {onRefreshData && <TacheLienUserStoryBlock tache={tache} onUpdated={onRefreshData} />}
           {tache.description && (
@@ -2192,6 +2246,7 @@ export function TacheCard({
           <div className="border-t border-gray-200 pt-4">
             <CommentairesSection target={{ kind: 'tache', id: tache.id }} users={users} />
           </div>
+        </div>
         </div>
       )}
     </div>
@@ -3672,7 +3727,8 @@ export default function Taches() {
           <h1 className="text-2xl font-bold text-gray-800">Epics / User story / Tâches</h1>
           <p className="text-xs text-gray-500 mt-1 max-w-2xl">
             Les filtres ci-dessous s&apos;appliquent aux trois sections. Les vues Liste, Kanban et Gantt concernent uniquement les
-            tâches.
+            tâches. En liste : chaque ligne affiche le titre, l&apos;identifiant et (pour les tâches) les assignés — cliquez sur la
+            ligne pour ouvrir le détail et les actions.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 items-center justify-end">
@@ -4092,7 +4148,7 @@ export default function Taches() {
           />
         ) : (
           <>
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <p className="text-sm text-gray-500">{visibleTaches.length} tâche(s) trouvée(s)</p>
         </div>
@@ -4233,7 +4289,7 @@ export default function Taches() {
         ) : (
           <>
             <p className="text-sm text-gray-500 mb-2">{visibleUserStories.length} user story(s)</p>
-            <div className="space-y-3">
+            <div className="space-y-4">
               {visibleUserStories.length === 0 && (
                 <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">Aucune user story à afficher</div>
               )}
@@ -4253,127 +4309,154 @@ export default function Taches() {
                 return (
                   <div
                     key={us.id}
-                    className={`bg-white border rounded-lg shadow-sm overflow-hidden ${isUsLate ? 'border-red-300' : 'border-gray-200'}`}
+                    className={`bg-white border rounded-lg shadow overflow-hidden ${isUsLate ? 'border-red-300' : 'border-gray-200'}`}
                   >
-                    <div className="p-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap mb-1">
-                            <span className="font-semibold text-gray-800 line-clamp-2">{truncateUi(us.description, 200)}</span>
-                            <span title="Statut dérivé des tâches liées">
-                              <StatutBadge statut={statutAggUs} />
+                    <button
+                      type="button"
+                      onClick={() => setExpandedUsListId(usExpanded ? null : us.id)}
+                      className="w-full flex flex-wrap items-center gap-2 sm:gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                      aria-expanded={usExpanded}
+                      aria-label={
+                        usExpanded ? 'Replier le détail de la user story' : 'Afficher le détail et les actions'
+                      }
+                    >
+                      <span className="shrink-0" title="Statut dérivé des tâches liées">
+                        <StatutBadge statut={statutAggUs} />
+                      </span>
+                      <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate text-left">
+                        {truncateUi(us.description, 160)}
+                      </h2>
+                      <span
+                        className="text-xs sm:text-sm text-gray-500 font-mono shrink-0 max-w-[min(12rem,40vw)] truncate"
+                        title={us.id}
+                      >
+                        {us.id}
+                      </span>
+                      <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs shrink-0">
+                        {tasksUs.length} tâche{tasksUs.length !== 1 ? 's' : ''}
+                      </span>
+                      {isUsLate && (
+                        <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium shrink-0">
+                          ⚠ Retard
+                        </span>
+                      )}
+                      {assignesUs.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1 min-w-0 basis-full sm:basis-auto sm:max-w-md">
+                          {assignesUs.slice(0, 4).map((a) => (
+                            <span
+                              key={a.id}
+                              className="px-2 py-0.5 bg-blue-50 text-blue-800 rounded-full text-[11px] font-medium truncate max-w-[9rem]"
+                              title={a.label}
+                            >
+                              {a.label}
                             </span>
-                            {isUsLate && (
-                              <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">⚠ En retard</span>
-                            )}
-                            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
-                              {tasksUs.length} tâche{tasksUs.length !== 1 ? 's' : ''}
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap gap-3 text-xs text-gray-500">
-                            {us.epic?.projet && <span>📁 {us.epic.projet.nom}</span>}
-                            {!us.epic && <span className="italic text-gray-400">Sans epic</span>}
-                            {usDebut && <span>🗓 {new Date(usDebut).toLocaleDateString('fr-FR')}</span>}
-                            {usFin && <span>⏰ {new Date(usFin).toLocaleDateString('fr-FR')}</span>}
-                            {createurTache && (
-                              <span>
-                                👤 {createurTache.prenom} {createurTache.nom}
-                              </span>
-                            )}
-                          </div>
-                          <div className="mt-2 text-[11px] font-mono text-gray-500 break-all" title="Identifiant de la user story">
-                            <span className="text-gray-400 font-sans">User story · </span>
-                            {us.id}
-                          </div>
-                          {assignesUs.length > 0 && (
-                            <div className="flex gap-1 mt-2 flex-wrap">
-                              {assignesUs.map((a) => (
-                                <span key={a.id} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs">
-                                  {a.label}
-                                </span>
-                              ))}
-                            </div>
+                          ))}
+                          {assignesUs.length > 4 && (
+                            <span className="text-[11px] text-gray-500 font-medium">+{assignesUs.length - 4}</span>
                           )}
-                          {entitesUsTaches.length > 0 && (
-                            <div className="flex gap-1 mt-1 flex-wrap">
-                              {entitesUsTaches.map((e) => (
-                                <span key={e.id} className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs">
-                                  🏢 {e.nom}
-                                </span>
-                              ))}
+                        </div>
+                      )}
+                      {usExpanded && (
+                        <span className="text-gray-400 shrink-0 ml-auto sm:ml-0" aria-hidden>
+                          ▼
+                        </span>
+                      )}
+                    </button>
+                    {usExpanded && (
+                      <>
+                        <div className="border-t border-gray-100 bg-gray-50/80">
+                          <div className="px-4 pt-3 pb-2 flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
+                            <div className="min-w-0 flex-1 space-y-2 text-xs text-gray-600">
+                              <div className="flex flex-wrap gap-3">
+                                {us.epic?.projet && <span>📁 {us.epic.projet.nom}</span>}
+                                {!us.epic && <span className="italic text-gray-400">Sans epic</span>}
+                                {usDebut && <span>🗓 {new Date(usDebut).toLocaleDateString('fr-FR')}</span>}
+                                {usFin && <span>⏰ {new Date(usFin).toLocaleDateString('fr-FR')}</span>}
+                                {createurTache && (
+                                  <span>
+                                    👤 {createurTache.prenom} {createurTache.nom}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] font-mono text-gray-500 break-all">
+                                <span className="text-gray-400 font-sans">User story · </span>
+                                {us.id}
+                              </div>
+                              {entitesUsTaches.length > 0 && (
+                                <div className="flex gap-1 flex-wrap">
+                                  {entitesUsTaches.map((e) => (
+                                    <span
+                                      key={e.id}
+                                      className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs"
+                                    >
+                                      🏢 {e.nom}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {us.epic && (
+                                <div className="flex flex-wrap gap-2 pt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setDetailEpicId(us.epic!.id)}
+                                    className="text-xs px-2 py-1 bg-indigo-50 text-indigo-800 rounded border border-indigo-200 hover:bg-indigo-100 text-left"
+                                  >
+                                    📗 Epic : {us.epic.nom}
+                                  </button>
+                                </div>
+                              )}
                             </div>
-                          )}
-                          {us.epic && (
-                            <div className="flex flex-wrap gap-2 mt-2">
+                            <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
+                              {canEditUsEpic ? (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium text-center lg:text-left">
+                                  ✏️ Modification
+                                </span>
+                              ) : (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium text-center lg:text-left">
+                                  👁 Lecture seule
+                                </span>
+                              )}
+                              {canEditUsEpic && (
+                                <button
+                                  type="button"
+                                  onClick={() => setEditUserStoryId(us.id)}
+                                  className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-center"
+                                >
+                                  ✏️ Modifier
+                                </button>
+                              )}
+                              {canEditUsEpic && (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSoftDeleteUserStory(us.id)}
+                                  className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 text-center"
+                                >
+                                  🗑 Mettre en corbeille
+                                </button>
+                              )}
                               <button
                                 type="button"
-                                onClick={() => setDetailEpicId(us.epic!.id)}
-                                className="text-xs px-2 py-1 bg-indigo-50 text-indigo-800 rounded border border-indigo-200 hover:bg-indigo-100 text-left"
+                                onClick={() => setAgileAccesModal({ kind: 'us', us })}
+                                className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200 text-center"
                               >
-                                📗 Epic : {us.epic.nom}
-            </button>
+                                🔐 Accès
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void openAgileJournal(
+                                    `/user-stories/${us.id}/history`,
+                                    truncateUi(us.description, 100)
+                                  )
+                                }
+                                className="px-3 py-1.5 text-xs bg-amber-50 text-amber-900 rounded hover:bg-amber-100 text-center border border-amber-200"
+                              >
+                                📜 Historique
+                              </button>
                             </div>
-                          )}
+                          </div>
                         </div>
-                        <div className="flex flex-col gap-2 shrink-0 items-stretch w-full sm:w-auto sm:min-w-[11rem]">
-                          {canEditUsEpic ? (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium text-center sm:text-left">
-                              ✏️ Modification
-                            </span>
-                          ) : (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium text-center sm:text-left">
-                              👁 Lecture seule
-                            </span>
-                          )}
-                          {canEditUsEpic && (
-                            <button
-                              type="button"
-                              onClick={() => setEditUserStoryId(us.id)}
-                              className="w-full px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-center"
-                            >
-                              ✏️ Modifier
-                            </button>
-                          )}
-                          {canEditUsEpic && (
-                            <button
-                              type="button"
-                              onClick={() => void handleSoftDeleteUserStory(us.id)}
-                              className="w-full px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 text-center"
-                            >
-                              🗑 Mettre en corbeille
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => setAgileAccesModal({ kind: 'us', us })}
-                            className="w-full px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200 text-center"
-                          >
-                            🔐 Accès
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void openAgileJournal(
-                                `/user-stories/${us.id}/history`,
-                                truncateUi(us.description, 100)
-                              )
-                            }
-                            className="w-full px-3 py-1.5 text-xs bg-amber-50 text-amber-900 rounded hover:bg-amber-100 text-center border border-amber-200"
-                          >
-                            📜 Historique
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setExpandedUsListId(usExpanded ? null : us.id)}
-                            className="w-full px-3 py-1.5 text-xs border border-blue-300 text-blue-600 rounded hover:bg-blue-50 text-center"
-                          >
-                            {usExpanded ? '▲ Réduire' : '▼ Détails'}
-            </button>
-                        </div>
-                    </div>
-                  </div>
-                    {usExpanded && (
-                      <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-3 text-sm">
+                        <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-3 text-sm">
                         {canEditUsEpic && (
                           <UserStoryLienEpicEtTachesBlock
                             us={us}
@@ -4416,6 +4499,7 @@ export default function Taches() {
                           Ouvrir la fiche complète…
                         </button>
                       </div>
+                      </>
                     )}
                   </div>
                 );
@@ -4537,7 +4621,7 @@ export default function Taches() {
         ) : (
           <>
             <p className="text-sm text-gray-500 mb-2">{visibleEpics.length} epic(s)</p>
-            <div className="space-y-3">
+            <div className="space-y-4">
               {visibleEpics.length === 0 && (
                 <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">Aucun epic à afficher</div>
               )}
@@ -4567,128 +4651,153 @@ export default function Taches() {
                 return (
                   <div
                     key={ep.id}
-                    className={`bg-white border rounded-lg shadow-sm overflow-hidden ${isEpLate ? 'border-red-300' : 'border-gray-200'}`}
+                    className={`bg-white border rounded-lg shadow overflow-hidden ${isEpLate ? 'border-red-300' : 'border-gray-200'}`}
                   >
-                    <div className="p-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap mb-1">
-                            <span className="font-semibold text-gray-800 line-clamp-2">{ep.nom}</span>
-                            <span title="Statut dérivé des tâches des user stories de l&apos;epic">
-                              <StatutBadge statut={statutAggEp} />
+                    <button
+                      type="button"
+                      onClick={() => setExpandedEpicListId(epExpanded ? null : ep.id)}
+                      className="w-full flex flex-wrap items-center gap-2 sm:gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                      aria-expanded={epExpanded}
+                      aria-label={epExpanded ? 'Replier le détail de l’epic' : 'Afficher le détail et les actions'}
+                    >
+                      <span className="shrink-0" title="Statut dérivé des tâches des user stories de l’epic">
+                        <StatutBadge statut={statutAggEp} />
+                      </span>
+                      <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate text-left">
+                        {ep.nom}
+                      </h2>
+                      <span
+                        className="text-xs sm:text-sm text-gray-500 font-mono shrink-0 max-w-[min(12rem,40vw)] truncate"
+                        title={ep.id}
+                      >
+                        {ep.id}
+                      </span>
+                      <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs shrink-0">
+                        {(ep.userStories?.length ?? 0)} US · {tasksEp.length} tâche{tasksEp.length !== 1 ? 's' : ''}
+                      </span>
+                      {isEpLate && (
+                        <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium shrink-0">
+                          ⚠ Retard
+                        </span>
+                      )}
+                      {assignesEp.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1 min-w-0 basis-full sm:basis-auto sm:max-w-md">
+                          {assignesEp.slice(0, 4).map((a) => (
+                            <span
+                              key={a.id}
+                              className="px-2 py-0.5 bg-blue-50 text-blue-800 rounded-full text-[11px] font-medium truncate max-w-[9rem]"
+                              title={a.label}
+                            >
+                              {a.label}
                             </span>
-                            {isEpLate && (
-                              <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">⚠ En retard</span>
-                            )}
-                            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
-                              {(ep.userStories?.length ?? 0)} US · {tasksEp.length} tâche{tasksEp.length !== 1 ? 's' : ''}
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap gap-3 text-xs text-gray-500">
-                            {ep.projet && <span>📁 {ep.projet.nom}</span>}
-                            {epDebut && <span>🗓 {new Date(epDebut).toLocaleDateString('fr-FR')}</span>}
-                            {epFin && <span>⏰ {new Date(epFin).toLocaleDateString('fr-FR')}</span>}
-                            {ep.createdBy && (
-                              <span>
-                                👤 {ep.createdBy.prenom} {ep.createdBy.nom}
-                              </span>
-                            )}
-                          </div>
-                          <div className="mt-2 text-[11px] font-mono text-gray-500 break-all" title="Identifiant de l’epic">
-                            <span className="text-gray-400 font-sans">Epic · </span>
-                            {ep.id}
-                          </div>
-                          {assignesEp.length > 0 && (
-                            <div className="flex gap-1 mt-2 flex-wrap">
-                              {assignesEp.map((a) => (
-                                <span key={a.id} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs">
-                                  {a.label}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          {entitesEpMerged.length > 0 && (
-                            <div className="flex gap-1 mt-1 flex-wrap">
-                              {entitesEpMerged.map((e) => (
-                                <span key={e.id} className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs">
-                                  🏢 {e.nom}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          {(ep.userStories?.length ?? 0) > 0 && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {(ep.userStories || []).map((u) => (
-                                <button
-                                  key={u.id}
-                                  type="button"
-                                  onClick={() => setDetailUserStoryId(u.id)}
-                                  className="text-xs px-2 py-1 bg-violet-50 text-violet-800 rounded border border-violet-200 hover:bg-violet-100 text-left max-w-full"
-                                  title={u.description}
-                                >
-                                  <span className="line-clamp-2">📘 {truncateUi(u.description, 80)}</span>
-                                  <span className="block text-[10px] font-mono text-violet-600/90 mt-0.5 break-all">
-                                    {u.id}
-                                  </span>
-                                </button>
-                              ))}
-                            </div>
+                          ))}
+                          {assignesEp.length > 4 && (
+                            <span className="text-[11px] text-gray-500 font-medium">+{assignesEp.length - 4}</span>
                           )}
                         </div>
-                        <div className="flex flex-col gap-2 shrink-0 items-stretch w-full sm:w-auto sm:min-w-[11rem]">
-                          {canEditUsEpic ? (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium text-center sm:text-left">
-                              ✏️ Modification
-                            </span>
-                          ) : (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium text-center sm:text-left">
-                              👁 Lecture seule
-                            </span>
-                          )}
-                          {canEditUsEpic && (
-                            <button
-                              type="button"
-                              onClick={() => setEditEpicId(ep.id)}
-                              className="w-full px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-center"
-                            >
-                              ✏️ Modifier
-                            </button>
-                          )}
-                          {canEditUsEpic && (
-                            <button
-                              type="button"
-                              onClick={() => void handleSoftDeleteEpic(ep.id)}
-                              className="w-full px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 text-center"
-                            >
-                              🗑 Mettre en corbeille
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => setAgileAccesModal({ kind: 'epic', epic: ep })}
-                            className="w-full px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200 text-center"
-                          >
-                            🔐 Accès
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void openAgileJournal(`/epics/${ep.id}/history`, ep.nom)}
-                            className="w-full px-3 py-1.5 text-xs bg-amber-50 text-amber-900 rounded hover:bg-amber-100 text-center border border-amber-200"
-                          >
-                            📜 Historique
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setExpandedEpicListId(epExpanded ? null : ep.id)}
-                            className="w-full px-3 py-1.5 text-xs border border-blue-300 text-blue-600 rounded hover:bg-blue-50 text-center"
-                          >
-                            {epExpanded ? '▲ Réduire' : '▼ Détails'}
-                          </button>
-                        </div>
-                    </div>
-                    </div>
+                      )}
+                      {epExpanded && (
+                        <span className="text-gray-400 shrink-0 ml-auto sm:ml-0" aria-hidden>
+                          ▼
+                        </span>
+                      )}
+                    </button>
                     {epExpanded && (
-                      <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-3 text-sm">
+                      <>
+                        <div className="border-t border-gray-100 bg-gray-50/80">
+                          <div className="px-4 pt-3 pb-2 flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
+                            <div className="min-w-0 flex-1 space-y-2 text-xs text-gray-600">
+                              <div className="flex flex-wrap gap-3">
+                                {ep.projet && <span>📁 {ep.projet.nom}</span>}
+                                {epDebut && <span>🗓 {new Date(epDebut).toLocaleDateString('fr-FR')}</span>}
+                                {epFin && <span>⏰ {new Date(epFin).toLocaleDateString('fr-FR')}</span>}
+                                {ep.createdBy && (
+                                  <span>
+                                    👤 {ep.createdBy.prenom} {ep.createdBy.nom}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] font-mono text-gray-500 break-all">
+                                <span className="text-gray-400 font-sans">Epic · </span>
+                                {ep.id}
+                              </div>
+                              {entitesEpMerged.length > 0 && (
+                                <div className="flex gap-1 flex-wrap">
+                                  {entitesEpMerged.map((e) => (
+                                    <span
+                                      key={e.id}
+                                      className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs"
+                                    >
+                                      🏢 {e.nom}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {(ep.userStories?.length ?? 0) > 0 && (
+                                <div className="flex flex-wrap gap-2 pt-1">
+                                  {(ep.userStories || []).map((u) => (
+                                    <button
+                                      key={u.id}
+                                      type="button"
+                                      onClick={() => setDetailUserStoryId(u.id)}
+                                      className="text-xs px-2 py-1 bg-violet-50 text-violet-800 rounded border border-violet-200 hover:bg-violet-100 text-left max-w-full sm:max-w-xs"
+                                      title={u.description}
+                                    >
+                                      <span className="line-clamp-2">📘 {truncateUi(u.description, 80)}</span>
+                                      <span className="block text-[10px] font-mono text-violet-600/90 mt-0.5 break-all">
+                                        {u.id}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
+                              {canEditUsEpic ? (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium text-center lg:text-left">
+                                  ✏️ Modification
+                                </span>
+                              ) : (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium text-center lg:text-left">
+                                  👁 Lecture seule
+                                </span>
+                              )}
+                              {canEditUsEpic && (
+                                <button
+                                  type="button"
+                                  onClick={() => setEditEpicId(ep.id)}
+                                  className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-center"
+                                >
+                                  ✏️ Modifier
+                                </button>
+                              )}
+                              {canEditUsEpic && (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSoftDeleteEpic(ep.id)}
+                                  className="px-3 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 text-center"
+                                >
+                                  🗑 Mettre en corbeille
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setAgileAccesModal({ kind: 'epic', epic: ep })}
+                                className="px-3 py-1.5 text-xs bg-gray-100 text-gray-800 rounded hover:bg-gray-200 text-center"
+                              >
+                                🔐 Accès
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void openAgileJournal(`/epics/${ep.id}/history`, ep.nom)}
+                                className="px-3 py-1.5 text-xs bg-amber-50 text-amber-900 rounded hover:bg-amber-100 text-center border border-amber-200"
+                              >
+                                📜 Historique
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-3 text-sm">
                         {canEditUsEpic && (
                           <EpicLienUserStoriesBlock
                             ep={ep}
@@ -4745,6 +4854,7 @@ export default function Taches() {
                           Ouvrir la fiche complète…
                         </button>
                       </div>
+                      </>
                     )}
                   </div>
                 );
