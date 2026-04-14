@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import ProjetPilotageAgile from '../components/ProjetPilotageAgile';
 import { PvReunionsLieesBlock } from '../components/PvReunionsLieesBlock';
 import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
+import { ProjetAccesModal } from '../components/ProjetAccesModal';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 
@@ -42,6 +43,29 @@ const LABEL_PERM_ROW: Record<string, string> = {
 };
 
 const droitsAdminLigne = 'modification + suppression + gestion des accès + lecture';
+
+const LABEL_PERM_MODAL_PROJET: Record<string, string> = {
+  lecture: 'Consultation',
+  modification: 'Modification',
+  suppression: 'Suppression',
+  gestion: 'Gestion des droits',
+};
+
+function projetPermissionsForAdminLinesDetail(perms: any[]) {
+  const m = new Map<string, { userId: string; niveau: string; user?: any }>();
+  for (const d of perms || []) {
+    const uid = d.user?.id;
+    if (!uid) continue;
+    const ex = m.get(uid);
+    const part = LABEL_PERM_MODAL_PROJET[d.permission] || d.permission;
+    m.set(uid, {
+      userId: uid,
+      niveau: ex ? `${ex.niveau} + ${part}` : part,
+      user: d.user,
+    });
+  }
+  return Array.from(m.values());
+}
 
 /** Document confidentiel déposé depuis « Documents du projet » (pas un document lié sous un autre type). */
 function isNativeProjetUploadDoc(doc: any) {
@@ -264,18 +288,27 @@ function buildProjetRecapProjetsRows(
     }
   };
 
+  const excludedProj = new Set(p?.adminSansAccesUserIds ?? []);
+  const permByUserIdProj = new Map(
+    projetPermissionsForAdminLinesDetail(p?.permissions || []).map((x) => [x.userId, x]),
+  );
+
   (usersList || [])
     .filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'))
     .forEach((a: any) => {
       const creatorId = p?.createdById || p?.createdBy?.id;
       const isCreator = creatorId === a.id;
-      add(
-        a.id,
-        `${a.prenom} ${a.nom}`,
-        isCreator
-          ? `Administrateur et créateur : ${droitsAdmin}`
-          : `Administrateur applicatif : ${droitsAdmin}`
-      );
+      const perm = permByUserIdProj.get(a.id);
+      const adminExclu = excludedProj.has(a.id) && !perm;
+      const adminLimite = !!perm && !isCreator;
+      const roleLine = isCreator
+        ? `Administrateur et créateur : ${droitsAdmin}`
+        : adminExclu
+          ? 'Administrateur : aucun accès (exclu)'
+          : adminLimite
+            ? `Administrateur : accès limité — ${perm.niveau}`
+            : `Administrateur applicatif : ${droitsAdmin}`;
+      add(a.id, `${a.prenom} ${a.nom}`, roleLine);
     });
 
   if (p?.createdBy && (p.createdById || p.createdBy.id)) {
@@ -657,6 +690,7 @@ export default function ProjetDetail() {
     documentLabel?: string;
     documentRef?: any;
   } | null>(null);
+  const [accesModalProjetDetail, setAccesModalProjetDetail] = useState<{ id: string; nom: string } | null>(null);
 
   const [secInfos, setSecInfos] = useState(false);
   const [secGouvernance, setSecGouvernance] = useState(false);
@@ -1454,37 +1488,17 @@ export default function ProjetDetail() {
                         <span className="text-[10px] font-semibold leading-tight text-center">Accès élargi</span>
                       </div>
                     )}
-                    {(() => {
-                      const actifAdmins = (users || []).filter(
-                        (u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif')
-                      );
-                      const creatorId = projet.createdById || projet.createdBy?.id;
-                      return (
-                        <>
-                          {actifAdmins.map((a: any) => {
-                            const isCreator = creatorId === a.id;
-                            return (
-                              <div key={`adm-detail-${a.id}`} className="min-w-0">
-                                <span className="font-medium text-gray-900">
-                                  {a.prenom} {a.nom}
-                                </span>
-                                <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                                  {isCreator ? `(Administrateur et créateur : ${droitsAdminLigne})` : `(Admin : ${droitsAdminLigne})`}
-                                </span>
-                              </div>
-                            );
-                          })}
-                          {projet.createdBy && creatorId && !actifAdmins.some((a: any) => a.id === creatorId) && (
-                            <div className="min-w-0">
-                              <span className="font-medium text-gray-900">
-                                {projet.createdBy.prenom} {projet.createdBy.nom}
-                              </span>
-                              <span className="text-gray-500 italic block sm:inline sm:ml-1">(Créateur : {droitsAdminLigne})</span>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
+                    <AccessContratLikeAdminLines
+                      users={users as any[]}
+                      createdById={projet.createdById}
+                      createdBy={projet.createdBy}
+                      adminSansAccesUserIds={projet.adminSansAccesUserIds}
+                      permissions={projetPermissionsForAdminLinesDetail(projet.permissions || [])}
+                      droitsAdminCompletLabel={droitsAdminLigne}
+                      niveauLabel={(n) => n}
+                      keyPrefix={`detail-proj-${projet.id}`}
+                      creatorRightsLabel={droitsAdminLigne}
+                    />
                     {(projet.accesApercu?.delegations || []).map((d: any) => (
                       <div key={`${d.user?.id}-${(d.permissionEntryIds || []).join('-')}`} className="min-w-0">
                         <span className="font-medium text-gray-900">
@@ -1494,8 +1508,8 @@ export default function ProjetDetail() {
                       </div>
                     ))}
                     <p className="text-[10px] text-gray-500 w-full basis-full">
-                      Les projets n’ont pas d’« exclusion admin » par fiche : tout administrateur actif conserve un accès
-                      complet, comme dans la modale « Accès ».
+                      Aligné sur la liste des projets : exclusion ou droits explicites pour les administrateurs sont visibles
+                      ici et gérés via le bouton « Accès » (créateur ou délégation « Gestion des droits »).
                     </p>
                   </div>
                 </div>
@@ -1521,6 +1535,15 @@ export default function ProjetDetail() {
                 >
                   🖨️ Imprimer
                 </button>
+                {capDetail.canView && (
+                  <button
+                    type="button"
+                    onClick={() => setAccesModalProjetDetail({ id: projet.id, nom: projet.nom })}
+                    className="px-3 py-1.5 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200 font-medium"
+                  >
+                    🔐 Accès
+                  </button>
+                )}
                 {editing ? (
                   <>
                     <button
@@ -2238,7 +2261,7 @@ export default function ProjetDetail() {
               >
                 <p className="text-xs text-gray-500 mb-5">
                   Synthèse des habilitations sur la fiche projet, les documents et les tâches. Les droits délégués sur le
-                  projet se gèrent depuis la liste des projets (bouton « Accès »).
+                  projet se gèrent via le bouton « Accès » (en-tête de la fiche ou liste des projets).
                 </p>
 
                 <h3 className="text-sm font-semibold text-gray-800 mb-2">Accès au projet</h3>
@@ -2690,6 +2713,14 @@ export default function ProjetDetail() {
             </div>
           </div>
         </div>
+      )}
+      {accesModalProjetDetail && (
+        <ProjetAccesModal
+          projet={accesModalProjetDetail}
+          users={users as any[]}
+          onClose={() => setAccesModalProjetDetail(null)}
+          onAfterChange={() => void loadProjet()}
+        />
       )}
       {accessBlockedModal && (
         <div
