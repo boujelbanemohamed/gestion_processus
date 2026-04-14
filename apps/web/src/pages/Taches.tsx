@@ -2018,12 +2018,18 @@ export function TacheCard({
           <StatutBadge statut={tache.statut} />
         </span>
         <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate text-left">{tache.nom}</h2>
-        <span
-          className="text-xs sm:text-sm text-gray-500 font-mono shrink-0 max-w-[min(12rem,40vw)] truncate"
-          title={tache.id}
+        <div
+          className="flex items-center gap-1.5 shrink-0 min-w-0 max-w-[min(20rem,55vw)]"
+          title={`${tache.projet?.nom ? `Projet : ${tache.projet.nom}` : 'Projet : N/A'} — ${tache.id}`}
         >
-          {tache.id}
-        </span>
+          <span className="text-xs text-gray-600 truncate font-sans font-medium">
+            {tache.projet?.nom ?? 'N/A'}
+          </span>
+          <span className="text-gray-300 shrink-0" aria-hidden>
+            ·
+          </span>
+          <span className="text-xs sm:text-sm text-gray-500 font-mono truncate min-w-0">{tache.id}</span>
+        </div>
         <div className="flex flex-wrap items-center gap-1 min-w-0 basis-full sm:basis-auto sm:max-w-[14rem] md:max-w-xs">
           {assignesRowShow.map((u) => (
             <span
@@ -4306,6 +4312,9 @@ export default function Taches() {
                 const { dateDebut: usDebut, dateFinApprox: usFin } = dateRangeFromTasks(tasksUs);
                 const isUsLate = usIdsEnRetard.has(us.id);
                 const createurTache = tasksUs.find((t) => t.createur)?.createur;
+                const projetNomUsLigne =
+                  us.epic?.projet?.nom ?? tasksUs.find((t) => t.projet?.nom)?.projet?.nom ?? null;
+                const projetUsAffiche = projetNomUsLigne ?? 'N/A';
                 return (
                   <div
                     key={us.id}
@@ -4326,12 +4335,16 @@ export default function Taches() {
                       <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate text-left">
                         {truncateUi(us.description, 160)}
                       </h2>
-                      <span
-                        className="text-xs sm:text-sm text-gray-500 font-mono shrink-0 max-w-[min(12rem,40vw)] truncate"
-                        title={us.id}
+                      <div
+                        className="flex items-center gap-1.5 shrink-0 min-w-0 max-w-[min(20rem,55vw)]"
+                        title={`Projet : ${projetUsAffiche} — ${us.id}`}
                       >
-                        {us.id}
-                      </span>
+                        <span className="text-xs text-gray-600 truncate font-sans font-medium">{projetUsAffiche}</span>
+                        <span className="text-gray-300 shrink-0" aria-hidden>
+                          ·
+                        </span>
+                        <span className="text-xs sm:text-sm text-gray-500 font-mono truncate min-w-0">{us.id}</span>
+                      </div>
                       <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs shrink-0">
                         {tasksUs.length} tâche{tasksUs.length !== 1 ? 's' : ''}
                       </span>
@@ -4666,12 +4679,18 @@ export default function Taches() {
                       <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate text-left">
                         {ep.nom}
                       </h2>
-                      <span
-                        className="text-xs sm:text-sm text-gray-500 font-mono shrink-0 max-w-[min(12rem,40vw)] truncate"
-                        title={ep.id}
+                      <div
+                        className="flex items-center gap-1.5 shrink-0 min-w-0 max-w-[min(20rem,55vw)]"
+                        title={`Projet : ${ep.projet?.nom ?? 'N/A'} — ${ep.id}`}
                       >
-                        {ep.id}
-                      </span>
+                        <span className="text-xs text-gray-600 truncate font-sans font-medium">
+                          {ep.projet?.nom ?? 'N/A'}
+                        </span>
+                        <span className="text-gray-300 shrink-0" aria-hidden>
+                          ·
+                        </span>
+                        <span className="text-xs sm:text-sm text-gray-500 font-mono truncate min-w-0">{ep.id}</span>
+                      </div>
                       <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs shrink-0">
                         {(ep.userStories?.length ?? 0)} US · {tasksEp.length} tâche{tasksEp.length !== 1 ? 's' : ''}
                       </span>
