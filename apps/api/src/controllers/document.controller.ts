@@ -630,7 +630,7 @@ export const getDocumentAcces = async (req: AuthRequest, res: Response) => {
             : 500;
     const msg =
       e.message === 'ACCES_DETAIL_UNAVAILABLE'
-        ? "Le détail d'accès type « contrat » n'est disponible que pour un document confidentiel déposé depuis la fiche projet."
+        ? "Le détail d'accès avancé n'est disponible que pour un document confidentiel déposé depuis la fiche projet ou la fiche processus (type métier aligné sur la fiche)."
         : e.message;
     res.status(code).json({ error: msg });
   }

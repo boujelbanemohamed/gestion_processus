@@ -34,7 +34,10 @@ const processusService = new ProcessusService();
 const projetService = new ProjetService();
 const entiteService = new EntiteService();
 
-/** Document confidentiel uploadé depuis la fiche projet (`typeDocument = projet`). Les documents liés gardent un autre type et héritent des règles existantes. */
+/**
+ * Document confidentiel déposé sur une fiche métier (projet ou processus), avec ACL pilotée par l’auteur du dépôt
+ * (liste explicite + exclusions administrateur). Les documents liés ou d’un autre type gardent les règles historiques.
+ */
 export function isNativeProjetUploadDocument(doc: {
   estConfidentiel: boolean;
   typeDocument: DocType | string;
@@ -43,10 +46,12 @@ export function isNativeProjetUploadDocument(doc: {
 }): boolean {
   const typeDoc = String(doc.typeDocument ?? '');
   const refType = String(doc.referenceType ?? '');
+  const nativePair =
+    (typeDoc === 'projet' && refType === 'projet') ||
+    (typeDoc === 'processus' && refType === 'processus');
   return (
     !!doc.estConfidentiel &&
-    typeDoc === 'projet' &&
-    refType === 'projet' &&
+    nativePair &&
     doc.referenceId != null &&
     String(doc.referenceId).length > 0
   );

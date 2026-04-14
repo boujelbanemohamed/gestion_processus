@@ -33,13 +33,13 @@ function notifyDocumentsListAccesSync() {
   }
 }
 
-/** Pièce confidentielle déposée depuis la fiche projet (type métier = projet sur le projet). */
+/** Pièce confidentielle déposée sur fiche projet ou fiche processus (ACL auteur + exclusions admin). */
 function isNativeProjetUploadDoc(d: any) {
   return (
     !!d?.estConfidentiel &&
-    d?.typeDocument === 'projet' &&
-    d?.referenceType === 'projet' &&
-    !!d?.referenceId
+    !!d?.referenceId &&
+    ((d?.typeDocument === 'projet' && d?.referenceType === 'projet') ||
+      (d?.typeDocument === 'processus' && d?.referenceType === 'processus'))
   );
 }
 
