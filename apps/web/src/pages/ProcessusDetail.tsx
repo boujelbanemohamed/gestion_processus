@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
 import { PvReunionsLieesBlock } from '../components/PvReunionsLieesBlock';
+import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
 import * as XLSX from 'xlsx';
 
 const PROC_PERM_LABELS: Record<string, string> = {
@@ -79,18 +80,34 @@ function buildProcessusRecapAccessRows(
     }
   };
 
+  const excluded = new Set(p?.adminSansAccesUserIds || []);
+  const permAgg = processusPermissionsForAdminLinesDetail(p?.permissions || []);
+  const permByUserId = new Map(permAgg.map((x) => [x.userId, x]));
+
   (usersList || [])
     .filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'))
     .forEach((a: any) => {
       const creatorId = p?.createdById || p?.createdBy?.id;
       const isCreator = creatorId === a.id;
-      add(
-        a.id,
-        `${a.prenom} ${a.nom}`,
-        isCreator
-          ? `Administrateur et créateur : ${droitsAdmin}`
-          : `Administrateur : ${droitsAdmin}`
-      );
+      const perm = permByUserId.get(a.id);
+      const nom = `${a.prenom} ${a.nom}`;
+      if (isCreator) {
+        add(a.id, nom, `Administrateur et créateur : ${droitsAdmin}`);
+        return;
+      }
+      if (excluded.has(a.id) && !perm) {
+        add(
+          a.id,
+          nom,
+          'Administrateur exclu (aucun accès implicite ; réintégration via « Accès »)'
+        );
+        return;
+      }
+      if (perm) {
+        add(a.id, nom, `Admin : accès limité — ${perm.niveau}`);
+        return;
+      }
+      add(a.id, nom, `Administrateur : ${droitsAdmin}`);
     });
 
   if (p?.createdBy && (p.createdById || p.createdBy.id)) {
@@ -181,6 +198,29 @@ function isNativeProcessusConfidentialUploadDoc(d: any) {
     d?.referenceType === 'processus' &&
     !!d?.referenceId
   );
+}
+
+const DROITS_ADMIN_DOC_NATIF_PROCESSUS =
+  'visualisation, modification statut, accès, suppression (admin non exclu de la pièce)';
+
+function processusPermissionsForAdminLinesDetail(perms: any[]) {
+  const m = new Map<string, { userId: string; niveau: string; user?: any }>();
+  for (const r of perms || []) {
+    const uid = r.userId || r.user?.id;
+    if (!uid) continue;
+    const ex = m.get(uid);
+    const part = PROC_PERM_LABELS[r.permission] || r.permission;
+    m.set(uid, {
+      userId: uid,
+      niveau: ex ? `${ex.niveau} + ${part}` : part,
+      user: r.user,
+    });
+  }
+  return Array.from(m.values());
+}
+
+function permSummaryDelegProcessus(perms: string[]) {
+  return perms.map((p) => PROC_PERM_LABELS[p] || p).join(' + ');
 }
 
 export default function ProcessusDetail() {
@@ -1752,41 +1792,30 @@ export default function ProcessusDetail() {
                   </div>
                 );
               })()}
-              {usersList
-                .filter((u: any) => u.role === 'admin' && (!u.statut || u.statut === 'actif'))
-                .map((a: any) => {
-                  const creatorId = processus.createdById || processus.createdBy?.id;
-                  const isCreator = creatorId === a.id;
-                  return (
-                    <div key={`proc-adm-${a.id}`} className="min-w-0">
-                      <span className="font-medium text-gray-900">
-                        {a.prenom} {a.nom}
-                      </span>
-                      <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                        {isCreator
-                          ? `(Administrateur et créateur : ${droitsAdminProcessus})`
-                          : `(Admin : ${droitsAdminProcessus})`}
-                      </span>
-                    </div>
-                  );
-                })}
-              {processus.createdBy &&
-                (processus.createdById || processus.createdBy.id) &&
-                !usersList.some(
-                  (a: any) =>
-                    a.id === (processus.createdById || processus.createdBy.id) &&
-                    a.role === 'admin' &&
-                    (!a.statut || a.statut === 'actif')
-                ) && (
-                  <div className="min-w-0">
-                    <span className="font-medium text-gray-900">
-                      {processus.createdBy.prenom} {processus.createdBy.nom}
-                    </span>
-                    <span className="text-gray-500 italic block sm:inline sm:ml-1">
-                      (Créateur : {droitsAdminProcessus})
-                    </span>
-                  </div>
-                )}
+              <AccessContratLikeAdminLines
+                users={usersList}
+                createdById={processus.createdById}
+                createdBy={processus.createdBy}
+                adminSansAccesUserIds={processus.adminSansAccesUserIds}
+                permissions={processusPermissionsForAdminLinesDetail(processus.permissions || [])}
+                droitsAdminCompletLabel={droitsAdminProcessus}
+                niveauLabel={(n) => n}
+                keyPrefix={`proc-detail-${processus.id}`}
+                creatorRightsLabel={droitsAdminProcessus}
+              />
+              {(processus.accesApercu?.delegations || []).map((d: any) => (
+                <div
+                  key={`${d.user?.id}-${(d.permissionEntryIds || []).join('-')}`}
+                  className="min-w-0"
+                >
+                  <span className="font-medium text-gray-900">
+                    {d.user.prenom} {d.user.nom}
+                  </span>
+                  <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                    ({permSummaryDelegProcessus(d.permissions || [])})
+                  </span>
+                </div>
+              ))}
               {processus.proprietaire &&
                 processus.proprietaireId &&
                 processus.proprietaireId !== processus.createdById && (
@@ -1799,12 +1828,6 @@ export default function ProcessusDetail() {
                     </span>
                   </div>
                 )}
-              {delegRowsProcessus.map((r) => (
-                <div key={r.key} className="min-w-0">
-                  <span className="font-medium text-gray-900">{r.nom}</span>
-                  <span className="text-gray-500 italic block sm:inline sm:ml-1">({r.label})</span>
-                </div>
-              ))}
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-2">
@@ -2025,19 +2048,63 @@ export default function ProcessusDetail() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs text-gray-600 mb-2 leading-relaxed">
-                                  Document confidentiel : personnes habilitées à consulter ce fichier et rôle indiqué
-                                  (aligné sur la fiche projet / les tâches).
+                                  {isNativeProcessusConfidentialUploadDoc(doc) ? (
+                                    <>
+                                      Pièce déposée sur le processus — alignée sur la modale « Accès » (exclusions admin,
+                                      accès explicites). La liste ci-dessous se met à jour après enregistrement.
+                                    </>
+                                  ) : (
+                                    <>
+                                      Document confidentiel : personnes habilitées à consulter ce fichier et rôle indiqué
+                                      (aligné sur la fiche projet / les tâches).
+                                    </>
+                                  )}
                                 </p>
-                                <div className="space-y-1.5 text-xs">
-                                  {buildDocumentAccessRows(doc).map((row) => (
-                                    <div
-                                      key={row.id}
-                                      className="flex flex-wrap items-baseline gap-x-1 border-b border-gray-200/80 pb-1.5 last:border-0"
-                                    >
-                                      <span className="font-medium text-gray-900">{row.nom}</span>
-                                      <span className="text-gray-500 italic">({row.role})</span>
-                                    </div>
-                                  ))}
+                                <div className="space-y-1.5 text-xs text-gray-700">
+                                  {isNativeProcessusConfidentialUploadDoc(doc) ? (
+                                    <>
+                                      <AccessContratLikeAdminLines
+                                        keyPrefix={`proc-doc-${doc.id}-natif`}
+                                        users={usersList}
+                                        createdById={doc.uploadedById}
+                                        createdBy={doc.uploadedBy}
+                                        adminSansAccesUserIds={doc.adminSansAccesUserIds}
+                                        permissions={(doc.permissionsUtilisateurs || [])
+                                          .filter((p: any) => p.user?.role === 'admin')
+                                          .map((p: any) => ({
+                                            userId: p.userId || p.user?.id,
+                                            niveau: 'lecture',
+                                            user: p.user,
+                                          }))}
+                                        droitsAdminCompletLabel={DROITS_ADMIN_DOC_NATIF_PROCESSUS}
+                                        creatorRightsLabel="auteur — tous les droits sur ce document"
+                                        niveauLabel={() => 'Lecture'}
+                                        limitedPrefix="Admin : accès limité —"
+                                      />
+                                      {(doc.permissionsUtilisateurs || [])
+                                        .filter((p: any) => p.user && p.user.role !== 'admin')
+                                        .map((p: any) => (
+                                          <div key={p.id} className="min-w-0">
+                                            <span className="font-medium text-gray-900">
+                                              {p.user.prenom} {p.user.nom}
+                                            </span>
+                                            <span className="text-gray-500 italic block sm:inline sm:ml-1">
+                                              (Accès explicite : lecture)
+                                            </span>
+                                          </div>
+                                        ))}
+                                    </>
+                                  ) : (
+                                    buildDocumentAccessRows(doc).map((row) => (
+                                      <div
+                                        key={row.id}
+                                        className="flex flex-wrap items-baseline gap-x-1 border-b border-gray-200/80 pb-1.5 last:border-0"
+                                      >
+                                        <span className="font-medium text-gray-900">{row.nom}</span>
+                                        <span className="text-gray-500 italic">({row.role})</span>
+                                      </div>
+                                    ))
+                                  )}
                                 </div>
                               </div>
                             </>
@@ -3326,6 +3393,7 @@ export default function ProcessusDetail() {
               <div className="space-y-4">
                 {documents.map((doc) => {
                   const docRows = buildDocumentAccessRows(doc);
+                  const nativeProcDoc = isNativeProcessusConfidentialUploadDoc(doc);
                   return (
                     <div key={doc.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50/50">
                       <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -3342,10 +3410,43 @@ export default function ProcessusDetail() {
                       </div>
                       <p className="text-xs text-gray-600 mb-3">
                         {doc.estConfidentiel
-                          ? 'Liste des personnes pouvant consulter ce fichier (et rôles effectifs affichés dans la fiche document).'
+                          ? nativeProcDoc
+                            ? 'Document natif processus : exclusions administrateur et accès explicites (comme la section Documents du processus).'
+                            : 'Liste des personnes pouvant consulter ce fichier (et rôles effectifs affichés dans la fiche document).'
                           : 'Accès en lecture aligné sur les habilitations processus ; la liste ci-dessous reprend notamment administrateurs, auteur et gouvernance sur la fiche.'}
                       </p>
-                      {docRows.length === 0 ? (
+                      {nativeProcDoc ? (
+                        <div className="border border-gray-100 rounded-md bg-white p-3 text-xs text-gray-700 space-y-1">
+                          <AccessContratLikeAdminLines
+                            keyPrefix={`recap-doc-${doc.id}`}
+                            users={usersList}
+                            createdById={doc.uploadedById}
+                            createdBy={doc.uploadedBy}
+                            adminSansAccesUserIds={doc.adminSansAccesUserIds}
+                            permissions={(doc.permissionsUtilisateurs || [])
+                              .filter((p: any) => p.user?.role === 'admin')
+                              .map((p: any) => ({
+                                userId: p.userId || p.user?.id,
+                                niveau: 'lecture',
+                                user: p.user,
+                              }))}
+                            droitsAdminCompletLabel={DROITS_ADMIN_DOC_NATIF_PROCESSUS}
+                            creatorRightsLabel="auteur — tous les droits sur ce document"
+                            niveauLabel={() => 'Lecture'}
+                            limitedPrefix="Admin : accès limité —"
+                          />
+                          {(doc.permissionsUtilisateurs || [])
+                            .filter((p: any) => p.user && p.user.role !== 'admin')
+                            .map((p: any) => (
+                              <div key={p.id}>
+                                <span className="font-medium text-gray-900">
+                                  {p.user.prenom} {p.user.nom}
+                                </span>
+                                <span className="text-gray-500 italic ml-1">(Accès explicite : lecture)</span>
+                              </div>
+                            ))}
+                        </div>
+                      ) : docRows.length === 0 ? (
                         <p className="text-xs text-gray-500 italic">Aucune ligne d&apos;accès détaillée.</p>
                       ) : (
                         <div className="overflow-x-auto border border-gray-100 rounded-md bg-white">
