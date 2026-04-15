@@ -2574,11 +2574,14 @@ function UserStoryLienEpicEtTachesBlock({
   epics,
   taches,
   onUpdated,
+  onAddTache,
 }: {
   us: UserStoryRow;
   epics: EpicRow[];
   taches: Tache[];
   onUpdated: () => void;
+  /** Ouvre la création de tâche avec projet et user story présélectionnés. */
+  onAddTache?: () => void;
 }) {
   const projetId =
     us.epic?.projetId ||
@@ -2673,14 +2676,26 @@ function UserStoryLienEpicEtTachesBlock({
           Projet indéterminé : rattachez d&apos;abord un epic du bon projet ou une tâche du projet.
         </p>
       )}
-      <button
-        type="button"
-        disabled={saving}
-        onClick={() => void save()}
-        className="text-xs px-3 py-1.5 bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50"
-      >
-        {saving ? 'Enregistrement…' : 'Enregistrer epic et tâches'}
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => void save()}
+          className="text-xs px-3 py-1.5 bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50"
+        >
+          {saving ? 'Enregistrement…' : 'Enregistrer epic et tâches'}
+        </button>
+        {onAddTache && projetId && (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onAddTache}
+            className="text-xs px-3 py-1.5 border border-violet-300 text-violet-800 bg-violet-50 rounded hover:bg-violet-100 disabled:opacity-50"
+          >
+            + Ajouter une tâche
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -3332,6 +3347,8 @@ export default function Taches() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editTache, setEditTache] = useState<Tache | undefined>();
+  const [tacheModalLockProjetId, setTacheModalLockProjetId] = useState<string | undefined>(undefined);
+  const [tacheModalLockUserStoryId, setTacheModalLockUserStoryId] = useState<string | undefined>(undefined);
   const [showDashboard, setShowDashboard] = useState(false);
   const [usViewMode, setUsViewMode] = useState<'list' | 'kanban' | 'gantt'>('list');
   const [epicViewMode, setEpicViewMode] = useState<'list' | 'kanban' | 'gantt'>('list');
@@ -3572,6 +3589,27 @@ export default function Taches() {
   const canCreate = isAdmin || isContributeur || !!currentUser;
   const canEditUsEpic = isAdmin || isContributeur;
 
+  const openNewTacheModal = (opts?: { lockProjetId?: string; lockUserStoryId?: string }) => {
+    setEditTache(undefined);
+    setTacheModalLockProjetId(opts?.lockProjetId);
+    setTacheModalLockUserStoryId(opts?.lockUserStoryId);
+    setShowModal(true);
+  };
+
+  const openEditTacheModal = (t: Tache) => {
+    setTacheModalLockProjetId(undefined);
+    setTacheModalLockUserStoryId(undefined);
+    setEditTache(t);
+    setShowModal(true);
+  };
+
+  const closeTacheModal = () => {
+    setShowModal(false);
+    setEditTache(undefined);
+    setTacheModalLockProjetId(undefined);
+    setTacheModalLockUserStoryId(undefined);
+  };
+
   // Filtrage selon rôle + filtres UI
   const visibleTaches = taches.filter(t => {
     // Filtre rôle
@@ -3768,10 +3806,7 @@ export default function Taches() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setEditTache(undefined);
-                  setShowModal(true);
-                }}
+                onClick={() => openNewTacheModal()}
                 className="px-3 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
               >
               + Nouvelle tâche
@@ -4099,10 +4134,7 @@ export default function Taches() {
           {canCreate && (
             <button
               type="button"
-              onClick={() => {
-                setEditTache(undefined);
-                setShowModal(true);
-              }}
+              onClick={() => openNewTacheModal()}
               className="px-3 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
             >
               + Nouvelle tâche
@@ -4115,10 +4147,7 @@ export default function Taches() {
           hideFooterLink
           onTacheClick={(id) => {
             const t = taches.find((x) => x.id === id);
-            if (t) {
-              setEditTache(t);
-              setShowModal(true);
-            }
+            if (t) openEditTacheModal(t);
           }}
         />
 
@@ -4136,8 +4165,7 @@ export default function Taches() {
               taches={visibleTaches}
               getCanEdit={(t) => canEdit(t as Tache)}
               onBarClick={(t) => {
-                setEditTache(t as Tache);
-                setShowModal(true);
+                openEditTacheModal(t as Tache);
               }}
             />
           </div>
@@ -4148,8 +4176,7 @@ export default function Taches() {
             getCanEdit={(t) => canEdit(t as Tache)}
             onMoveTache={handleKanbanMove}
             onCardClick={(t) => {
-              setEditTache(t as Tache);
-              setShowModal(true);
+              openEditTacheModal(t as Tache);
             }}
           />
         ) : (
@@ -4166,8 +4193,7 @@ export default function Taches() {
             key={t.id}
             tache={t}
                   onEdit={() => {
-                    setEditTache(t);
-                    setShowModal(true);
+                    openEditTacheModal(t);
                   }}
             canEdit={canEdit(t)}
             users={users}
@@ -4476,6 +4502,24 @@ export default function Taches() {
                             epics={epics}
                             taches={taches}
                             onUpdated={loadAll}
+                            onAddTache={
+                              canCreate
+                                ? () => {
+                                    const pid =
+                                      us.epic?.projetId ||
+                                      (us.taches || []).find((t) => t.projetId)?.projetId ||
+                                      taches.find((t) => t.userStory?.id === us.id)?.projetId ||
+                                      '';
+                                    if (!pid) {
+                                      alert(
+                                        'Projet indéterminé : rattachez un epic du bon projet ou une tâche du projet avant de créer une tâche.'
+                                      );
+                                      return;
+                                    }
+                                    openNewTacheModal({ lockProjetId: pid, lockUserStoryId: us.id });
+                                  }
+                                : undefined
+                            }
                           />
                         )}
                         <div>
@@ -4990,13 +5034,15 @@ export default function Taches() {
       {/* Modal */}
       {showModal && (
         <TacheModal
-          onClose={() => { setShowModal(false); setEditTache(undefined); }}
+          onClose={closeTacheModal}
           onSave={loadAll}
           projets={projets}
           users={users}
           entites={entites}
           taches={taches}
           editTache={editTache}
+          lockProjetId={tacheModalLockProjetId}
+          lockUserStoryId={tacheModalLockUserStoryId}
         />
       )}
 
