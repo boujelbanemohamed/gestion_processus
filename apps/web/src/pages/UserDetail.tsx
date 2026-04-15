@@ -28,6 +28,7 @@ export default function UserDetail() {
     nom: '',
     prenom: '',
     email: '',
+    fonction: '',
     role: 'contributeur',
     statut: 'actif',
     entiteIds: [] as string[],
@@ -64,6 +65,7 @@ export default function UserDetail() {
         nom: user.nom || '',
         prenom: user.prenom || '',
         email: user.email || '',
+        fonction: user.fonction || '',
         role: user.role || 'contributeur',
         statut: user.statut || 'actif',
         entiteIds: user.entitesMembres?.map((ue: any) => ue.entite?.id || ue.entiteId).filter(Boolean) || [],
@@ -126,6 +128,11 @@ export default function UserDetail() {
       }
       if (editData.statut !== (user.statut || '')) {
         updateData.statut = editData.statut;
+      }
+      const prevFonction = user.fonction || '';
+      const nextFonction = (editData.fonction || '').trim();
+      if (nextFonction !== prevFonction) {
+        updateData.fonction = nextFonction || null;
       }
 
       const currentEntiteIds = (user.entitesMembres?.map((ue: any) => ue.entite?.id || ue.entiteId).filter(Boolean) || []).sort();
@@ -301,10 +308,15 @@ export default function UserDetail() {
         >
           ← Retour à la liste des utilisateurs
         </button>
-        <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold">
-            {user.prenom} {user.nom}
-          </h1>
+        <div className="flex justify-between items-center flex-wrap gap-2">
+          <div>
+            <h1 className="text-2xl font-bold">
+              {user.prenom} {user.nom}
+            </h1>
+            {user.fonction && (
+              <p className="text-sm text-gray-600 mt-1">{user.fonction}</p>
+            )}
+          </div>
           {!isEditing && (
             <div className="flex gap-2">
               <button
@@ -368,6 +380,18 @@ export default function UserDetail() {
                   onChange={(e) => setEditData({ ...editData, email: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
                   required
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Fonction / poste <span className="text-gray-500 font-normal">(facultatif)</span>
+                </label>
+                <input
+                  type="text"
+                  value={editData.fonction}
+                  onChange={(e) => setEditData({ ...editData, fonction: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  placeholder="Ex. Chef de projet, Analyste…"
                 />
               </div>
               <div>
@@ -457,6 +481,7 @@ export default function UserDetail() {
                       nom: user.nom || '',
                       prenom: user.prenom || '',
                       email: user.email || '',
+                      fonction: user.fonction || '',
                       role: user.role || 'contributeur',
                       statut: user.statut || 'actif',
                       entiteIds: user.entitesMembres?.map((ue: any) => ue.entite?.id || ue.entiteId).filter(Boolean) || [],
@@ -490,6 +515,10 @@ export default function UserDetail() {
               <div>
                 <label className="text-sm font-medium text-gray-500">Email</label>
                 <p className="mt-1 text-sm">{user.email}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-500">Fonction / poste</label>
+                <p className="mt-1 text-sm">{user.fonction || <span className="italic text-gray-400">—</span>}</p>
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-500">Rôle</label>

@@ -2,6 +2,12 @@ import { prisma } from '../utils/prisma';
 import { hashPassword } from '../utils/hash';
 import { Role, UserStatus } from '@prisma/client';
 
+function fonctionFromInput(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  return s === '' ? null : s;
+}
+
 export class UserService {
   async findAll(filters?: {
     role?: Role;
@@ -134,6 +140,7 @@ export class UserService {
     password: string;
     nom: string;
     prenom: string;
+    fonction?: string | null;
     role?: Role;
     statut?: UserStatus;
     entiteIds?: string[];
@@ -173,12 +180,14 @@ export class UserService {
   async update(id: string, data: {
     nom?: string;
     prenom?: string;
+    email?: string;
+    fonction?: string | null;
     role?: Role;
     entiteIds?: string[];
     statut?: UserStatus;
     avatarUrl?: string;
   }) {
-    const { entiteIds, ...updateData } = data;
+    const { entiteIds, fonction, ...updateData } = data;
     
     // Si entiteIds est fourni, mettre à jour les relations
     if (entiteIds !== undefined) {
@@ -198,9 +207,14 @@ export class UserService {
       }
     }
     
+    const prismaData: Record<string, unknown> = { ...updateData };
+    if (fonction !== undefined) {
+      prismaData.fonction = fonctionFromInput(fonction);
+    }
+
     return prisma.user.update({
       where: { id },
-      data: updateData,
+      data: prismaData as any,
       include: {
         entitesMembres: {
           include: {

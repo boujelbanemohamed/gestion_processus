@@ -135,6 +135,8 @@ model User {
   passwordHash     String
   nom              String
   prenom           String
+  /// Fonction ou poste occupé (facultatif)
+  fonction         String?
   role             Role        @default(contributeur)
   avatarUrl        String?
   statut           UserStatus  @default(actif)

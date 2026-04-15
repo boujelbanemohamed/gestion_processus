@@ -73,6 +73,11 @@ function entiteMembreUsers(node: any) {
   );
 }
 
+function userNomAvecFonction(u: { prenom?: string; nom?: string; fonction?: string | null }) {
+  const n = `${u.prenom ?? ''} ${u.nom ?? ''}`.trim();
+  return u.fonction ? `${n} · ${u.fonction}` : n;
+}
+
 function entiteDelegationsForTree(node: any) {
   const dels = node.accesApercu?.delegations;
   if (!Array.isArray(dels) || dels.length === 0) return [];
@@ -115,7 +120,7 @@ function EntiteTreeNodes({ nodes, depth, navigate }: { nodes: any[]; depth: numb
                 {node.responsable && (
                   <span className="text-xs text-gray-600">
                     <span className="text-gray-400">Responsable :</span>{' '}
-                    {node.responsable.prenom} {node.responsable.nom}
+                    {userNomAvecFonction(node.responsable)}
                   </span>
                 )}
               </div>
@@ -130,7 +135,7 @@ function EntiteTreeNodes({ nodes, depth, navigate }: { nodes: any[]; depth: numb
                             key={u.id}
                             className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 text-slate-800"
                           >
-                            {u.prenom} {u.nom}
+                            {userNomAvecFonction(u)}
                           </span>
                         ))}
                       </span>
@@ -146,7 +151,7 @@ function EntiteTreeNodes({ nodes, depth, navigate }: { nodes: any[]; depth: numb
                             className="inline-flex items-center px-1.5 py-0.5 rounded bg-violet-50 text-violet-900"
                             title={d.label}
                           >
-                            {d.user.prenom} {d.user.nom}
+                            {userNomAvecFonction(d.user)}
                             <span className="text-violet-600 font-normal ml-1">({d.label})</span>
                           </span>
                         ))}
@@ -456,8 +461,8 @@ export default function Entites() {
 
       if (sortConfig?.key === 'responsable') {
         sortedEntites = [...response.data].sort((a, b) => {
-          const aName = a.responsable ? `${a.responsable.prenom} ${a.responsable.nom}` : '';
-          const bName = b.responsable ? `${b.responsable.prenom} ${b.responsable.nom}` : '';
+          const aName = a.responsable ? userNomAvecFonction(a.responsable) : '';
+          const bName = b.responsable ? userNomAvecFonction(b.responsable) : '';
           return sortConfig.direction === 'asc'
             ? aName.localeCompare(bName, 'fr', { sensitivity: 'base' })
             : bName.localeCompare(aName, 'fr', { sensitivity: 'base' });
@@ -924,7 +929,7 @@ export default function Entites() {
                       .filter((u) => u.role === 'admin' || u.role === 'contributeur')
                       .map((u) => (
                         <option key={u.id} value={u.id}>
-                          {u.prenom} {u.nom} ({u.email})
+                          {userNomAvecFonction(u)} ({u.email})
                         </option>
                       ))}
                   </select>
@@ -995,7 +1000,7 @@ export default function Entites() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600">
                     <div>
                       <span className="font-medium text-gray-700">Responsable : </span>
-                      {e.responsable ? `${e.responsable.prenom} ${e.responsable.nom}` : '—'}
+                      {e.responsable ? userNomAvecFonction(e.responsable) : '—'}
                     </div>
                     <div>
                       <span className="font-medium text-gray-700">Parent : </span>
@@ -1040,7 +1045,7 @@ export default function Entites() {
                       {(e.accesApercu?.delegations || []).map((d: any) => (
                         <div key={d.user.id} className="min-w-0">
                           <span className="font-medium text-gray-900">
-                            {d.user.prenom} {d.user.nom}
+                            {userNomAvecFonction(d.user)}
                           </span>
                           <span className="text-gray-500 italic block sm:inline sm:ml-1">
                             {d.permissions?.includes('lecture') && d.permissions?.length === 1 ? (

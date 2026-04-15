@@ -5,7 +5,7 @@ import { fetchEntiteAdminExcludedByEntiteIds, fetchEntiteAdminExcludedForUser } 
 const entiteIncludeList = {
   typeEntite: { select: { id: true, code: true, libelle: true } },
   responsable: {
-    select: { id: true, email: true, nom: true, prenom: true },
+    select: { id: true, email: true, nom: true, prenom: true, fonction: true },
   },
   parent: {
     select: {
@@ -19,7 +19,7 @@ const entiteIncludeList = {
   membres: {
     include: {
       user: {
-        select: { id: true, email: true, nom: true, prenom: true, role: true },
+        select: { id: true, email: true, nom: true, prenom: true, role: true, fonction: true },
       },
     },
   },
@@ -143,7 +143,7 @@ async function delegationsGrouped(entiteId: string) {
   const rows = await prisma.permission.findMany({
     where: { ressourceType: 'entite', ressourceId: entiteId },
     include: {
-      user: { select: { id: true, nom: true, prenom: true, email: true } },
+      user: { select: { id: true, nom: true, prenom: true, email: true, fonction: true } },
       grantedBy: { select: { id: true, nom: true, prenom: true } },
     },
     orderBy: { createdAt: 'asc' },
@@ -265,7 +265,7 @@ export class EntiteService {
     if (ids.length > 0) {
       const allPermRows = await prisma.permission.findMany({
         where: { ressourceType: 'entite', ressourceId: { in: ids } },
-        include: { user: { select: { id: true, nom: true, prenom: true, email: true } } },
+        include: { user: { select: { id: true, nom: true, prenom: true, email: true, fonction: true } } },
       });
       for (const r of allPermRows) {
         if (!byEntiteUser.has(r.ressourceId)) byEntiteUser.set(r.ressourceId, new Map());
@@ -324,7 +324,7 @@ export class EntiteService {
           where: { deletedAt: null },
           include: {
             typeEntite: { select: { id: true, code: true, libelle: true } },
-            responsable: { select: { id: true, nom: true, prenom: true } },
+            responsable: { select: { id: true, nom: true, prenom: true, fonction: true } },
             _count: { select: { membres: true } },
           },
         },
@@ -370,18 +370,18 @@ export class EntiteService {
     const canManage = canManageEntitePermissions(e, auth, permTypes);
     const admins = await prisma.user.findMany({
       where: { role: 'admin', statut: 'actif' },
-      select: { id: true, nom: true, prenom: true, email: true, role: true },
+      select: { id: true, nom: true, prenom: true, email: true, role: true, fonction: true },
     });
     const creator = e.createdById
       ? await prisma.user.findUnique({
           where: { id: e.createdById },
-          select: { id: true, nom: true, prenom: true, email: true },
+          select: { id: true, nom: true, prenom: true, email: true, fonction: true },
         })
       : null;
     const raw = await prisma.permission.findMany({
       where: { ressourceType: 'entite', ressourceId: entiteId },
       include: {
-        user: { select: { id: true, nom: true, prenom: true, email: true } },
+        user: { select: { id: true, nom: true, prenom: true, email: true, fonction: true } },
         grantedBy: { select: { id: true, nom: true, prenom: true } },
       },
       orderBy: { createdAt: 'asc' },
@@ -435,7 +435,7 @@ export class EntiteService {
         grantedById: auth.userId,
       },
       include: {
-        user: { select: { id: true, nom: true, prenom: true, email: true } },
+        user: { select: { id: true, nom: true, prenom: true, email: true, fonction: true } },
         grantedBy: { select: { id: true, nom: true, prenom: true } },
       },
     });
@@ -562,12 +562,12 @@ export class EntiteService {
       },
       include: {
         typeEntite: { select: { id: true, code: true, libelle: true } },
-        responsable: { select: { id: true, nom: true, prenom: true } },
+        responsable: { select: { id: true, nom: true, prenom: true, fonction: true } },
         parent: { select: { id: true, nom: true } },
         createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
         membres: {
           include: {
-            user: { select: { id: true, nom: true, prenom: true, email: true } },
+            user: { select: { id: true, nom: true, prenom: true, email: true, fonction: true } },
           },
         },
       },
@@ -626,12 +626,12 @@ export class EntiteService {
       data: updateData,
       include: {
         typeEntite: { select: { id: true, code: true, libelle: true } },
-        responsable: { select: { id: true, nom: true, prenom: true } },
+        responsable: { select: { id: true, nom: true, prenom: true, fonction: true } },
         parent: { select: { id: true, nom: true } },
         createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
         membres: {
           include: {
-            user: { select: { id: true, nom: true, prenom: true, email: true } },
+            user: { select: { id: true, nom: true, prenom: true, email: true, fonction: true } },
           },
         },
       },
@@ -654,7 +654,7 @@ export class EntiteService {
       where: { id },
       data: { deletedAt: new Date() },
       include: {
-        responsable: { select: { id: true, nom: true, prenom: true } },
+        responsable: { select: { id: true, nom: true, prenom: true, fonction: true } },
         createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
       },
     });

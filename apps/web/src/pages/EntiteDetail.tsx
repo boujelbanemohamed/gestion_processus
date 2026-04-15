@@ -3,6 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
 
+function userNomAvecFonction(u: { prenom?: string; nom?: string; fonction?: string | null }) {
+  const n = `${u.prenom ?? ''} ${u.nom ?? ''}`.trim();
+  return u.fonction ? `${n} · ${u.fonction}` : n;
+}
+
 export default function EntiteDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -328,8 +333,8 @@ export default function EntiteDetail() {
                 {usersList
                   .filter((u) => u.role === 'admin' || u.role === 'contributeur')
                   .map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.prenom} {user.nom} ({user.email})
+                                       <option key={user.id} value={user.id}>
+                      {userNomAvecFonction(user)} ({user.email})
                     </option>
                   ))}
               </select>
@@ -350,7 +355,7 @@ export default function EntiteDetail() {
               >
                 {usersList.map((user) => (
                   <option key={user.id} value={user.id}>
-                    {user.prenom} {user.nom} ({user.email}) - {user.role}
+                    {userNomAvecFonction(user)} ({user.email}) — {user.role}
                   </option>
                 ))}
               </select>
@@ -384,7 +389,14 @@ export default function EntiteDetail() {
             <div>
               <label className="text-sm font-medium text-gray-500">Responsable</label>
               <p className="mt-1 text-sm">
-                {entite.responsable ? `${entite.responsable.prenom} ${entite.responsable.nom} (${entite.responsable.email})` : 'Non assigné'}
+                {entite.responsable ? (
+                  <>
+                    {userNomAvecFonction(entite.responsable)}{' '}
+                    <span className="text-gray-500">({entite.responsable.email})</span>
+                  </>
+                ) : (
+                  'Non assigné'
+                )}
               </p>
             </div>
             <div>
@@ -397,7 +409,10 @@ export default function EntiteDetail() {
                         key={m.user?.id || m.userId}
                         className="px-2 py-1 text-xs rounded bg-blue-100 text-blue-800"
                       >
-                        {m.user?.prenom} {m.user?.nom} ({m.user?.email})
+                        {m.user ? userNomAvecFonction(m.user) : '—'}{' '}
+                        {m.user?.email && (
+                          <span className="text-gray-600 font-normal">({m.user.email})</span>
+                        )}
                       </span>
                     ))}
                   </div>

@@ -25,6 +25,7 @@ export default function Users() {
     nom: '',
     prenom: '',
     email: '',
+    fonction: '',
     password: '',
     confirmPassword: '',
     role: 'contributeur',
@@ -130,6 +131,9 @@ export default function Users() {
         role: formData.role,
         statut: formData.statut,
       };
+      if ((formData.fonction || '').trim()) {
+        createData.fonction = formData.fonction.trim();
+      }
 
       if (formData.entiteIds && formData.entiteIds.length > 0) {
         createData.entiteIds = formData.entiteIds;
@@ -142,6 +146,7 @@ export default function Users() {
         nom: '',
         prenom: '',
         email: '',
+        fonction: '',
         password: '',
         confirmPassword: '',
         role: 'contributeur',
@@ -371,7 +376,12 @@ export default function Users() {
                     to={`/users/${u.id}`}
                     className="text-blue-600 hover:text-blue-800 hover:underline"
                   >
-                    {u.prenom} {u.nom}
+                    <span>
+                      {u.prenom} {u.nom}
+                      {u.fonction ? (
+                        <span className="text-gray-500 font-normal"> · {u.fonction}</span>
+                      ) : null}
+                    </span>
                   </Link>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">{u.email}</td>
@@ -508,6 +518,18 @@ export default function Users() {
                       required
                     />
                   </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Fonction / poste <span className="text-gray-500 font-normal">(facultatif)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.fonction}
+                      onChange={(e) => setFormData({ ...formData, fonction: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      placeholder="Ex. Chef de projet…"
+                    />
+                  </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Email <span className="text-red-500">*</span>
@@ -632,6 +654,7 @@ export default function Users() {
                       nom: '',
                       prenom: '',
                       email: '',
+                      fonction: '',
                       password: '',
                       confirmPassword: '',
                       role: 'contributeur',
