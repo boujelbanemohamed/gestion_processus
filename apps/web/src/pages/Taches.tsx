@@ -1528,7 +1528,8 @@ function DocumentsTache({
   };
 
   const openDocAcces = async (doc: DocTache) => {
-    if (doc.uploadedById !== currentUser?.id) return;
+    const actorId = currentUser?.id;
+    if (!actorId || doc.uploadedById !== actorId) return;
     const alreadyNative = isNativeAuthorControlledUploadDoc(doc);
     if (alreadyNative) {
       setNatifAccesDoc({ id: doc.id, nom: doc.nom });
@@ -1546,7 +1547,7 @@ function DocumentsTache({
       await api.put(`/documents/${doc.id}`, {
         estConfidentiel: true,
         typeDocument: 'tache',
-        permissionUserIds: [currentUser.id],
+        permissionUserIds: [actorId],
       });
       onDocumentsChange?.();
       setNatifAccesDoc({ id: doc.id, nom: doc.nom });
@@ -1878,7 +1879,8 @@ function DocumentsEpic({
   };
 
   const openDocAcces = async (doc: DocTache) => {
-    if (doc.uploadedById !== currentUser?.id) return;
+    const actorId = currentUser?.id;
+    if (!actorId || doc.uploadedById !== actorId) return;
     const alreadyNative = isNativeAuthorControlledUploadDoc(doc);
     if (alreadyNative) {
       setNatifAccesDoc({ id: doc.id, nom: doc.nom });
@@ -1898,7 +1900,7 @@ function DocumentsEpic({
         typeDocument: 'epic',
         referenceType: 'epic',
         referenceId: epicId,
-        permissionUserIds: [currentUser.id],
+        permissionUserIds: [actorId],
       });
       onDocumentsChange?.();
       setNatifAccesDoc({ id: doc.id, nom: doc.nom });
