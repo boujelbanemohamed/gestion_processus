@@ -1463,6 +1463,7 @@ function DocumentsTache({
 }) {
   const { user: currentUser } = useAuth();
   const [natifAccesDoc, setNatifAccesDoc] = useState<{ id: string; nom: string } | null>(null);
+  const [convertingDocId, setConvertingDocId] = useState<string | null>(null);
   const [docs, setDocs] = useState<DocTache[]>(() => documents.map((d) => normalizeDocumentAclFields(d)));
   const [showUpload, setShowUpload] = useState(false);
   const [showLier, setShowLier] = useState(false);
@@ -1524,6 +1525,36 @@ function DocumentsTache({
       setDocs((prev) => prev.filter((d) => d.id !== documentId));
       onDocumentsChange?.();
     } catch (e: any) { alert(e.response?.data?.error || 'Erreur'); }
+  };
+
+  const openDocAcces = async (doc: DocTache) => {
+    if (doc.uploadedById !== currentUser?.id) return;
+    const alreadyNative = isNativeAuthorControlledUploadDoc(doc);
+    if (alreadyNative) {
+      setNatifAccesDoc({ id: doc.id, nom: doc.nom });
+      return;
+    }
+    if (
+      !window.confirm(
+        "Ce document n'est pas encore en mode accès natif. Le passer en confidentiel (auteur + accès explicites) et ouvrir la gestion des accès ?"
+      )
+    ) {
+      return;
+    }
+    setConvertingDocId(doc.id);
+    try {
+      await api.put(`/documents/${doc.id}`, {
+        estConfidentiel: true,
+        typeDocument: 'tache',
+        permissionUserIds: [currentUser.id],
+      });
+      onDocumentsChange?.();
+      setNatifAccesDoc({ id: doc.id, nom: doc.nom });
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur lors de la conversion des accès');
+    } finally {
+      setConvertingDocId(null);
+    }
   };
 
   const getFileIcon = (type: string) => {
@@ -1642,13 +1673,14 @@ function DocumentsTache({
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0">
-                  {natif && doc.uploadedById === currentUser?.id && (
+                  {doc.uploadedById === currentUser?.id && (
                     <button
                       type="button"
-                      onClick={() => setNatifAccesDoc({ id: doc.id, nom: doc.nom })}
+                      onClick={() => void openDocAcces(doc)}
+                      disabled={convertingDocId === doc.id}
                       className="text-xs px-2 py-1 bg-purple-100 text-purple-800 rounded hover:bg-purple-200"
                     >
-                      {'\u{1F511}'} Accès
+                      {convertingDocId === doc.id ? 'Conversion...' : `${'\u{1F511}'} Accès`}
                     </button>
                   )}
                   {canEdit && (
@@ -1766,6 +1798,7 @@ function DocumentsEpic({
 }) {
   const { user: currentUser } = useAuth();
   const [natifAccesDoc, setNatifAccesDoc] = useState<{ id: string; nom: string } | null>(null);
+  const [convertingDocId, setConvertingDocId] = useState<string | null>(null);
   const [docs, setDocs] = useState<DocTache[]>(() => documents.map((d) => normalizeDocumentAclFields(d)));
   const [showUpload, setShowUpload] = useState(false);
   const [showLier, setShowLier] = useState(false);
@@ -1841,6 +1874,38 @@ function DocumentsEpic({
       onDocumentsChange?.();
     } catch (e: any) {
       alert(e.response?.data?.error || 'Erreur');
+    }
+  };
+
+  const openDocAcces = async (doc: DocTache) => {
+    if (doc.uploadedById !== currentUser?.id) return;
+    const alreadyNative = isNativeAuthorControlledUploadDoc(doc);
+    if (alreadyNative) {
+      setNatifAccesDoc({ id: doc.id, nom: doc.nom });
+      return;
+    }
+    if (
+      !window.confirm(
+        "Ce document n'est pas encore en mode accès natif. Le passer en confidentiel (auteur + accès explicites) et ouvrir la gestion des accès ?"
+      )
+    ) {
+      return;
+    }
+    setConvertingDocId(doc.id);
+    try {
+      await api.put(`/documents/${doc.id}`, {
+        estConfidentiel: true,
+        typeDocument: 'epic',
+        referenceType: 'epic',
+        referenceId: epicId,
+        permissionUserIds: [currentUser.id],
+      });
+      onDocumentsChange?.();
+      setNatifAccesDoc({ id: doc.id, nom: doc.nom });
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur lors de la conversion des accès');
+    } finally {
+      setConvertingDocId(null);
     }
   };
 
@@ -2027,13 +2092,14 @@ function DocumentsEpic({
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0">
-                  {natif && doc.uploadedById === currentUser?.id && (
+                  {doc.uploadedById === currentUser?.id && (
                     <button
                       type="button"
-                      onClick={() => setNatifAccesDoc({ id: doc.id, nom: doc.nom })}
+                      onClick={() => void openDocAcces(doc)}
+                      disabled={convertingDocId === doc.id}
                       className="text-xs px-2 py-1 bg-purple-100 text-purple-800 rounded hover:bg-purple-200"
                     >
-                      {'\u{1F511}'} Accès
+                      {convertingDocId === doc.id ? 'Conversion...' : `${'\u{1F511}'} Accès`}
                     </button>
                   )}
                   {canEdit && (
