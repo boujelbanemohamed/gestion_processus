@@ -3817,6 +3817,7 @@ export default function Taches() {
   });
   const [showFiltres, setShowFiltres] = useState(false);
   const [mesTachesOnly, setMesTachesOnly] = useState(false);
+  const [voirArchives, setVoirArchives] = useState(false);
   const [page, setPage] = useState(1);
   const [usPage, setUsPage] = useState(1);
   const [epicPage, setEpicPage] = useState(1);
@@ -4141,6 +4142,8 @@ export default function Taches() {
 
   // Filtrage selon rôle + filtres UI
   const visibleTaches = taches.filter(t => {
+    if (!voirArchives && t.statut === 'archive') return false;
+
     if (mesTachesOnly) {
       const uid = currentUser?.id;
       const isAssignedToMe = !!uid && !!t.assignesUtilisateurs?.some((u) => u.id === uid);
@@ -4203,6 +4206,17 @@ export default function Taches() {
     filters.entiteIds.length > 0;
 
   const visibleUserStories = userStories.filter((us) => {
+    if (!voirArchives) {
+      const usTasks = taches.filter((t) => t.userStory?.id === us.id);
+      if (usTasks.length > 0) {
+        const agg = deriveAggregatedStatutFromTasks(
+          usTasks.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
+          new Date()
+        );
+        if (agg === 'archive') return false;
+      }
+    }
+
     if (filters.projetId) {
       if (us.epicId) {
         if (us.epic?.projetId !== filters.projetId) return false;
@@ -4225,6 +4239,17 @@ export default function Taches() {
   });
 
   const visibleEpics = epics.filter((ep) => {
+    if (!voirArchives) {
+      const epicTasks = taches.filter((t) => t.userStory?.epic?.id === ep.id);
+      if (epicTasks.length > 0) {
+        const agg = deriveAggregatedStatutFromTasks(
+          epicTasks.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
+          new Date()
+        );
+        if (agg === 'archive') return false;
+      }
+    }
+
     if (filters.projetId && ep.projetId !== filters.projetId) return false;
     if (filters.nomEpic.trim() && !ep.nom.toLowerCase().includes(filters.nomEpic.trim().toLowerCase())) return false;
     if (filters.nomUserStory.trim()) {
@@ -4584,13 +4609,26 @@ export default function Taches() {
       <div className="bg-white rounded-lg shadow border border-gray-200 p-4 mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <p className="text-sm font-semibold text-gray-800">Filtrer par vue</p>
-          <button
-            type="button"
-            onClick={() => setSectionViews({ ...defaultSectionViews })}
-            className="text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md px-3 py-1.5 hover:bg-gray-50"
-          >
-            Réinitialiser
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setVoirArchives((v) => !v)}
+              className={`text-sm border rounded-md px-3 py-1.5 ${
+                voirArchives
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'text-gray-600 hover:text-gray-900 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {voirArchives ? 'Masquer archives' : 'Voir archives'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSectionViews({ ...defaultSectionViews })}
+              className="text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-md px-3 py-1.5 hover:bg-gray-50"
+            >
+              Réinitialiser
+            </button>
+          </div>
         </div>
         <p className="text-xs text-gray-500 mb-3">
           Cochez une ou plusieurs vues : seules les sections correspondantes s&apos;affichent. Décochez pour masquer. Réinitialiser
