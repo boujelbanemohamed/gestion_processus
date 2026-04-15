@@ -74,6 +74,77 @@ export class EpicService {
   private notificationService = new NotificationService();
   private projetService = new ProjetService();
 
+  private async getInheritedEntitesByEpicIds(epicIds: string[]) {
+    const map = new Map<string, { id: string; nom: string }[]>();
+    if (epicIds.length === 0) return map;
+
+    const rows = await prisma.tache.findMany({
+      where: {
+        deletedAt: null,
+        userStory: {
+          is: {
+            deletedAt: null,
+            epicId: { in: epicIds },
+          },
+        },
+      },
+      select: {
+        userStory: { select: { epicId: true } },
+        assignesEntites: {
+          select: {
+            entite: { select: { id: true, nom: true } },
+          },
+        },
+      },
+    });
+
+    const dedupe = new Map<string, Set<string>>();
+    for (const row of rows) {
+      const epicId = row.userStory?.epicId;
+      if (!epicId) continue;
+      if (!dedupe.has(epicId)) dedupe.set(epicId, new Set<string>());
+      if (!map.has(epicId)) map.set(epicId, []);
+
+      const seen = dedupe.get(epicId)!;
+      const list = map.get(epicId)!;
+      for (const ae of row.assignesEntites || []) {
+        const ent = ae.entite;
+        if (!ent?.id || seen.has(ent.id)) continue;
+        seen.add(ent.id);
+        list.push({ id: ent.id, nom: ent.nom });
+      }
+    }
+
+    return map;
+  }
+
+  private withEpicInheritedEntites<T extends { id: string; assignesEntites?: any[] }>(
+    epics: T[],
+    inheritedByEpic: Map<string, { id: string; nom: string }[]>
+  ): Array<T & { entitesHeritees: { id: string; nom: string }[]; assignesEntitesEffectives: { entite: { id: string; nom: string } }[] }> {
+    return epics.map((ep) => {
+      const direct = (ep.assignesEntites || []).map((ae: any) => ({
+        id: ae.entite?.id ?? ae.entiteId,
+        nom: ae.entite?.nom,
+      }));
+      const inherited = inheritedByEpic.get(ep.id) || [];
+      const seen = new Set<string>();
+      const merged: { entite: { id: string; nom: string } }[] = [];
+
+      for (const ent of [...direct, ...inherited]) {
+        if (!ent?.id || seen.has(ent.id)) continue;
+        seen.add(ent.id);
+        merged.push({ entite: { id: ent.id, nom: ent.nom || '—' } });
+      }
+
+      return {
+        ...ep,
+        entitesHeritees: inherited,
+        assignesEntitesEffectives: merged,
+      };
+    });
+  }
+
   private async collectUserIdsPourTachesUserStories(userStoryIds: string[], authorId: string) {
     if (userStoryIds.length === 0) return new Set<string>();
     const taches = await prisma.tache.findMany({
@@ -145,21 +216,28 @@ export class EpicService {
       include: epicInclude,
       orderBy: { updatedAt: 'desc' },
     });
-    if (!filters.requesterId || !filters.requesterRole) return rows;
-    const visible: typeof rows = [];
-    for (const row of rows) {
-      if (await this.canViewEpicByProjet(row.id, filters.requesterId, filters.requesterRole)) {
-        visible.push(row);
+    let scopedRows = rows;
+    if (filters.requesterId && filters.requesterRole) {
+      const visible: typeof rows = [];
+      for (const row of rows) {
+        if (await this.canViewEpicByProjet(row.id, filters.requesterId, filters.requesterRole)) {
+          visible.push(row);
+        }
       }
+      scopedRows = visible;
     }
-    return visible;
+    const inherited = await this.getInheritedEntitesByEpicIds(scopedRows.map((r) => r.id));
+    return this.withEpicInheritedEntites(scopedRows as any[], inherited) as any;
   }
 
   async getEpic(id: string) {
-    return prisma.epic.findFirst({
+    const epic = await prisma.epic.findFirst({
       where: { id, deletedAt: null },
       include: epicInclude,
     });
+    if (!epic) return null;
+    const inherited = await this.getInheritedEntitesByEpicIds([epic.id]);
+    return this.withEpicInheritedEntites([epic as any], inherited)[0] as any;
   }
 
   async updateEpic(
@@ -449,7 +527,13 @@ export class EpicService {
       arr.push(d);
       byUs.set(rid, arr);
     }
-    return rows.map((r) => ({ ...r, documentsNatifs: byUs.get(r.id) ?? [] }));
+    const epicIds = rows.map((r) => r.epic?.id).filter(Boolean) as string[];
+    const inheritedByEpic = await this.getInheritedEntitesByEpicIds([...new Set(epicIds)]);
+    return rows.map((r) => {
+      if (!r.epic) return { ...r, documentsNatifs: byUs.get(r.id) ?? [] };
+      const enrichedEpic = this.withEpicInheritedEntites([r.epic as any], inheritedByEpic)[0];
+      return { ...r, epic: enrichedEpic, documentsNatifs: byUs.get(r.id) ?? [] };
+    });
   }
 
   async getUserStory(id: string) {
@@ -478,7 +562,10 @@ export class EpicService {
         adminSansAcces: { select: { userId: true } },
       },
     });
-    return { ...us, documentsNatifs };
+    if (!us.epic) return { ...us, documentsNatifs };
+    const inheritedByEpic = await this.getInheritedEntitesByEpicIds([us.epic.id]);
+    const enrichedEpic = this.withEpicInheritedEntites([us.epic as any], inheritedByEpic)[0];
+    return { ...us, epic: enrichedEpic, documentsNatifs };
   }
 
   async createUserStory(data: {

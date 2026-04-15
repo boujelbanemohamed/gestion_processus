@@ -15,6 +15,8 @@ export type EpicRow = {
   projet?: { id: string; nom: string };
   createdBy?: { id: string; nom: string; prenom: string } | null;
   assignesEntites?: { entite: { id: string; nom: string } }[];
+  assignesEntitesEffectives?: { entite: { id: string; nom: string } }[];
+  entitesHeritees?: { id: string; nom: string }[];
   assignesClientsFournisseurs?: { clientFournisseur: { id: string; nom: string; type: string } }[];
   userStories?: { id: string; description: string; taches?: { id: string; nom: string; statut: string }[] }[];
   documents?: { document: DocTache }[];
@@ -32,6 +34,12 @@ export type UserStoryRow = {
 function truncate(s: string, n: number) {
   const t = s.trim();
   return t.length <= n ? t : `${t.slice(0, n)}…`;
+}
+
+function epicEntitesEffectives(epic?: EpicRow | null): string[] {
+  if (!epic) return [];
+  const rows = epic.assignesEntitesEffectives || epic.assignesEntites || [];
+  return rows.map((ae) => ae.entite.nom).filter(Boolean);
 }
 
 export function EpicCreateModal({
@@ -827,11 +835,11 @@ export function EpicDetailModal({
             <span className="text-gray-500">Projet :</span>{' '}
             <span className="font-medium">{epic.projet?.nom || '—'}</span>
           </p>
-          {(epic.assignesEntites || []).length > 0 && (
+          {epicEntitesEffectives(epic).length > 0 && (
             <p>
               <span className="text-gray-500">Entités :</span>{' '}
               <span className="font-medium">
-                {(epic.assignesEntites || []).map((ae) => ae.entite.nom).join(', ')}
+                {epicEntitesEffectives(epic).join(', ')}
               </span>
             </p>
           )}
@@ -989,9 +997,9 @@ export function UserStoryDetailModal({
                 {us.epic.nom}
               </button>
               {us.epic.projet && <p className="text-xs text-gray-500 mt-1">Projet : {us.epic.projet.nom}</p>}
-              {(us.epic.assignesEntites || []).length > 0 && (
+              {epicEntitesEffectives(us.epic).length > 0 && (
                 <p className="text-xs text-gray-500 mt-1">
-                  Entités : {(us.epic.assignesEntites || []).map((ae) => ae.entite.nom).join(', ')}
+                  Entités : {epicEntitesEffectives(us.epic).join(', ')}
                 </p>
               )}
             </div>
