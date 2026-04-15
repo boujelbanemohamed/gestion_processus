@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { api, API_BASE_URL } from '../services/api';
 import { PvReunionsLieesBlock } from './PvReunionsLieesBlock';
-import type { ProjetOption, EntiteOption, DocTache } from '../pages/Taches';
+import type { ProjetOption, EntiteOption, DocTache, ClientFournisseurOption } from '../pages/Taches';
 
 export type EpicRow = {
   id: string;
@@ -11,6 +11,7 @@ export type EpicRow = {
   projet?: { id: string; nom: string };
   createdBy?: { id: string; nom: string; prenom: string } | null;
   assignesEntites?: { entite: { id: string; nom: string } }[];
+  assignesClientsFournisseurs?: { clientFournisseur: { id: string; nom: string; type: string } }[];
   userStories?: { id: string; description: string; taches?: { id: string; nom: string; statut: string }[] }[];
   documents?: { document: DocTache }[];
 };
@@ -33,16 +34,20 @@ export function EpicCreateModal({
   onSaved,
   projets,
   entites,
+  clientsFournisseurs,
 }: {
   onClose: () => void;
   onSaved: () => void;
   projets: ProjetOption[];
   entites: EntiteOption[];
+  clientsFournisseurs: ClientFournisseurOption[];
 }) {
   const [nom, setNom] = useState('');
   const [description, setDescription] = useState('');
   const [projetId, setProjetId] = useState('');
   const [selectedEntiteIds, setSelectedEntiteIds] = useState<string[]>([]);
+  const [selectedClientFournisseurIds, setSelectedClientFournisseurIds] = useState<string[]>([]);
+  const [projetClientFournisseurIds, setProjetClientFournisseurIds] = useState<string[] | undefined>(undefined);
   const [docIds, setDocIds] = useState<string[]>([]);
   const [orphanStories, setOrphanStories] = useState<UserStoryRow[]>([]);
   const [selectedUsIds, setSelectedUsIds] = useState<string[]>([]);
@@ -52,6 +57,32 @@ export function EpicCreateModal({
   const [uploadNom, setUploadNom] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+
+  useEffect(() => {
+    if (!projetId) {
+      setProjetClientFournisseurIds(undefined);
+      return;
+    }
+    let cancel = false;
+    api
+      .get(`/projets/${projetId}`)
+      .then((r) => {
+        if (cancel || !r.data) return;
+        const links = Array.isArray(r.data.clientsFournisseurs) ? r.data.clientsFournisseurs : [];
+        const ids = links
+          .map((l: { clientFournisseur?: { id?: string }; clientFournisseurId?: string }) =>
+            l.clientFournisseur?.id || l.clientFournisseurId
+          )
+          .filter(Boolean) as string[];
+        setProjetClientFournisseurIds(ids);
+      })
+      .catch(() => {
+        if (!cancel) setProjetClientFournisseurIds([]);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [projetId]);
 
   useEffect(() => {
     if (!projetId) {
@@ -91,6 +122,27 @@ export function EpicCreateModal({
     setSelectedUsIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const toggleEntite = (id: string) =>
     setSelectedEntiteIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const toggleClientFournisseur = (id: string) =>
+    setSelectedClientFournisseurIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const clientsFournisseursAffiches = useMemo(() => {
+    const pidSet =
+      projetClientFournisseurIds && projetClientFournisseurIds.length > 0
+        ? new Set(projetClientFournisseurIds)
+        : null;
+    if (!pidSet) return clientsFournisseurs;
+    const linked = clientsFournisseurs.filter((c) => pidSet!.has(c.id));
+    const sel = new Set(selectedClientFournisseurIds);
+    const extra = clientsFournisseurs.filter((c) => sel.has(c.id) && !pidSet!.has(c.id));
+    const seen = new Set<string>();
+    const out: ClientFournisseurOption[] = [];
+    for (const c of [...linked, ...extra]) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      out.push(c);
+    }
+    return out;
+  }, [clientsFournisseurs, projetClientFournisseurIds, selectedClientFournisseurIds]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -106,6 +158,7 @@ export function EpicCreateModal({
         description: description.trim() || null,
         projetId,
         entiteIds: selectedEntiteIds,
+        assignesClientFournisseurIds: selectedClientFournisseurIds,
         documentIds: docIds,
         userStoryIdsToAttach: selectedUsIds,
       });
@@ -181,6 +234,34 @@ export function EpicCreateModal({
                 </label>
               ))}
               {entites.length === 0 && <p className="text-xs text-gray-400">Aucune entité</p>}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Clients / fournisseurs assignés</label>
+            {projetId && projetClientFournisseurIds && projetClientFournisseurIds.length > 0 && (
+              <p className="text-xs text-gray-500 mb-1">
+                Liste priorisée sur les fiches rattachées au projet ; les fiches déjà cochées restent visibles.
+              </p>
+            )}
+            <div className="border rounded-md max-h-36 overflow-y-auto p-2 space-y-1">
+              {clientsFournisseursAffiches.map((c) => (
+                <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
+                  <input
+                    type="checkbox"
+                    checked={selectedClientFournisseurIds.includes(c.id)}
+                    onChange={() => toggleClientFournisseur(c.id)}
+                  />
+                  <span>
+                    <span className="font-medium">{c.nom}</span>
+                    <span className="text-gray-500 text-xs ml-1">
+                      ({c.type === 'fournisseur' ? 'Fournisseur' : c.type === 'client' ? 'Client' : c.type})
+                    </span>
+                  </span>
+                </label>
+              ))}
+              {clientsFournisseursAffiches.length === 0 && (
+                <p className="text-xs text-gray-400">Aucune fiche client / fournisseur</p>
+              )}
             </div>
           </div>
           <div>
@@ -441,18 +522,22 @@ export function EpicEditModal({
   onSaved,
   projets,
   entites,
+  clientsFournisseurs,
 }: {
   epicId: string;
   onClose: () => void;
   onSaved: () => void;
   projets: ProjetOption[];
   entites: EntiteOption[];
+  clientsFournisseurs: ClientFournisseurOption[];
 }) {
   const [loading, setLoading] = useState(true);
   const [nom, setNom] = useState('');
   const [description, setDescription] = useState('');
   const [projetId, setProjetId] = useState('');
   const [selectedEntiteIds, setSelectedEntiteIds] = useState<string[]>([]);
+  const [selectedClientFournisseurIds, setSelectedClientFournisseurIds] = useState<string[]>([]);
+  const [projetClientFournisseurIds, setProjetClientFournisseurIds] = useState<string[] | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
@@ -469,6 +554,9 @@ export function EpicEditModal({
         setDescription(ep.description || '');
         setProjetId(ep.projetId || '');
         setSelectedEntiteIds((ep.assignesEntites || []).map((ae) => ae.entite.id));
+        setSelectedClientFournisseurIds(
+          (ep.assignesClientsFournisseurs || []).map((row) => row.clientFournisseur.id)
+        );
       })
       .catch(() => {
         if (!cancel) setErr("Impossible de charger l'epic.");
@@ -481,8 +569,55 @@ export function EpicEditModal({
     };
   }, [epicId]);
 
+  useEffect(() => {
+    if (!projetId) {
+      setProjetClientFournisseurIds(undefined);
+      return;
+    }
+    let cancel = false;
+    api
+      .get(`/projets/${projetId}`)
+      .then((r) => {
+        if (cancel || !r.data) return;
+        const links = Array.isArray(r.data.clientsFournisseurs) ? r.data.clientsFournisseurs : [];
+        const ids = links
+          .map((l: { clientFournisseur?: { id?: string }; clientFournisseurId?: string }) =>
+            l.clientFournisseur?.id || l.clientFournisseurId
+          )
+          .filter(Boolean) as string[];
+        setProjetClientFournisseurIds(ids);
+      })
+      .catch(() => {
+        if (!cancel) setProjetClientFournisseurIds([]);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [projetId]);
+
   const toggleEntite = (id: string) =>
     setSelectedEntiteIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const toggleClientFournisseur = (id: string) =>
+    setSelectedClientFournisseurIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const clientsFournisseursAffiches = useMemo(() => {
+    const pidSet =
+      projetClientFournisseurIds && projetClientFournisseurIds.length > 0
+        ? new Set(projetClientFournisseurIds)
+        : null;
+    if (!pidSet) return clientsFournisseurs;
+    const linked = clientsFournisseurs.filter((c) => pidSet!.has(c.id));
+    const sel = new Set(selectedClientFournisseurIds);
+    const extra = clientsFournisseurs.filter((c) => sel.has(c.id) && !pidSet!.has(c.id));
+    const seen = new Set<string>();
+    const out: ClientFournisseurOption[] = [];
+    for (const c of [...linked, ...extra]) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      out.push(c);
+    }
+    return out;
+  }, [clientsFournisseurs, projetClientFournisseurIds, selectedClientFournisseurIds]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -498,6 +633,7 @@ export function EpicEditModal({
         description: description.trim() || null,
         projetId,
         entiteIds: selectedEntiteIds,
+        assignesClientFournisseurIds: selectedClientFournisseurIds,
       });
       onSaved();
       onClose();
@@ -578,6 +714,34 @@ export function EpicEditModal({
               {entites.length === 0 && <p className="text-xs text-gray-400">Aucune entité</p>}
             </div>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Clients / fournisseurs assignés</label>
+            {projetId && projetClientFournisseurIds && projetClientFournisseurIds.length > 0 && (
+              <p className="text-xs text-gray-500 mb-1">
+                Liste priorisée sur les fiches rattachées au projet ; les fiches déjà cochées restent visibles.
+              </p>
+            )}
+            <div className="border rounded-md max-h-36 overflow-y-auto p-2 space-y-1">
+              {clientsFournisseursAffiches.map((c) => (
+                <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
+                  <input
+                    type="checkbox"
+                    checked={selectedClientFournisseurIds.includes(c.id)}
+                    onChange={() => toggleClientFournisseur(c.id)}
+                  />
+                  <span>
+                    <span className="font-medium">{c.nom}</span>
+                    <span className="text-gray-500 text-xs ml-1">
+                      ({c.type === 'fournisseur' ? 'Fournisseur' : c.type === 'client' ? 'Client' : c.type})
+                    </span>
+                  </span>
+                </label>
+              ))}
+              {clientsFournisseursAffiches.length === 0 && (
+                <p className="text-xs text-gray-400">Aucune fiche client / fournisseur</p>
+              )}
+            </div>
+          </div>
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 border rounded-md text-gray-700">
               Annuler
@@ -653,6 +817,16 @@ export function EpicDetailModal({ epicId, onClose }: { epicId: string; onClose: 
               <span className="text-gray-500">Entités :</span>{' '}
               <span className="font-medium">
                 {(epic.assignesEntites || []).map((ae) => ae.entite.nom).join(', ')}
+              </span>
+            </p>
+          )}
+          {(epic.assignesClientsFournisseurs || []).length > 0 && (
+            <p>
+              <span className="text-gray-500">Clients / fournisseurs :</span>{' '}
+              <span className="font-medium">
+                {(epic.assignesClientsFournisseurs || [])
+                  .map((row) => `${row.clientFournisseur.nom} (${row.clientFournisseur.type})`)
+                  .join(', ')}
               </span>
             </p>
           )}

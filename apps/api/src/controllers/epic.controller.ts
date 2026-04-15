@@ -80,7 +80,7 @@ export const getEpic = async (req: AuthRequest, res: Response) => {
 export const updateEpic = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
-    const { nom, description, projetId, entiteIds } = req.body;
+    const { nom, description, projetId, entiteIds, assignesClientFournisseurIds } = req.body;
     const eIds = entiteIds !== undefined
       ? Array.isArray(entiteIds)
         ? entiteIds
@@ -88,11 +88,20 @@ export const updateEpic = async (req: AuthRequest, res: Response) => {
           ? [entiteIds]
           : []
       : undefined;
+    const cfIds =
+      assignesClientFournisseurIds !== undefined
+        ? Array.isArray(assignesClientFournisseurIds)
+          ? assignesClientFournisseurIds
+          : assignesClientFournisseurIds
+            ? [assignesClientFournisseurIds]
+            : []
+        : undefined;
     const row = await epicService.updateEpic(req.params.id, {
       ...(nom !== undefined && { nom }),
       ...(description !== undefined && { description: description ?? null }),
       ...(projetId !== undefined && { projetId }),
       ...(eIds !== undefined && { entiteIds: eIds }),
+      ...(cfIds !== undefined && { assignesClientFournisseurIds: cfIds }),
     });
     await logAccess(req, res, 'modification', ResourceType.epic, row!.id, row!.nom);
     res.json(row);
@@ -104,7 +113,16 @@ export const updateEpic = async (req: AuthRequest, res: Response) => {
 export const createEpic = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
-    const { nom, description, projetId, entiteId, entiteIds, documentIds, userStoryIdsToAttach } = req.body;
+    const {
+      nom,
+      description,
+      projetId,
+      entiteId,
+      entiteIds,
+      documentIds,
+      userStoryIdsToAttach,
+      assignesClientFournisseurIds,
+    } = req.body;
     if (!nom?.trim() || !projetId) {
       return res.status(400).json({ error: 'nom et projetId sont requis' });
     }
@@ -115,6 +133,11 @@ export const createEpic = async (req: AuthRequest, res: Response) => {
       : userStoryIdsToAttach
         ? [userStoryIdsToAttach]
         : [];
+    const cfIdsCreate = Array.isArray(assignesClientFournisseurIds)
+      ? assignesClientFournisseurIds
+      : assignesClientFournisseurIds
+        ? [assignesClientFournisseurIds]
+        : [];
     const epic = await epicService.createEpic({
       nom,
       description: description ?? null,
@@ -124,6 +147,7 @@ export const createEpic = async (req: AuthRequest, res: Response) => {
       createdById: req.user.userId,
       documentIds: docIds,
       userStoryIdsToAttach: usIds,
+      assignesClientFournisseurIds: cfIdsCreate,
     });
     await logAccess(req, res, 'creation', ResourceType.epic, epic!.id, epic!.nom);
     res.status(201).json(epic);

@@ -8,6 +8,10 @@ const epicInclude = {
     include: { entite: { select: { id: true, nom: true } } },
     orderBy: { createdAt: 'asc' as const },
   },
+  assignesClientsFournisseurs: {
+    include: { clientFournisseur: { select: { id: true, nom: true, type: true } } },
+    orderBy: { createdAt: 'asc' as const },
+  },
   createdBy: { select: { id: true, nom: true, prenom: true } },
   documents: {
     include: {
@@ -138,6 +142,7 @@ export class EpicService {
       description?: string | null;
       projetId?: string;
       entiteIds?: string[];
+      assignesClientFournisseurIds?: string[];
     }
   ) {
     const ep = await prisma.epic.findFirst({ where: { id, deletedAt: null } });
@@ -161,6 +166,16 @@ export class EpicService {
           });
         }
       }
+      if (data.assignesClientFournisseurIds !== undefined) {
+        await tx.epicClientFournisseur.deleteMany({ where: { epicId: id } });
+        const uniqueCf = [...new Set(data.assignesClientFournisseurIds.map((c) => c.trim()).filter(Boolean))];
+        if (uniqueCf.length > 0) {
+          await tx.epicClientFournisseur.createMany({
+            data: uniqueCf.map((clientFournisseurId) => ({ epicId: id, clientFournisseurId })),
+            skipDuplicates: true,
+          });
+        }
+      }
     });
 
     return this.getEpic(id);
@@ -175,8 +190,16 @@ export class EpicService {
     createdById?: string | null;
     documentIds?: string[];
     userStoryIdsToAttach?: string[];
+    assignesClientFournisseurIds?: string[];
   }) {
-    const { documentIds = [], userStoryIdsToAttach = [], entiteIds = [], entiteId, ...rest } = data;
+    const {
+      documentIds = [],
+      userStoryIdsToAttach = [],
+      entiteIds = [],
+      entiteId,
+      assignesClientFournisseurIds = [],
+      ...rest
+    } = data;
     const entiteIdSet = new Set<string>();
     for (const id of entiteIds) {
       if (id?.trim()) entiteIdSet.add(id.trim());
@@ -200,6 +223,15 @@ export class EpicService {
           ? {
               documents: {
                 create: documentIds.map((documentId) => ({ documentId })),
+              },
+            }
+          : {}),
+        ...(assignesClientFournisseurIds.length > 0
+          ? {
+              assignesClientsFournisseurs: {
+                create: [...new Set(assignesClientFournisseurIds.map((c) => c.trim()).filter(Boolean))].map(
+                  (clientFournisseurId) => ({ clientFournisseurId })
+                ),
               },
             }
           : {}),

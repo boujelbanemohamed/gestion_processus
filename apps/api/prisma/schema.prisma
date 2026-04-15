@@ -762,6 +762,7 @@ model ClientFournisseur {
   pvReunionPresents PvReunionPresentClientFournisseur[]
   adminSansAcces    ClientFournisseurAdminSansAcces[]
   tachesAssignees   TacheClientFournisseur[]
+  epicsAssignees    EpicClientFournisseur[]
 }
 
 /// Administrateurs explicitement privés d’accès implicite (aligné ContratAdminSansAcces).
@@ -953,11 +954,12 @@ model Epic {
   updatedAt   DateTime @updatedAt
   deletedAt   DateTime?
 
-  userStories      UserStory[]
-  documents        EpicDocument[]
-  assignesEntites  EpicEntite[]
-  commentaires     EpicCommentaire[]
-  pvReunions       PvReunionEpic[]
+  userStories                 UserStory[]
+  documents                   EpicDocument[]
+  assignesEntites             EpicEntite[]
+  assignesClientsFournisseurs EpicClientFournisseur[]
+  commentaires                EpicCommentaire[]
+  pvReunions                  PvReunionEpic[]
 
   @@index([projetId])
   @@index([deletedAt])
@@ -974,6 +976,19 @@ model EpicEntite {
   @@unique([epicId, entiteId])
   @@index([epicId])
   @@index([entiteId])
+}
+
+model EpicClientFournisseur {
+  id                  String            @id @default(uuid())
+  epicId              String
+  epic                Epic              @relation(fields: [epicId], references: [id], onDelete: Cascade)
+  clientFournisseurId String
+  clientFournisseur   ClientFournisseur @relation(fields: [clientFournisseurId], references: [id], onDelete: Cascade)
+  createdAt           DateTime          @default(now())
+
+  @@unique([epicId, clientFournisseurId])
+  @@index([epicId])
+  @@index([clientFournisseurId])
 }
 
 /// User story : epicId optionnel tant qu’elle n’est pas rattachée à un epic

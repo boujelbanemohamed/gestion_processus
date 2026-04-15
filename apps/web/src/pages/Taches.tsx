@@ -98,6 +98,7 @@ export type Tache = {
       projetId?: string;
       projet?: { id: string; nom: string };
       assignesEntites?: { entite: { id: string; nom: string } }[];
+      assignesClientsFournisseurs?: { clientFournisseur: { id: string; nom: string; type: string } }[];
     } | null;
   } | null;
 };
@@ -1353,6 +1354,18 @@ function getEntitesDepuisTaches(tasks: Tache[]) {
   }
   return [...m.entries()]
     .map(([id, nom]) => ({ id, nom }))
+    .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+}
+
+function getClientsDepuisTaches(tasks: Tache[]) {
+  const m = new Map<string, { nom: string; type: string }>();
+  for (const t of tasks) {
+    for (const c of t.assignesClientsFournisseurs || []) {
+      m.set(c.id, { nom: c.nom, type: c.type });
+    }
+  }
+  return [...m.entries()]
+    .map(([id, v]) => ({ id, nom: v.nom, type: v.type }))
     .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
 }
 
@@ -4807,6 +4820,19 @@ export default function Taches() {
                   seenEnt.add(e.id);
                   entitesEpMerged.push(e);
                 }
+                const cfEpicDirect = (ep.assignesClientsFournisseurs || []).map((row) => ({
+                  id: row.clientFournisseur.id,
+                  nom: row.clientFournisseur.nom,
+                  type: row.clientFournisseur.type,
+                }));
+                const cfEpTaches = getClientsDepuisTaches(tasksEp);
+                const seenCf = new Set<string>();
+                const cfEpMerged: { id: string; nom: string; type: string }[] = [];
+                for (const c of [...cfEpicDirect, ...cfEpTaches]) {
+                  if (seenCf.has(c.id)) continue;
+                  seenCf.add(c.id);
+                  cfEpMerged.push(c);
+                }
                 return (
                   <div
                     key={ep.id}
@@ -4894,6 +4920,21 @@ export default function Taches() {
                                       className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs"
                                     >
                                       🏢 {e.nom}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {cfEpMerged.length > 0 && (
+                                <div className="flex gap-1 flex-wrap">
+                                  {cfEpMerged.map((c) => (
+                                    <span
+                                      key={c.id}
+                                      className="px-2 py-0.5 bg-amber-50 text-amber-900 rounded-full text-xs border border-amber-200"
+                                    >
+                                      🤝 {c.nom}
+                                      <span className="text-amber-800/90 ml-1">
+                                        ({c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})
+                                      </span>
                                     </span>
                                   ))}
                                 </div>
@@ -5155,6 +5196,7 @@ export default function Taches() {
           onSaved={loadAll}
           projets={projets}
           entites={entites}
+          clientsFournisseurs={clientsFournisseursOptions}
         />
       )}
 
@@ -5190,6 +5232,7 @@ export default function Taches() {
           onSaved={loadAll}
           projets={projets}
           entites={entites}
+          clientsFournisseurs={clientsFournisseursOptions}
         />
       )}
 
@@ -5261,8 +5304,8 @@ export default function Taches() {
               <>
                 <h3 className="text-xl font-semibold mb-2">Accès — {agileAccesModal.epic.nom}</h3>
                 <p className="text-sm text-gray-600 mb-4">
-                  Vue des habilitations liées à l&apos;epic (entités, créateur, agrégat des tâches). Pour modifier les entités
-                  rattachées, utilisez « Modifier » sur la carte epic.
+                  Vue des habilitations liées à l&apos;epic (entités, clients / fournisseurs, créateur, agrégat des tâches).
+                  Pour modifier les rattachements, utilisez « Modifier » sur la carte epic.
                 </p>
                 <div className="space-y-4 text-sm">
                   <div>
@@ -5296,6 +5339,21 @@ export default function Taches() {
                       <ul className="space-y-1">
                         {(agileAccesModal.epic.assignesEntites || []).map((ae: any) => (
                           <li key={ae.id}>🏢 {ae.entite?.nom ?? '—'}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {(agileAccesModal.epic.assignesClientsFournisseurs?.length ?? 0) > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Clients / fournisseurs rattachés</p>
+                      <ul className="space-y-1">
+                        {(agileAccesModal.epic.assignesClientsFournisseurs || []).map((row: any) => (
+                          <li key={row.id}>
+                            🤝 {row.clientFournisseur?.nom ?? '—'}{' '}
+                            <span className="text-gray-500">
+                              ({row.clientFournisseur?.type === 'fournisseur' ? 'Fournisseur' : 'Client'})
+                            </span>
+                          </li>
                         ))}
                       </ul>
                     </div>
