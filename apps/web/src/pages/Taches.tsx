@@ -1448,12 +1448,22 @@ function getAccesDocument(doc: DocTache) {
 }
 
 // ── Section Documents d'une Tâche ─────────────────────────────────────────────
-function DocumentsTache({ tacheId, documents, canEdit }: {
+function DocumentsTache({
+  tacheId,
+  documents,
+  canEdit,
+  users,
+  onDocumentsChange,
+}: {
   tacheId: string;
   documents: DocTache[];
   canEdit: boolean;
+  users: UserOption[];
+  onDocumentsChange?: () => void;
 }) {
-  const [docs, setDocs] = useState<DocTache[]>(documents);
+  const { user: currentUser } = useAuth();
+  const [natifAccesDoc, setNatifAccesDoc] = useState<{ id: string; nom: string } | null>(null);
+  const [docs, setDocs] = useState<DocTache[]>(() => documents.map((d) => normalizeDocumentAclFields(d)));
   const [showUpload, setShowUpload] = useState(false);
   const [showLier, setShowLier] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1465,7 +1475,9 @@ function DocumentsTache({ tacheId, documents, canEdit }: {
   const [selectedDocId, setSelectedDocId] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { setDocs(documents); }, [documents]);
+  useEffect(() => {
+    setDocs(documents.map((d) => normalizeDocumentAclFields(d)));
+  }, [documents]);
 
   const loadDocsLiables = async () => {
     try {
@@ -1487,8 +1499,9 @@ function DocumentsTache({ tacheId, documents, canEdit }: {
       const res = await api.post(`/taches/${tacheId}/documents`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setDocs(prev => [...prev, res.data]);
+      setDocs((prev) => [...prev, normalizeDocumentAclFields(res.data)]);
       setShowUpload(false); setUploadFile(null); setUploadNom(''); setUploadDesc('');
+      onDocumentsChange?.();
     } catch (e: any) { alert(e.response?.data?.error || 'Erreur upload'); }
     finally { setUploading(false); }
   };
@@ -1498,8 +1511,9 @@ function DocumentsTache({ tacheId, documents, canEdit }: {
     try {
       await api.post(`/taches/${tacheId}/documents/lier`, { documentId: selectedDocId });
       const doc = docsLiables.find(d => d.id === selectedDocId);
-      if (doc) setDocs(prev => [...prev, doc]);
+      if (doc) setDocs((prev) => [...prev, normalizeDocumentAclFields(doc)]);
       setShowLier(false); setSelectedDocId('');
+      onDocumentsChange?.();
     } catch (e: any) { alert(e.response?.data?.error || 'Erreur liaison'); }
   };
 
@@ -1507,7 +1521,8 @@ function DocumentsTache({ tacheId, documents, canEdit }: {
     if (!confirm('Délier ce document ?')) return;
     try {
       await api.delete(`/taches/${tacheId}/documents/${documentId}`);
-      setDocs(prev => prev.filter(d => d.id !== documentId));
+      setDocs((prev) => prev.filter((d) => d.id !== documentId));
+      onDocumentsChange?.();
     } catch (e: any) { alert(e.response?.data?.error || 'Erreur'); }
   };
 
@@ -1607,7 +1622,8 @@ function DocumentsTache({ tacheId, documents, canEdit }: {
 
       <div className="space-y-2">
         {docs.length === 0 && <p className="text-sm text-gray-400">Aucun document lié</p>}
-        {docs.map(doc => {
+        {docs.map((doc) => {
+          const natif = isNativeAuthorControlledUploadDoc(doc);
           const accesPersonnes = getAccesDocument(doc);
           return (
             <div key={doc.id} className="bg-white border border-gray-200 rounded-lg p-3">
@@ -1625,49 +1641,111 @@ function DocumentsTache({ tacheId, documents, canEdit }: {
                     </div>
                   </div>
                 </div>
-                {canEdit && (
-                  <button onClick={() => handleDelier(doc.id)} className="text-xs text-red-500 hover:text-red-700 shrink-0">Délier</button>
-                )}
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  {natif && doc.uploadedById === currentUser?.id && (
+                    <button
+                      type="button"
+                      onClick={() => setNatifAccesDoc({ id: doc.id, nom: doc.nom })}
+                      className="text-xs px-2 py-1 bg-purple-100 text-purple-800 rounded hover:bg-purple-200"
+                    >
+                      {'\u{1F511}'} Accès
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button onClick={() => handleDelier(doc.id)} className="text-xs text-red-500 hover:text-red-700 shrink-0">
+                      Délier
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Section Accès du document */}
               <div className="border-t border-gray-100 pt-2 mt-2">
                 <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Accès :</p>
-                <div className="flex items-start gap-3 flex-wrap">
-                  {/* Badge accès restreint ou libre */}
-                  {doc.estConfidentiel ? (
-                    <div className="flex flex-col items-center">
+                {natif ? (
+                  <div className="text-xs text-gray-700 space-y-2">
+                    <div className="flex flex-col items-center w-fit">
                       <div className="w-14 h-14 bg-red-100 border border-red-300 rounded-lg flex flex-col items-center justify-center">
-                        <span className="text-xl">🔒</span>
+                        <span className="text-xl">{'\u{1F512}'}</span>
                       </div>
                       <span className="text-xs text-red-600 font-medium mt-1">Accès restreint</span>
                     </div>
-                  ) : (
-                    <div className="flex flex-col items-center">
-                      <div className="w-14 h-14 bg-green-100 border border-green-300 rounded-lg flex flex-col items-center justify-center">
-                        <span className="text-xl">🌐</span>
+                    <AccessContratLikeAdminLines
+                      keyPrefix={`tache-doc-${doc.id}`}
+                      users={users}
+                      createdById={doc.uploadedById}
+                      createdBy={doc.uploadedBy}
+                      adminSansAccesUserIds={doc.adminSansAccesUserIds}
+                      permissions={(doc.permissionsUtilisateurs || [])
+                        .filter((p: any) => p.user?.role === 'admin')
+                        .map((p: any) => ({
+                          userId: p.userId || p.user?.id,
+                          niveau: 'lecture',
+                          user: p.user,
+                        }))}
+                      droitsAdminCompletLabel={DROITS_ADMIN_DOC_PROJET_NATIF}
+                      creatorRightsLabel="auteur — tous les droits sur ce document"
+                      niveauLabel={() => 'Lecture'}
+                      limitedPrefix="Admin : accès limité —"
+                    />
+                    {(doc.permissionsUtilisateurs || [])
+                      .filter((p: any) => p.user && p.user.role !== 'admin')
+                      .map((p: any) => (
+                        <div key={p.id || p.user.id} className="min-w-0">
+                          <span className="font-medium text-gray-900">
+                            {p.user.prenom} {p.user.nom}
+                          </span>
+                          <span className="text-gray-500 italic ml-1">(Accès explicite : lecture)</span>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-3 flex-wrap">
+                    {doc.estConfidentiel ? (
+                      <div className="flex flex-col items-center">
+                        <div className="w-14 h-14 bg-red-100 border border-red-300 rounded-lg flex flex-col items-center justify-center">
+                          <span className="text-xl">🔒</span>
+                        </div>
+                        <span className="text-xs text-red-600 font-medium mt-1">Accès restreint</span>
                       </div>
-                      <span className="text-xs text-green-600 font-medium mt-1">Accès libre</span>
-                    </div>
-                  )}
-                  {/* Personnes avec accès */}
-                  {accesPersonnes.map((p, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                        {p.nom.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                    ) : (
+                      <div className="flex flex-col items-center">
+                        <div className="w-14 h-14 bg-green-100 border border-green-300 rounded-lg flex flex-col items-center justify-center">
+                          <span className="text-xl">🌐</span>
+                        </div>
+                        <span className="text-xs text-green-600 font-medium mt-1">Accès libre</span>
                       </div>
-                      <div>
-                        <p className="text-xs font-medium text-gray-800">{p.nom}</p>
-                        <p className="text-xs text-gray-500 italic">({p.droit})</p>
+                    )}
+                    {accesPersonnes.map((p, i) => (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                          {p.nom
+                            .split(' ')
+                            .map((n: string) => n[0])
+                            .join('')
+                            .slice(0, 2)
+                            .toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-gray-800">{p.nom}</p>
+                          <p className="text-xs text-gray-500 italic">({p.droit})</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
       </div>
+      <DocumentAccesNatifModal
+        open={!!natifAccesDoc}
+        document={natifAccesDoc}
+        users={users}
+        onClose={() => setNatifAccesDoc(null)}
+        onAfterMutation={() => onDocumentsChange?.()}
+      />
     </div>
   );
 }
@@ -2417,7 +2495,13 @@ export function TacheCard({
             </div>
           )}
           {/* Section Documents */}
-          <DocumentsTache tacheId={tache.id} documents={tache.documents || []} canEdit={canEdit} />
+          <DocumentsTache
+            tacheId={tache.id}
+            documents={tache.documents || []}
+            canEdit={canEdit}
+            users={users}
+            onDocumentsChange={onRefreshData}
+          />
 
           <div className="border-t border-gray-200 pt-4">
             <PvReunionsLieesBlock apiPath={`/taches/${tache.id}/pv-reunions`} />

@@ -5,11 +5,12 @@
 export function isNativeAuthorControlledUploadDoc(d: any): boolean {
   return (
     !!d?.estConfidentiel &&
-    !!d?.referenceId &&
-    ((d?.typeDocument === 'projet' && d?.referenceType === 'projet') ||
+    ((d?.typeDocument === 'tache') ||
+      (!!d?.referenceId &&
+        ((d?.typeDocument === 'projet' && d?.referenceType === 'projet') ||
       (d?.typeDocument === 'processus' && d?.referenceType === 'processus') ||
       (d?.typeDocument === 'epic' && d?.referenceType === 'epic') ||
-      (d?.typeDocument === 'user_story' && d?.referenceType === 'userStory'))
+          (d?.typeDocument === 'user_story' && d?.referenceType === 'userStory'))))
   );
 }
 

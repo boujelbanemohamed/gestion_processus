@@ -63,8 +63,9 @@ const TACHE_INCLUDE = {
         include: {
           uploadedBy: { select: { id: true, nom: true, prenom: true } },
           permissionsUtilisateurs: {
-            include: { user: { select: { id: true, nom: true, prenom: true } } }
+            include: { user: { select: { id: true, nom: true, prenom: true, role: true } } }
           },
+          adminSansAcces: { select: { userId: true } },
         }
       }
     }
@@ -581,7 +582,7 @@ export class TacheService {
     const document = await prisma.document.create({
       data: {
         nom: nom || fichier.originalname,
-        typeDocument: 'autre' as any,
+        typeDocument: 'tache' as any,
         fichierUrl: fichier.path,
         fichierNomOriginal: fichier.originalname,
         fichierTaille: fichier.size,
@@ -589,6 +590,7 @@ export class TacheService {
         description: description || null,
         statut: 'valide',
         uploadedById: userId,
+        estConfidentiel: true,
       },
     });
 

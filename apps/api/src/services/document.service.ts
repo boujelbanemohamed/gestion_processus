@@ -46,9 +46,11 @@ export function isNativeProjetUploadDocument(doc: {
 }): boolean {
   const typeDoc = String(doc.typeDocument ?? '');
   const refType = String(doc.referenceType ?? '');
-  if (!doc.estConfidentiel || doc.referenceId == null || String(doc.referenceId).trim() === '') {
+  if (!doc.estConfidentiel) {
     return false;
   }
+  if (typeDoc === 'tache') return true;
+  if (doc.referenceId == null || String(doc.referenceId).trim() === '') return false;
   const nativePairs: [string, string][] = [
     ['projet', 'projet'],
     ['processus', 'processus'],
@@ -145,10 +147,23 @@ function buildDocumentLinkClause(linkType: string, linkId: string): Record<strin
   if (!linkType?.trim() || !linkId?.trim()) return null;
   switch (linkType) {
     case 'processus':
-    case 'projet':
     case 'entite':
     case 'clientFournisseur':
       return { referenceType: linkType as RefType, referenceId: linkId };
+    case 'projet':
+      return {
+        OR: [
+          { referenceType: 'projet' as RefType, referenceId: linkId },
+          { tacheDocuments: { some: { tache: { projetId: linkId, deletedAt: null } } } },
+          { epicDocuments: { some: { epic: { projetId: linkId, deletedAt: null } } } },
+          {
+            AND: [
+              { referenceType: 'epic' as RefType },
+              { epicDocuments: { some: { epic: { projetId: linkId, deletedAt: null } } } },
+            ],
+          },
+        ],
+      };
     case 'uploadedBy':
       return { uploadedById: linkId };
     case 'contrat':
@@ -589,6 +604,20 @@ export class DocumentService {
     }
     if (document.referenceType === 'userStory' && document.referenceId) {
       const pid = await resolveUserStoryProjetId(document.referenceId);
+      if (pid) {
+        const projAccess = await projetService.canAccess(pid, userId, r);
+        if (!projAccess.canAccess) return false;
+      }
+    }
+    if (document.typeDocument === 'tache') {
+      const tacheLink = await prisma.tacheDocument.findFirst({
+        where: {
+          documentId,
+          tache: { deletedAt: null, projetId: { not: null } },
+        },
+        select: { tache: { select: { projetId: true } } },
+      });
+      const pid = tacheLink?.tache?.projetId;
       if (pid) {
         const projAccess = await projetService.canAccess(pid, userId, r);
         if (!projAccess.canAccess) return false;
