@@ -795,6 +795,8 @@ model RepresentantLegal {
   nom                 String
   prenom              String
   fonction            String?
+  email               String?
+  telephone           String?
   statut              String   @default("en_exercice") // 'en_exercice' | 'fin_exercice'
   dateDebut           DateTime?
   dateFin             DateTime?

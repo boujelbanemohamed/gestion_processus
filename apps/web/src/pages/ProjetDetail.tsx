@@ -1828,6 +1828,32 @@ export default function ProjetDetail() {
                                             {rep.prenom} {rep.nom}
                                           </span>
                                           {rep.fonction && <span className="text-gray-400">— {rep.fonction}</span>}
+                                          {(rep.email || rep.telephone) && (
+                                            <span className="text-gray-500 text-xs w-full basis-full flex flex-wrap gap-x-3 gap-y-0.5">
+                                              {rep.email && (
+                                                <span>
+                                                  E-mail :{' '}
+                                                  <a
+                                                    href={`mailto:${rep.email}`}
+                                                    className="text-blue-700 hover:underline break-all"
+                                                  >
+                                                    {rep.email}
+                                                  </a>
+                                                </span>
+                                              )}
+                                              {rep.telephone && (
+                                                <span>
+                                                  Tél. :{' '}
+                                                  <a
+                                                    href={`tel:${String(rep.telephone).replace(/\s/g, '')}`}
+                                                    className="tabular-nums text-gray-700 hover:underline"
+                                                  >
+                                                    {rep.telephone}
+                                                  </a>
+                                                </span>
+                                              )}
+                                            </span>
+                                          )}
                                         </div>
                                       ))}
                                     </div>

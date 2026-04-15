@@ -95,7 +95,16 @@ export default function ClientsFournisseurs() {
   const [showRepModal, setShowRepModal] = useState(false);
   const [repTarget, setRepTarget] = useState<any>(null);
   const [repEditingRep, setRepEditingRep] = useState<any | null>(null);
-  const [repForm, setRepForm] = useState({ nom: '', prenom: '', fonction: '', statut: 'en_exercice', dateDebut: '', dateFin: '' });
+  const [repForm, setRepForm] = useState({
+    nom: '',
+    prenom: '',
+    fonction: '',
+    email: '',
+    telephone: '',
+    statut: 'en_exercice',
+    dateDebut: '',
+    dateFin: '',
+  });
   const [usersList, setUsersList] = useState<any[]>([]);
   const [accesModalItem, setAccesModalItem] = useState<any | null>(null);
   const [accesDetail, setAccesDetail] = useState<any | null>(null);
@@ -395,7 +404,16 @@ export default function ClientsFournisseurs() {
   const openAddRep = (item: any) => {
     setRepTarget(item);
     setRepEditingRep(null);
-    setRepForm({ nom: '', prenom: '', fonction: '', statut: 'en_exercice', dateDebut: '', dateFin: '' });
+    setRepForm({
+      nom: '',
+      prenom: '',
+      fonction: '',
+      email: '',
+      telephone: '',
+      statut: 'en_exercice',
+      dateDebut: '',
+      dateFin: '',
+    });
     setShowRepModal(true);
   };
 
@@ -406,6 +424,8 @@ export default function ClientsFournisseurs() {
       nom: rep.nom || '',
       prenom: rep.prenom || '',
       fonction: rep.fonction || '',
+      email: rep.email || '',
+      telephone: rep.telephone || '',
       statut: rep.statut === 'fin_exercice' ? 'fin_exercice' : 'en_exercice',
       dateDebut: isoToDateInput(rep.dateDebut),
       dateFin: isoToDateInput(rep.dateFin),
@@ -610,6 +630,29 @@ export default function ClientsFournisseurs() {
                             </span>
                             <span className="font-medium">{rep.prenom} {rep.nom}</span>
                             {rep.fonction && <span className="text-gray-400">— {rep.fonction}</span>}
+                            {(rep.email || rep.telephone) && (
+                              <span className="text-gray-500 text-xs w-full basis-full flex flex-wrap gap-x-3 gap-y-0.5">
+                                {rep.email && (
+                                  <span>
+                                    E-mail :{" "}
+                                    <a href={`mailto:${rep.email}`} className="text-blue-700 hover:underline break-all">
+                                      {rep.email}
+                                    </a>
+                                  </span>
+                                )}
+                                {rep.telephone && (
+                                  <span>
+                                    Tél. :{" "}
+                                    <a
+                                      href={`tel:${String(rep.telephone).replace(/\s/g, "")}`}
+                                      className="tabular-nums text-gray-700 hover:underline"
+                                    >
+                                      {rep.telephone}
+                                    </a>
+                                  </span>
+                                )}
+                              </span>
+                            )}
                             {capModify(item) && (
                               <div className="flex flex-wrap gap-1 ml-auto">
                                 <button type="button" onClick={() => openEditRep(item, rep)} className="text-xs px-2 py-0.5 bg-blue-100 text-blue-800 rounded hover:bg-blue-200">✏️ Modifier</button>
@@ -946,6 +989,28 @@ export default function ClientsFournisseurs() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Fonction</label>
                 <input type="text" value={repForm.fonction} onChange={e => setRepForm({...repForm, fonction: e.target.value})} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
+                <input
+                  type="email"
+                  autoComplete="off"
+                  placeholder="Facultatif"
+                  value={repForm.email}
+                  onChange={(e) => setRepForm({ ...repForm, email: e.target.value })}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Téléphone</label>
+                <input
+                  type="tel"
+                  autoComplete="off"
+                  placeholder="Facultatif"
+                  value={repForm.telephone}
+                  onChange={(e) => setRepForm({ ...repForm, telephone: e.target.value })}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Statut</label>

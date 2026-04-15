@@ -21,6 +21,12 @@ function parseRepresentantDate(v: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function optionalTrimmedString(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  return s === '' ? null : s;
+}
+
 async function isCfAdminImplicitRefused(cfId: string, viewerUserId: string): Promise<boolean> {
   const s = await fetchCfAdminExcludedForUser(viewerUserId, [cfId]);
   return s.has(cfId);
@@ -409,6 +415,8 @@ export const clientFournisseurService = {
         nom,
         prenom,
         fonction,
+        email: optionalTrimmedString(raw?.email),
+        telephone: optionalTrimmedString(raw?.telephone),
         statut,
         dateDebut: parseRepresentantDate(raw?.dateDebut),
         dateFin: parseRepresentantDate(raw?.dateFin),
@@ -431,6 +439,8 @@ export const clientFournisseurService = {
       nom?: string;
       prenom?: string;
       fonction?: string | null;
+      email?: string | null;
+      telephone?: string | null;
       statut?: string;
       dateDebut?: Date | null;
       dateFin?: Date | null;
@@ -442,6 +452,8 @@ export const clientFournisseurService = {
       const f = String(raw.fonction ?? '').trim();
       data.fonction = f === '' ? null : f;
     }
+    if (raw.email !== undefined) data.email = optionalTrimmedString(raw.email);
+    if (raw.telephone !== undefined) data.telephone = optionalTrimmedString(raw.telephone);
     if (raw.statut !== undefined) {
       data.statut = raw.statut === 'fin_exercice' ? 'fin_exercice' : 'en_exercice';
     }
