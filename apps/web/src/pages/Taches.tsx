@@ -4430,6 +4430,22 @@ export default function Taches() {
           </div>
 
           <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Statut</label>
+                <select
+                  value={filters.statut}
+                  onChange={(e) => setFilters({ ...filters, statut: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Tous les statuts</option>
+                  {STATUT_OPTIONS.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+          </div>
+
+          <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
                   Assigné à{' '}
                   {filters.assigneIds.length > 0 && (
