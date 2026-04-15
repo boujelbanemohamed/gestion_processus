@@ -103,6 +103,13 @@ function isValidIsoDate(s: string): boolean {
   return !Number.isNaN(d.getTime());
 }
 
+function formatMontantBudgetFr(v: unknown): string {
+  if (v == null || v === '') return '';
+  const n = typeof v === 'number' ? v : Number(String(v).replace(/\s/g, '').replace(',', '.'));
+  if (Number.isNaN(n)) return String(v);
+  return n.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
 /** Saisie libre AAAA-MM-JJ + bouton ouvrant le sélecteur natif (showPicker / click). */
 function ProjetDateField({
   value,
@@ -653,6 +660,7 @@ export default function ProjetDetail() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [devises, setDevises] = useState<{ id: string; code: string; libelle?: string | null }[]>([]);
 
   // Form state
   const [form, setForm] = useState<any>({});
@@ -716,6 +724,14 @@ export default function ProjetDetail() {
     loadUsers();
     loadDocuments();
     loadClientsFournisseurs();
+    (async () => {
+      try {
+        const r = await api.get('/devises');
+        setDevises(Array.isArray(r.data) ? r.data : []);
+      } catch {
+        setDevises([]);
+      }
+    })();
   }, [id]);
 
   const refreshTachesProjet = useCallback(async () => {
@@ -773,6 +789,15 @@ export default function ProjetDetail() {
         vision: p.vision || '',
         scopeInclus: p.scopeInclus || '',
         scopeExclus: p.scopeExclus || '',
+        budgetPrevu:
+          p.budgetPrevu != null && p.budgetPrevu !== ''
+            ? String(p.budgetPrevu).replace(/,/g, '.')
+            : '',
+        budgetConsomme:
+          p.budgetConsomme != null && p.budgetConsomme !== ''
+            ? String(p.budgetConsomme).replace(/,/g, '.')
+            : '',
+        deviseId: p.deviseId || p.devise?.id || '',
       });
       setPartiesPrenantes(p.partiesPrenantes || []);
       setKpis(p.kpis || []);
@@ -1210,6 +1235,9 @@ export default function ProjetDetail() {
         vision: form.vision,
         scopeInclus: form.scopeInclus,
         scopeExclus: form.scopeExclus,
+        budgetPrevu: (form.budgetPrevu || '').trim() ? form.budgetPrevu : null,
+        budgetConsomme: (form.budgetConsomme || '').trim() ? form.budgetConsomme : null,
+        deviseId: (form.deviseId || '').trim() || null,
         partiesPrenantes,
         kpis,
         objectifsStrategiques,
@@ -1686,6 +1714,73 @@ export default function ProjetDetail() {
                     <option value="haute">Haute</option>
                     <option value="moyenne">Moyenne</option>
                     <option value="basse">Basse</option>
+                  </select>
+                }
+              />
+              <Field
+                label="Budget prévu"
+                value={
+                  (() => {
+                    const m = formatMontantBudgetFr(projet.budgetPrevu);
+                    const c = projet.devise?.code;
+                    if (!m && !c) return null;
+                    return [m, c].filter(Boolean).join(' ') || null;
+                  })()
+                }
+                editComponent={
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Facultatif"
+                    value={form.budgetPrevu ?? ''}
+                    onChange={(e) => setForm({ ...form, budgetPrevu: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  />
+                }
+              />
+              <Field
+                label="Budget consommé"
+                value={
+                  (() => {
+                    const m = formatMontantBudgetFr(projet.budgetConsomme);
+                    const c = projet.devise?.code;
+                    if (!m && !c) return null;
+                    return [m, c].filter(Boolean).join(' ') || null;
+                  })()
+                }
+                editComponent={
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Facultatif"
+                    value={form.budgetConsomme ?? ''}
+                    onChange={(e) => setForm({ ...form, budgetConsomme: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  />
+                }
+              />
+              <Field
+                label="Devise du budget"
+                value={
+                  projet.devise
+                    ? `${projet.devise.code}${projet.devise.libelle ? ` — ${projet.devise.libelle}` : ''}`
+                    : null
+                }
+                editComponent={
+                  <select
+                    value={form.deviseId || ''}
+                    onChange={(e) => setForm({ ...form, deviseId: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  >
+                    <option value="">
+                      {devises.length ? '— Aucune devise —' : 'Aucune devise (Configuration → Devises)'}
+                    </option>
+                    {devises.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.code}
+                        {d.libelle ? ` — ${d.libelle}` : ''}
+                      </option>
+                    ))}
                   </select>
                 }
               />

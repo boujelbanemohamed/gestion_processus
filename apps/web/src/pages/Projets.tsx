@@ -127,6 +127,7 @@ export default function Projets() {
   const [createFormKey, setCreateFormKey] = useState(0);
   const [modalType, setModalType] = useState<'interne' | 'client' | 'communautaire'>('interne');
   const [fichesClient, setFichesClient] = useState<{ id: string; nom: string }[]>([]);
+  const [devisesCreate, setDevisesCreate] = useState<{ id: string; code: string; libelle?: string | null }[]>([]);
   const [selectedClientId, setSelectedClientId] = useState('');
 
   const [accesModalProjet, setAccesModalProjet] = useState<any | null>(null);
@@ -166,10 +167,19 @@ export default function Projets() {
     setSelectedClientId('');
     (async () => {
       try {
-        const r = await api.get('/clients-fournisseurs', { params: { type: 'client' } });
-        if (!cancelled) setFichesClient(Array.isArray(r.data) ? r.data : []);
+        const [cf, dv] = await Promise.all([
+          api.get('/clients-fournisseurs', { params: { type: 'client' } }),
+          api.get('/devises').catch(() => ({ data: [] })),
+        ]);
+        if (!cancelled) {
+          setFichesClient(Array.isArray(cf.data) ? cf.data : []);
+          setDevisesCreate(Array.isArray(dv.data) ? dv.data : []);
+        }
       } catch {
-        if (!cancelled) setFichesClient([]);
+        if (!cancelled) {
+          setFichesClient([]);
+          setDevisesCreate([]);
+        }
       }
     })();
     return () => {
@@ -333,6 +343,12 @@ export default function Projets() {
     if (dateDebut) payload.dateDebut = dateDebut;
     const dateFinPrevue = String(fd.get('createProjetDateFin') ?? '').trim();
     if (dateFinPrevue) payload.dateFinPrevue = dateFinPrevue;
+    const budgetPrevu = String(fd.get('createProjetBudgetPrevu') ?? '').trim();
+    if (budgetPrevu) payload.budgetPrevu = budgetPrevu;
+    const budgetConsomme = String(fd.get('createProjetBudgetConsomme') ?? '').trim();
+    if (budgetConsomme) payload.budgetConsomme = budgetConsomme;
+    const deviseId = String(fd.get('createProjetDeviseId') ?? '').trim();
+    if (deviseId) payload.deviseId = deviseId;
 
     setCreating(true);
     try {
@@ -923,6 +939,55 @@ export default function Projets() {
                       <option value="haute">Haute</option>
                       <option value="moyenne">Moyenne</option>
                       <option value="basse">Basse</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetBudgetPrevu">
+                      Budget prévu <span className="text-gray-500 font-normal">(facultatif)</span>
+                    </label>
+                    <input
+                      id="createProjetBudgetPrevu"
+                      name="createProjetBudgetPrevu"
+                      type="text"
+                      inputMode="decimal"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetBudgetConsomme">
+                      Budget consommé <span className="text-gray-500 font-normal">(facultatif)</span>
+                    </label>
+                    <input
+                      id="createProjetBudgetConsomme"
+                      name="createProjetBudgetConsomme"
+                      type="text"
+                      inputMode="decimal"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="createProjetDeviseId">
+                      Devise <span className="text-gray-500 font-normal">(Configuration)</span>
+                    </label>
+                    <select
+                      id="createProjetDeviseId"
+                      name="createProjetDeviseId"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      defaultValue=""
+                    >
+                      <option value="">
+                        {devisesCreate.length ? '— Aucune —' : 'Aucune devise (voir Configuration)'}
+                      </option>
+                      {devisesCreate.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.code}
+                          {d.libelle ? ` — ${d.libelle}` : ''}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>

@@ -18,6 +18,7 @@ const PROJET_UPDATABLE_SCALAR_KEYS = new Set([
   'dateFinReelle',
   'budgetPrevu',
   'budgetConsomme',
+  'deviseId',
   'responsableId',
   'gestionnaireId',
   'contexte',
@@ -37,6 +38,38 @@ function pickProjetScalarUpdateData(raw: Record<string, unknown>): Record<string
   return out;
 }
 
+/** Montant budget : chaîne vide / invalide → null ; sinon valeur numérique pour Prisma Decimal. */
+function parseBudgetDecimalInput(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim().replace(/\s/g, '').replace(',', '.');
+  if (s === '') return null;
+  const n = Number(s);
+  if (Number.isNaN(n)) return null;
+  return s;
+}
+
+async function sanitizeProjetScalarUpdateData(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const out = { ...payload };
+  if ('budgetPrevu' in out) {
+    out.budgetPrevu = parseBudgetDecimalInput(out.budgetPrevu);
+  }
+  if ('budgetConsomme' in out) {
+    out.budgetConsomme = parseBudgetDecimalInput(out.budgetConsomme);
+  }
+  if ('deviseId' in out) {
+    const v = out.deviseId;
+    if (v === null || v === '') {
+      out.deviseId = null;
+    } else {
+      const id = String(v).trim();
+      const d = await prisma.devise.findUnique({ where: { id }, select: { id: true } });
+      if (!d) throw new Error('Devise introuvable');
+      out.deviseId = id;
+    }
+  }
+  return out;
+}
+
 const projetListInclude = {
   entites: {
     include: { entite: { select: { id: true, nom: true, code: true } } },
@@ -46,6 +79,7 @@ const projetListInclude = {
   techLeads: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
   equipe: { include: { user: { select: { id: true, nom: true, prenom: true } } } },
   clientsFournisseurs: { include: { clientFournisseur: { include: { typeSociete: true, representants: true } } } },
+  devise: { select: { id: true, code: true, libelle: true } },
   responsable: { select: { id: true, nom: true, prenom: true } },
   gestionnaire: { select: { id: true, nom: true, prenom: true } },
   createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
@@ -849,6 +883,9 @@ export class ProjetService {
       gestionnaireId?: string;
       dateDebut?: string;
       dateFinPrevue?: string;
+      budgetPrevu?: string | number | null;
+      budgetConsomme?: string | number | null;
+      deviseId?: string | null;
       contexte?: string;
       mission?: string;
       vision?: string;
@@ -880,10 +917,30 @@ export class ProjetService {
       dateFinPrevue,
       codeProjet: rawCodeProjet,
       clientFournisseurId,
+      budgetPrevu,
+      budgetConsomme,
+      deviseId,
       ...projetData
     } = data;
 
     const codeProjet = await this.ensureCodeProjet(rawCodeProjet);
+
+    let resolvedDeviseId: string | null | undefined;
+    if (deviseId === undefined) {
+      resolvedDeviseId = undefined;
+    } else if (deviseId === null || deviseId === '') {
+      resolvedDeviseId = null;
+    } else {
+      const id = String(deviseId).trim();
+      const d = await prisma.devise.findUnique({ where: { id }, select: { id: true } });
+      if (!d) throw new Error('Devise introuvable');
+      resolvedDeviseId = id;
+    }
+
+    const budgetPrevuVal =
+      budgetPrevu === undefined ? undefined : parseBudgetDecimalInput(budgetPrevu);
+    const budgetConsommeVal =
+      budgetConsomme === undefined ? undefined : parseBudgetDecimalInput(budgetConsomme);
 
     let nomClient = projetData.nomClient;
     if (clientFournisseurId) {
@@ -910,6 +967,9 @@ export class ProjetService {
           priorite: projetData.priorite || 'moyenne',
           dateDebut: dateDebut ? new Date(dateDebut) : undefined,
           dateFinPrevue: dateFinPrevue ? new Date(dateFinPrevue) : undefined,
+          ...(budgetPrevuVal !== undefined ? { budgetPrevu: budgetPrevuVal } : {}),
+          ...(budgetConsommeVal !== undefined ? { budgetConsomme: budgetConsommeVal } : {}),
+          ...(resolvedDeviseId !== undefined ? { deviseId: resolvedDeviseId } : {}),
           partiesPrenantes: partiesPrenantes ? JSON.stringify(partiesPrenantes) : undefined,
           kpis: kpis ? JSON.stringify(kpis) : undefined,
           objectifsStrategiques: objectifsStrategiques ? JSON.stringify(objectifsStrategiques) : undefined,
@@ -973,6 +1033,9 @@ export class ProjetService {
       gestionnaireId?: string;
       dateDebut?: string;
       dateFinPrevue?: string;
+      budgetPrevu?: string | number | null;
+      budgetConsomme?: string | number | null;
+      deviseId?: string | null;
       contexte?: string;
       mission?: string;
       vision?: string;
@@ -1067,7 +1130,9 @@ export class ProjetService {
       }
     }
 
-    const scalarPayload = pickProjetScalarUpdateData(updateData as Record<string, unknown>);
+    const scalarPayload = await sanitizeProjetScalarUpdateData(
+      pickProjetScalarUpdateData(updateData as Record<string, unknown>)
+    );
 
     return prisma.projet.update({
       where: { id },

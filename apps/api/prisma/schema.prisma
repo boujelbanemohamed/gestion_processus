@@ -401,6 +401,8 @@ model Projet {
   dateFinReelle         DateTime?
   budgetPrevu           Decimal?        @db.Decimal(15, 2)
   budgetConsomme        Decimal?        @db.Decimal(15, 2)
+  deviseId              String?
+  devise                Devise?         @relation(fields: [deviseId], references: [id], onDelete: SetNull)
   responsableId         String?
   gestionnaireId        String?
   responsable           User?           @relation("ProjetResponsable", fields: [responsableId], references: [id], onDelete: SetNull)
@@ -1184,6 +1186,7 @@ model Devise {
   code      String   @unique // ex. TND, EUR — valeur enregistrée sur la licence
   libelle   String? // ex. Dinar tunisien
   createdAt DateTime @default(now())
+  projets   Projet[]
 }
 
 // ── LICENCES ──────────────────────────────────────────────────────────────────
