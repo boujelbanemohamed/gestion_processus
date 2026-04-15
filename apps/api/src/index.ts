@@ -369,6 +369,8 @@ app.get("/api/v1/taches/:id/acces", tacheController.getTacheAcces);
 app.post("/api/v1/taches/:id/assignes", tacheController.postTacheAssigne);
 app.patch("/api/v1/taches/:id/assignes/:assignId", tacheController.patchTacheAssignePermission);
 app.delete("/api/v1/taches/:id/assignes/:assignId", tacheController.deleteTacheAssigne);
+app.post("/api/v1/taches/:id/admin-sans-acces", tacheController.postTacheAdminSansAcces);
+app.delete("/api/v1/taches/:id/admin-sans-acces/:userId", tacheController.deleteTacheAdminSansAcces);
 app.get("/api/v1/taches/:id/history", tacheController.getTacheHistory);
 app.get("/api/v1/taches/:id/pv-reunions", tacheController.getTachePvReunions);
 app.post("/api/v1/taches/:id/restaurer", tacheController.restoreTache);
@@ -390,6 +392,12 @@ app.post("/api/v1/epics", epicController.createEpic);
 app.post("/api/v1/epics/:id/documents/lier", epicController.lierDocumentEpic);
 app.delete("/api/v1/epics/:id/documents/:documentId", epicController.delierDocumentEpic);
 app.post("/api/v1/epics/:id/documents", epicController.epicUploadMiddleware, epicController.uploadDocumentEpic);
+app.get("/api/v1/epics/:id/acces", epicController.getEpicAcces);
+app.post("/api/v1/epics/:id/permissions", epicController.postEpicPermission);
+app.patch("/api/v1/epics/:id/permissions/:permissionId", epicController.patchEpicPermission);
+app.delete("/api/v1/epics/:id/permissions/:permissionId", epicController.deleteEpicPermission);
+app.post("/api/v1/epics/:id/admin-sans-acces", epicController.postEpicAdminSansAcces);
+app.delete("/api/v1/epics/:id/admin-sans-acces/:userId", epicController.deleteEpicAdminSansAcces);
 app.get("/api/v1/epics/:id/commentaires", epicController.getEpicCommentaires);
 app.post(
   "/api/v1/epics/:id/commentaires",
@@ -414,6 +422,12 @@ app.post(
   epicController.userStoryDocumentUploadMiddleware,
   epicController.uploadDocumentUserStory,
 );
+app.get("/api/v1/user-stories/:id/acces", epicController.getUserStoryAcces);
+app.post("/api/v1/user-stories/:id/permissions", epicController.postUserStoryPermission);
+app.patch("/api/v1/user-stories/:id/permissions/:permissionId", epicController.patchUserStoryPermission);
+app.delete("/api/v1/user-stories/:id/permissions/:permissionId", epicController.deleteUserStoryPermission);
+app.post("/api/v1/user-stories/:id/admin-sans-acces", epicController.postUserStoryAdminSansAcces);
+app.delete("/api/v1/user-stories/:id/admin-sans-acces/:userId", epicController.deleteUserStoryAdminSansAcces);
 app.get("/api/v1/user-stories/:id/commentaires", epicController.getUserStoryCommentaires);
 app.post(
   "/api/v1/user-stories/:id/commentaires",

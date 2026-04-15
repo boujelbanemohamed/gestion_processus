@@ -1,6 +1,8 @@
 import { prisma } from '../utils/prisma';
 import { ResourceType } from '../generated/prisma/enums';
+import { PermissionType } from '../generated/prisma/enums';
 import { NotificationService } from './notification.service';
+import { ProjetService } from './projet.service';
 
 const epicInclude = {
   projet: { select: { id: true, nom: true } },
@@ -13,6 +15,10 @@ const epicInclude = {
     orderBy: { createdAt: 'asc' as const },
   },
   createdBy: { select: { id: true, nom: true, prenom: true } },
+  permissions: {
+    include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
+  },
+  adminSansAcces: { select: { userId: true } },
   documents: {
     include: {
       document: {
@@ -44,6 +50,11 @@ const epicInclude = {
 };
 
 const userStoryInclude = {
+  createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+  permissions: {
+    include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
+  },
+  adminSansAcces: { select: { userId: true } },
   epic: {
     include: {
       projet: { select: { id: true, nom: true } },
@@ -61,6 +72,7 @@ const userStoryInclude = {
 
 export class EpicService {
   private notificationService = new NotificationService();
+  private projetService = new ProjetService();
 
   private async collectUserIdsPourTachesUserStories(userStoryIds: string[], authorId: string) {
     if (userStoryIds.length === 0) return new Set<string>();
@@ -447,6 +459,7 @@ export class EpicService {
   async createUserStory(data: {
     description: string;
     epicId: string;
+    createdById: string;
     tacheIds?: string[];
   }) {
     const epic = await prisma.epic.findFirst({
@@ -459,6 +472,7 @@ export class EpicService {
       data: {
         description: data.description.trim(),
         epicId: data.epicId,
+        createdById: data.createdById,
       },
     });
     if (tacheIds.length > 0) {
@@ -468,6 +482,256 @@ export class EpicService {
       });
     }
     return this.getUserStory(us.id);
+  }
+
+  private async canViewEpicByProjet(epicId: string, userId: string, role: string): Promise<boolean> {
+    const epic = await prisma.epic.findFirst({
+      where: { id: epicId, deletedAt: null },
+      select: { projetId: true },
+    });
+    if (!epic) return false;
+    if (role === 'admin') {
+      const excluded = await prisma.epicAdminSansAcces.findFirst({ where: { epicId, userId } });
+      if (!excluded) return true;
+      const explicit = await prisma.epicPermission.findFirst({ where: { epicId, userId } });
+      return !!explicit;
+    }
+    const { canAccess } = await this.projetService.canAccess(epic.projetId, userId, role);
+    if (canAccess) return true;
+    return !!(await prisma.epicPermission.findFirst({ where: { epicId, userId } }));
+  }
+
+  async getEpicAccesDetail(epicId: string, requesterId: string, requesterRole: string) {
+    const epic = await prisma.epic.findFirst({
+      where: { id: epicId, deletedAt: null },
+      include: {
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+        permissions: {
+          include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
+        },
+        adminSansAcces: { select: { userId: true } },
+      },
+    });
+    if (!epic) return null;
+    const canView = await this.canViewEpicByProjet(epicId, requesterId, requesterRole);
+    if (!canView) throw new Error('Accès refusé');
+    const admins = await prisma.user.findMany({
+      where: { role: 'admin', statut: 'actif' },
+      select: { id: true, nom: true, prenom: true, email: true, role: true },
+      orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
+    });
+    return {
+      admins,
+      creator: epic.createdBy,
+      delegations: epic.permissions.map((p) => ({
+        id: p.id,
+        user: p.user,
+        permission: p.permission,
+      })),
+      adminSansAccesUserIds: epic.adminSansAcces.map((x) => x.userId),
+      canManagePermissions: epic.createdById === requesterId,
+    };
+  }
+
+  async addEpicPermission(epicId: string, targetUserId: string, permission: PermissionType, actorId: string) {
+    const epic = await prisma.epic.findFirst({
+      where: { id: epicId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!epic) throw new Error('Epic introuvable');
+    if (epic.createdById !== actorId) throw new Error('Accès refusé');
+    if (targetUserId === epic.createdById) throw new Error("Le créateur dispose déjà de tous les droits");
+    await prisma.epicAdminSansAcces.deleteMany({ where: { epicId, userId: targetUserId } });
+    await prisma.epicPermission.upsert({
+      where: { epicId_userId: { epicId, userId: targetUserId } },
+      create: { epicId, userId: targetUserId, permission },
+      update: { permission },
+    });
+  }
+
+  async updateEpicPermission(epicId: string, permissionId: string, permission: PermissionType, actorId: string) {
+    const epic = await prisma.epic.findFirst({
+      where: { id: epicId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!epic) throw new Error('Epic introuvable');
+    if (epic.createdById !== actorId) throw new Error('Accès refusé');
+    const row = await prisma.epicPermission.findFirst({ where: { id: permissionId, epicId } });
+    if (!row) throw new Error('Permission introuvable');
+    await prisma.epicPermission.update({ where: { id: permissionId }, data: { permission } });
+  }
+
+  async removeEpicPermission(epicId: string, permissionId: string, actorId: string) {
+    const epic = await prisma.epic.findFirst({
+      where: { id: epicId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!epic) throw new Error('Epic introuvable');
+    if (epic.createdById !== actorId) throw new Error('Accès refusé');
+    const row = await prisma.epicPermission.findFirst({
+      where: { id: permissionId, epicId },
+      include: { user: { select: { role: true } } },
+    });
+    if (!row) throw new Error('Permission introuvable');
+    await prisma.epicPermission.delete({ where: { id: permissionId } });
+    if (row.user.role === 'admin') {
+      await prisma.epicAdminSansAcces.upsert({
+        where: { epicId_userId: { epicId, userId: row.userId } },
+        create: { epicId, userId: row.userId },
+        update: {},
+      });
+    }
+  }
+
+  async blockEpicAdminImplicit(epicId: string, targetUserId: string, actorId: string) {
+    const epic = await prisma.epic.findFirst({
+      where: { id: epicId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!epic) throw new Error('Epic introuvable');
+    if (epic.createdById !== actorId) throw new Error('Accès refusé');
+    if (epic.createdById === targetUserId) throw new Error("Le créateur ne peut pas être exclu");
+    const target = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
+    if (!target || target.role !== 'admin') throw new Error("Seuls les administrateurs peuvent être exclus");
+    await prisma.epicPermission.deleteMany({ where: { epicId, userId: targetUserId } });
+    await prisma.epicAdminSansAcces.upsert({
+      where: { epicId_userId: { epicId, userId: targetUserId } },
+      create: { epicId, userId: targetUserId },
+      update: {},
+    });
+  }
+
+  async restoreEpicAdminImplicit(epicId: string, targetUserId: string, actorId: string) {
+    const epic = await prisma.epic.findFirst({
+      where: { id: epicId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!epic) throw new Error('Epic introuvable');
+    if (epic.createdById !== actorId) throw new Error('Accès refusé');
+    await prisma.epicAdminSansAcces.deleteMany({ where: { epicId, userId: targetUserId } });
+  }
+
+  async getUserStoryAccesDetail(userStoryId: string, requesterId: string, requesterRole: string) {
+    const us = await prisma.userStory.findFirst({
+      where: { id: userStoryId, deletedAt: null },
+      include: {
+        createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+        permissions: {
+          include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
+        },
+        adminSansAcces: { select: { userId: true } },
+        epic: { select: { id: true, projetId: true } },
+      },
+    });
+    if (!us) return null;
+    const canView = us.epic?.id
+      ? await this.canViewEpicByProjet(us.epic.id, requesterId, requesterRole)
+      : requesterRole === 'admin' || us.createdById === requesterId;
+    if (!canView) throw new Error('Accès refusé');
+    const admins = await prisma.user.findMany({
+      where: { role: 'admin', statut: 'actif' },
+      select: { id: true, nom: true, prenom: true, email: true, role: true },
+      orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
+    });
+    return {
+      admins,
+      creator: us.createdBy,
+      delegations: us.permissions.map((p) => ({
+        id: p.id,
+        user: p.user,
+        permission: p.permission,
+      })),
+      adminSansAccesUserIds: us.adminSansAcces.map((x) => x.userId),
+      canManagePermissions: us.createdById === requesterId,
+    };
+  }
+
+  async addUserStoryPermission(
+    userStoryId: string,
+    targetUserId: string,
+    permission: PermissionType,
+    actorId: string
+  ) {
+    const us = await prisma.userStory.findFirst({
+      where: { id: userStoryId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!us) throw new Error('User story introuvable');
+    if (us.createdById !== actorId) throw new Error('Accès refusé');
+    if (targetUserId === us.createdById) throw new Error("Le créateur dispose déjà de tous les droits");
+    await prisma.userStoryAdminSansAcces.deleteMany({ where: { userStoryId, userId: targetUserId } });
+    await prisma.userStoryPermission.upsert({
+      where: { userStoryId_userId: { userStoryId, userId: targetUserId } },
+      create: { userStoryId, userId: targetUserId, permission },
+      update: { permission },
+    });
+  }
+
+  async updateUserStoryPermission(
+    userStoryId: string,
+    permissionId: string,
+    permission: PermissionType,
+    actorId: string
+  ) {
+    const us = await prisma.userStory.findFirst({
+      where: { id: userStoryId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!us) throw new Error('User story introuvable');
+    if (us.createdById !== actorId) throw new Error('Accès refusé');
+    const row = await prisma.userStoryPermission.findFirst({ where: { id: permissionId, userStoryId } });
+    if (!row) throw new Error('Permission introuvable');
+    await prisma.userStoryPermission.update({ where: { id: permissionId }, data: { permission } });
+  }
+
+  async removeUserStoryPermission(userStoryId: string, permissionId: string, actorId: string) {
+    const us = await prisma.userStory.findFirst({
+      where: { id: userStoryId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!us) throw new Error('User story introuvable');
+    if (us.createdById !== actorId) throw new Error('Accès refusé');
+    const row = await prisma.userStoryPermission.findFirst({
+      where: { id: permissionId, userStoryId },
+      include: { user: { select: { role: true } } },
+    });
+    if (!row) throw new Error('Permission introuvable');
+    await prisma.userStoryPermission.delete({ where: { id: permissionId } });
+    if (row.user.role === 'admin') {
+      await prisma.userStoryAdminSansAcces.upsert({
+        where: { userStoryId_userId: { userStoryId, userId: row.userId } },
+        create: { userStoryId, userId: row.userId },
+        update: {},
+      });
+    }
+  }
+
+  async blockUserStoryAdminImplicit(userStoryId: string, targetUserId: string, actorId: string) {
+    const us = await prisma.userStory.findFirst({
+      where: { id: userStoryId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!us) throw new Error('User story introuvable');
+    if (us.createdById !== actorId) throw new Error('Accès refusé');
+    if (us.createdById === targetUserId) throw new Error("Le créateur ne peut pas être exclu");
+    const target = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
+    if (!target || target.role !== 'admin') throw new Error("Seuls les administrateurs peuvent être exclus");
+    await prisma.userStoryPermission.deleteMany({ where: { userStoryId, userId: targetUserId } });
+    await prisma.userStoryAdminSansAcces.upsert({
+      where: { userStoryId_userId: { userStoryId, userId: targetUserId } },
+      create: { userStoryId, userId: targetUserId },
+      update: {},
+    });
+  }
+
+  async restoreUserStoryAdminImplicit(userStoryId: string, targetUserId: string, actorId: string) {
+    const us = await prisma.userStory.findFirst({
+      where: { id: userStoryId, deletedAt: null },
+      select: { id: true, createdById: true },
+    });
+    if (!us) throw new Error('User story introuvable');
+    if (us.createdById !== actorId) throw new Error('Accès refusé');
+    await prisma.userStoryAdminSansAcces.deleteMany({ where: { userStoryId, userId: targetUserId } });
   }
 
   async updateUserStory(

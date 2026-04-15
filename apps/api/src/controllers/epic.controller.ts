@@ -7,11 +7,20 @@ import { EpicService } from '../services/epic.service';
 import { ProjetService } from '../services/projet.service';
 import { pvReunionService } from '../services/pv-reunion.service';
 import { prisma } from '../utils/prisma';
+import { PermissionType } from '../generated/prisma/enums';
 import { AuthRequest } from '../middleware/auth';
 import { logAccess } from '../middleware/logger';
 
 const epicService = new EpicService();
 const projetService = new ProjetService();
+
+function parseAgilePermission(raw: unknown): PermissionType {
+  const v = typeof raw === 'string' ? raw : '';
+  if (v === 'lecture' || v === 'modification' || v === 'suppression' || v === 'gestion') {
+    return v as PermissionType;
+  }
+  return PermissionType.lecture;
+}
 
 const uploadDir = path.join(process.cwd(), 'uploads', 'epics');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -277,13 +286,180 @@ export const createUserStory = async (req: AuthRequest, res: Response) => {
     if (!description?.trim()) return res.status(400).json({ error: 'description requise' });
     if (!epicId) return res.status(400).json({ error: 'epicId requis' });
     const ids = Array.isArray(tacheIds) ? tacheIds : tacheIds ? [tacheIds] : [];
-    const us = await epicService.createUserStory({ description, epicId, tacheIds: ids });
+    const us = await epicService.createUserStory({ description, epicId, createdById: req.user.userId, tacheIds: ids });
     const usLabel =
       us!.description.length > 120 ? `${us!.description.slice(0, 117)}…` : us!.description;
     await logAccess(req, res, 'creation', ResourceType.userStory, us!.id, usLabel);
     res.status(201).json(us);
   } catch (e: any) {
     res.status(400).json({ error: e.message });
+  }
+};
+
+export const getEpicAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const data = await epicService.getEpicAccesDetail(req.params.id, req.user.userId, req.user.role);
+    if (!data) return res.status(404).json({ error: 'Epic introuvable' });
+    res.json(data);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const postEpicPermission = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { userId, permission } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId requis' });
+    await epicService.addEpicPermission(req.params.id, userId, parseAgilePermission(permission), req.user.userId);
+    const data = await epicService.getEpicAccesDetail(req.params.id, req.user.userId, req.user.role);
+    res.status(201).json(data);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const patchEpicPermission = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    await epicService.updateEpicPermission(
+      req.params.id,
+      req.params.permissionId,
+      parseAgilePermission(req.body.permission),
+      req.user.userId
+    );
+    const data = await epicService.getEpicAccesDetail(req.params.id, req.user.userId, req.user.role);
+    res.json(data);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const deleteEpicPermission = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    await epicService.removeEpicPermission(req.params.id, req.params.permissionId, req.user.userId);
+    const data = await epicService.getEpicAccesDetail(req.params.id, req.user.userId, req.user.role);
+    res.json(data);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const postEpicAdminSansAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId requis' });
+    await epicService.blockEpicAdminImplicit(req.params.id, userId, req.user.userId);
+    const data = await epicService.getEpicAccesDetail(req.params.id, req.user.userId, req.user.role);
+    res.json(data);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const deleteEpicAdminSansAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    await epicService.restoreEpicAdminImplicit(req.params.id, req.params.userId, req.user.userId);
+    const data = await epicService.getEpicAccesDetail(req.params.id, req.user.userId, req.user.role);
+    res.json(data);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const getUserStoryAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const data = await epicService.getUserStoryAccesDetail(req.params.id, req.user.userId, req.user.role);
+    if (!data) return res.status(404).json({ error: 'User story introuvable' });
+    res.json(data);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const postUserStoryPermission = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { userId, permission } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId requis' });
+    await epicService.addUserStoryPermission(
+      req.params.id,
+      userId,
+      parseAgilePermission(permission),
+      req.user.userId
+    );
+    const data = await epicService.getUserStoryAccesDetail(req.params.id, req.user.userId, req.user.role);
+    res.status(201).json(data);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const patchUserStoryPermission = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    await epicService.updateUserStoryPermission(
+      req.params.id,
+      req.params.permissionId,
+      parseAgilePermission(req.body.permission),
+      req.user.userId
+    );
+    const data = await epicService.getUserStoryAccesDetail(req.params.id, req.user.userId, req.user.role);
+    res.json(data);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const deleteUserStoryPermission = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    await epicService.removeUserStoryPermission(req.params.id, req.params.permissionId, req.user.userId);
+    const data = await epicService.getUserStoryAccesDetail(req.params.id, req.user.userId, req.user.role);
+    res.json(data);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const postUserStoryAdminSansAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId requis' });
+    await epicService.blockUserStoryAdminImplicit(req.params.id, userId, req.user.userId);
+    const data = await epicService.getUserStoryAccesDetail(req.params.id, req.user.userId, req.user.role);
+    res.json(data);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
+export const deleteUserStoryAdminSansAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    await epicService.restoreUserStoryAdminImplicit(req.params.id, req.params.userId, req.user.userId);
+    const data = await epicService.getUserStoryAccesDetail(req.params.id, req.user.userId, req.user.role);
+    res.json(data);
+  } catch (e: any) {
+    const code = e.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: e.message });
   }
 };
 

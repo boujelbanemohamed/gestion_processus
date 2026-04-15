@@ -182,7 +182,13 @@ model User {
   contratsAdminSansAcces ContratAdminSansAcces[] @relation("ContratAdminSansAcces")
   tachesCreees          Tache[]                @relation("TacheCreateur")
   tachesAssignees       TacheUser[]            @relation("TacheAssigneUser")
+  tachesAdminSansAcces  TacheAdminSansAcces[]  @relation("TacheAdminSansAcces")
   epicsCrees            Epic[]                 @relation("EpicCreatedBy")
+  epicPermissions       EpicPermission[]       @relation("EpicPermissionUser")
+  epicsAdminSansAcces   EpicAdminSansAcces[]   @relation("EpicAdminSansAcces")
+  userStoriesCreees     UserStory[]            @relation("UserStoryCreatedBy")
+  userStoryPermissions  UserStoryPermission[]  @relation("UserStoryPermissionUser")
+  userStoriesAdminSansAcces UserStoryAdminSansAcces[] @relation("UserStoryAdminSansAcces")
   tacheCommentaires     TacheCommentaire[]     @relation("TacheCommentaireUser")
   epicCommentaires      EpicCommentaire[]      @relation("EpicCommentaireUser")
   userStoryCommentaires UserStoryCommentaire[] @relation("UserStoryCommentaireUser")
@@ -962,6 +968,8 @@ model Epic {
   documents                   EpicDocument[]
   assignesEntites             EpicEntite[]
   assignesClientsFournisseurs EpicClientFournisseur[]
+  permissions                 EpicPermission[]
+  adminSansAcces              EpicAdminSansAcces[]
   commentaires                EpicCommentaire[]
   pvReunions                  PvReunionEpic[]
 
@@ -1001,11 +1009,15 @@ model UserStory {
   description String
   epicId      String?
   epic        Epic?    @relation(fields: [epicId], references: [id], onDelete: SetNull)
+  createdById String?
+  createdBy   User?    @relation("UserStoryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   deletedAt   DateTime?
 
   taches       Tache[]
+  permissions  UserStoryPermission[]
+  adminSansAcces UserStoryAdminSansAcces[]
   commentaires UserStoryCommentaire[]
   pvReunions   PvReunionUserStory[]
 
@@ -1077,6 +1089,7 @@ model Tache {
   deletedAt           DateTime?
 
   assignesUtilisateurs        TacheUser[]
+  adminSansAcces              TacheAdminSansAcces[]
   assignesEntites             TacheEntite[]
   assignesClientsFournisseurs TacheClientFournisseur[]
   liaisons                    TacheLiaison[] @relation("TacheLiaisonSource")
@@ -1100,6 +1113,19 @@ model TacheUser {
   user       User           @relation("TacheAssigneUser", fields: [userId], references: [id], onDelete: Cascade)
   permission PermissionType @default(lecture)
   createdAt  DateTime       @default(now())
+
+  @@unique([tacheId, userId])
+  @@index([tacheId])
+  @@index([userId])
+}
+
+model TacheAdminSansAcces {
+  id        String   @id @default(uuid())
+  tacheId   String
+  tache     Tache    @relation(fields: [tacheId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("TacheAdminSansAcces", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
 
   @@unique([tacheId, userId])
   @@index([tacheId])
@@ -1192,6 +1218,60 @@ model TacheDocument {
   @@unique([tacheId, documentId])
   @@index([tacheId])
   @@index([documentId])
+}
+
+model EpicPermission {
+  id         String         @id @default(uuid())
+  epicId     String
+  epic       Epic           @relation(fields: [epicId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User           @relation("EpicPermissionUser", fields: [userId], references: [id], onDelete: Cascade)
+  permission PermissionType @default(lecture)
+  createdAt  DateTime       @default(now())
+
+  @@unique([epicId, userId])
+  @@index([epicId])
+  @@index([userId])
+}
+
+model EpicAdminSansAcces {
+  id        String   @id @default(uuid())
+  epicId    String
+  epic      Epic     @relation(fields: [epicId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("EpicAdminSansAcces", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([epicId, userId])
+  @@index([epicId])
+  @@index([userId])
+}
+
+model UserStoryPermission {
+  id          String         @id @default(uuid())
+  userStoryId String
+  userStory   UserStory      @relation(fields: [userStoryId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User           @relation("UserStoryPermissionUser", fields: [userId], references: [id], onDelete: Cascade)
+  permission  PermissionType @default(lecture)
+  createdAt   DateTime       @default(now())
+
+  @@unique([userStoryId, userId])
+  @@index([userStoryId])
+  @@index([userId])
+}
+
+model UserStoryAdminSansAcces {
+  id          String   @id @default(uuid())
+  userStoryId String
+  userStory   UserStory @relation(fields: [userStoryId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation("UserStoryAdminSansAcces", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([userStoryId, userId])
+  @@index([userStoryId])
+  @@index([userId])
 }
 
 // ── TYPE LICENCE ─────────────────────────────────────────────────────────────

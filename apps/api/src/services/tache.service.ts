@@ -70,6 +70,7 @@ const TACHE_INCLUDE = {
       }
     }
   },
+  adminSansAcces: { select: { userId: true } },
   userStory: {
     include: {
       epic: {
@@ -135,6 +136,7 @@ export class TacheService {
         id: true,
         createurId: true,
         assignesUtilisateurs: { select: { userId: true, permission: true } },
+        adminSansAcces: { select: { userId: true } },
       },
     });
   }
@@ -143,9 +145,18 @@ export class TacheService {
   private effectiveDeleguePermission(
     userId: string,
     appRole: string,
-    t: { createurId: string | null; assignesUtilisateurs: { userId: string; permission: PermissionType }[] }
+    t: {
+      createurId: string | null;
+      assignesUtilisateurs: { userId: string; permission: PermissionType }[];
+      adminSansAcces: { userId: string }[];
+    }
   ): PermissionType | null {
-    if (appRole === 'admin') return PermissionType.gestion;
+    if (appRole === 'admin') {
+      const excluded = (t.adminSansAcces || []).some((x) => x.userId === userId);
+      if (!excluded) return PermissionType.gestion;
+      const row = t.assignesUtilisateurs.find((a) => a.userId === userId);
+      return row?.permission ?? null;
+    }
     if (t.createurId === userId) return PermissionType.gestion;
     const row = t.assignesUtilisateurs.find((a) => a.userId === userId);
     if (appRole === 'contributeur') {
@@ -158,9 +169,9 @@ export class TacheService {
   }
 
   async canUserManageTacheAcces(tacheId: string, userId: string, appRole: string): Promise<boolean> {
-    if (appRole === 'admin') return true;
     const t = await this.getTachePermSlice(tacheId);
     if (!t) return false;
+    if (t.createurId !== userId) return false;
     const eff = this.effectiveDeleguePermission(userId, appRole, t);
     return eff !== null && this.permRank(eff) >= this.permRank(PermissionType.gestion);
   }
@@ -671,16 +682,10 @@ export class TacheService {
   }
 
   async canUserViewTache(tacheId: string, userId: string, role: string): Promise<boolean> {
-    if (role === 'admin' || role === 'contributeur') return true;
-    const t = await prisma.tache.findFirst({
-      where: { id: tacheId, deletedAt: null },
-      include: { assignesUtilisateurs: { select: { userId: true } } },
-    });
+    const t = await this.getTachePermSlice(tacheId);
     if (!t) return false;
-    if (role === 'lecteur') {
-      return t.createurId === userId || t.assignesUtilisateurs.some((a) => a.userId === userId);
-    }
-    return false;
+    const eff = this.effectiveDeleguePermission(userId, role, t);
+    return eff !== null && this.permRank(eff) >= this.permRank(PermissionType.lecture);
   }
 
   async getAccesDetail(tacheId: string, role: string, requesterId: string) {
@@ -689,7 +694,7 @@ export class TacheService {
       include: {
         createur: { select: { id: true, nom: true, prenom: true, email: true } },
         assignesUtilisateurs: {
-          include: { user: { select: { id: true, nom: true, prenom: true, email: true } } },
+          include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
         },
         assignesEntites: {
           include: { entite: { select: { id: true, nom: true } } },
@@ -699,6 +704,7 @@ export class TacheService {
             clientFournisseur: { select: { id: true, nom: true, type: true } },
           },
         },
+        adminSansAcces: { select: { userId: true } },
       },
     });
     if (!t) return null;
@@ -725,6 +731,7 @@ export class TacheService {
         clientFournisseur: tc.clientFournisseur,
       })),
       canManagePermissions: canManage,
+      adminSansAccesUserIds: (t.adminSansAcces || []).map((x: { userId: string }) => x.userId),
       noteEntites:
         'Les entités et clients / fournisseurs liés à la tâche sont modifiables depuis le formulaire « Modifier la tâche ».',
     };
@@ -747,6 +754,7 @@ export class TacheService {
       create: { tacheId, userId: userIdToAdd, permission },
       update: { permission },
     });
+    await prisma.tacheAdminSansAcces.deleteMany({ where: { tacheId, userId: userIdToAdd } });
     return this.getAccesDetail(tacheId, actorRole, actorId);
   }
 
@@ -762,6 +770,7 @@ export class TacheService {
     }
     const row = await prisma.tacheUser.findFirst({
       where: { id: tacheUserId, tacheId },
+      include: { user: { select: { role: true } } },
     });
     if (!row) throw new Error('Assignation introuvable');
     await prisma.tacheUser.update({
@@ -777,9 +786,39 @@ export class TacheService {
     }
     const row = await prisma.tacheUser.findFirst({
       where: { id: tacheUserId, tacheId },
+      include: { user: { select: { role: true } } },
     });
     if (!row) throw new Error('Assignation introuvable');
     await prisma.tacheUser.delete({ where: { id: tacheUserId } });
+    if (row.user.role === 'admin') {
+      await prisma.tacheAdminSansAcces.upsert({
+        where: { tacheId_userId: { tacheId, userId: row.userId } },
+        create: { tacheId, userId: row.userId },
+        update: {},
+      });
+    }
+    return this.getAccesDetail(tacheId, actorRole, actorId);
+  }
+
+  async blockTacheAdminImplicit(tacheId: string, targetUserId: string, actorId: string, actorRole: string) {
+    if (!(await this.canUserManageTacheAcces(tacheId, actorId, actorRole))) throw new Error('Accès refusé');
+    const t = await prisma.tache.findFirst({ where: { id: tacheId, deletedAt: null }, select: { createurId: true } });
+    if (!t) throw new Error('Tâche non trouvée');
+    if (t.createurId === targetUserId) throw new Error("Le créateur ne peut pas être exclu");
+    const target = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
+    if (!target || target.role !== 'admin') throw new Error("Seuls les administrateurs peuvent être exclus");
+    await prisma.tacheUser.deleteMany({ where: { tacheId, userId: targetUserId } });
+    await prisma.tacheAdminSansAcces.upsert({
+      where: { tacheId_userId: { tacheId, userId: targetUserId } },
+      create: { tacheId, userId: targetUserId },
+      update: {},
+    });
+    return this.getAccesDetail(tacheId, actorRole, actorId);
+  }
+
+  async restoreTacheAdminImplicit(tacheId: string, targetUserId: string, actorId: string, actorRole: string) {
+    if (!(await this.canUserManageTacheAcces(tacheId, actorId, actorRole))) throw new Error('Accès refusé');
+    await prisma.tacheAdminSansAcces.deleteMany({ where: { tacheId, userId: targetUserId } });
     return this.getAccesDetail(tacheId, actorRole, actorId);
   }
 

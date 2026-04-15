@@ -60,6 +60,9 @@ const PERM_TACHE_OPTIONS: { value: string; label: string }[] = [
   { value: 'suppression', label: '🗑 Suppression' },
   { value: 'gestion', label: '🔐 Gestion des accès' },
 ];
+const PERM_TACHE_LABEL: Record<string, string> = Object.fromEntries(
+  PERM_TACHE_OPTIONS.map((o) => [o.value, o.label])
+) as Record<string, string>;
 
 const LABEL_RESSOURCE: Record<string, string> = {
   processus: 'Processus',
@@ -2300,6 +2303,33 @@ export function TacheCard({
     }
   };
 
+  const handleRestoreAdmin = async (userId: string) => {
+    if (!window.confirm("Rétablir l'accès admin implicite (complet) pour cet utilisateur ?")) return;
+    try {
+      await api.delete(`/taches/${tache.id}/admin-sans-acces/${userId}`);
+      await refreshAcces();
+      onRefreshData?.();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleRevokeAdmin = async (userId: string) => {
+    if (
+      !window.confirm(
+        "Retirer tout accès à cet administrateur sur cette tâche ? Il ne la verra plus tant que vous ne lui accorderez pas un accès explicite."
+      )
+    )
+      return;
+    try {
+      await api.post(`/taches/${tache.id}/admin-sans-acces`, { userId });
+      await refreshAcces();
+      onRefreshData?.();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
   const openHistModal = async () => {
     setShowHistModal(true);
     setHistoList([]);
@@ -2599,9 +2629,9 @@ export function TacheCard({
           <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
             <h3 className="text-xl font-semibold mb-2">Accès — {tache.nom}</h3>
             <p className="text-sm text-gray-600 mb-5 leading-relaxed">
-              Les comptes <span className="font-medium">administrateur</span> et <span className="font-medium">contributeur</span>{' '}
-              ont tous les droits sur la tâche. Le <span className="font-medium">créateur</span> gère les accès comme un
-              délégué « gestion ». Pour chaque <span className="font-medium">assigné</span> (profil lecteur), choisissez :{' '}
+              Le <span className="font-medium">créateur</span> gère les accès de la tâche. Il peut retirer l&apos;accès
+              implicite aux administrateurs, rétablir cet accès, et déléguer des droits explicites. Pour chaque{' '}
+              <span className="font-medium">assigné</span>, choisissez :{' '}
               <span className="font-medium">Lecture</span>, <span className="font-medium">Modification</span>,{' '}
               <span className="font-medium">Suppression</span> (corbeille / restauration) ou{' '}
               <span className="font-medium">Gestion des accès</span>.
@@ -2612,15 +2642,62 @@ export function TacheCard({
               <div className="space-y-5 text-sm">
           <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
-                  <ul className="space-y-1.5 text-gray-700">
-                    {(accesDetail.admins || []).map((a: any) => (
-                      <li key={a.id}>
-                        <span className="font-medium">
-                          {a.prenom} {a.nom}
-                        </span>
-                        <span className="text-gray-400"> (accès complet)</span>
-                      </li>
-                    ))}
+                  <ul className="space-y-2 text-gray-700">
+                    {(accesDetail.admins || []).map((a: any) => {
+                      const row = (accesDetail.delegations || []).find((d: any) => d.user?.id === a.id);
+                      const excluded = (accesDetail.adminSansAccesUserIds || []).includes(a.id);
+                      const isCreator = accesDetail.creator?.id === a.id;
+                      return (
+                        <li
+                          key={a.id}
+                          className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50"
+                        >
+                          <span className="font-medium">
+                            {a.prenom} {a.nom}
+                          </span>
+                          {excluded && !row ? (
+                            <span className="text-red-700 text-xs font-medium">
+                              — aucun accès (exclu ; accorder un accès explicite ci-dessous pour le réintégrer)
+                            </span>
+                          ) : row ? (
+                            <span className="text-amber-800 text-xs font-medium">
+                              — accès explicite ({PERM_TACHE_LABEL[row.permission] || row.permission})
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">— accès complet (défaut administrateur)</span>
+                          )}
+                          {accesDetail.canManagePermissions && !isCreator && (
+                            <div className="flex flex-wrap items-center gap-2 ml-auto">
+                              {excluded && !row ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRestoreAdmin(a.id)}
+                                  className="text-xs px-3 py-1.5 bg-green-100 text-green-800 rounded-md hover:bg-green-200"
+                                >
+                                  Rétablir l&apos;accès admin par défaut
+                                </button>
+                              ) : !row ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRevokeAdmin(a.id)}
+                                  className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                >
+                                  Retirer l&apos;accès
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRemoveAssigne(row.id)}
+                                  className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                >
+                                  Révoquer l&apos;accès
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                   </div>
                   <div>
@@ -2707,7 +2784,6 @@ export function TacheCard({
                         {allUsers
                           .filter(
                             (u) =>
-                              u.role !== 'admin' &&
                               !assignedIds.has(u.id) &&
                               u.id !== accesDetail.creator?.id
                           )
@@ -3708,6 +3784,10 @@ export default function Taches() {
     | { kind: 'us'; us: UserStoryRow }
     | null
   >(null);
+  const [agileAccesDetail, setAgileAccesDetail] = useState<any | null>(null);
+  const [agileAccesLoading, setAgileAccesLoading] = useState(false);
+  const [agileNewUserId, setAgileNewUserId] = useState('');
+  const [agileNewPerm, setAgileNewPerm] = useState('lecture');
   const [showAgileCorbeilleModal, setShowAgileCorbeilleModal] = useState(false);
   const [corbTaches, setCorbTaches] = useState<
     { id: string; nom: string; deletedAt?: string; projet?: { nom: string } }[]
@@ -3878,6 +3958,111 @@ export default function Taches() {
       console.error('Erreur chargement:', err);
     } finally {
       if (!silent) setLoading(false);
+    }
+  };
+
+  const loadAgileAccesDetail = async (modal: { kind: 'epic'; epic: EpicRow } | { kind: 'us'; us: UserStoryRow }) => {
+    const path = modal.kind === 'epic' ? `/epics/${modal.epic.id}/acces` : `/user-stories/${modal.us.id}/acces`;
+    const { data } = await api.get(path);
+    setAgileAccesDetail(data);
+  };
+
+  useEffect(() => {
+    if (!agileAccesModal) {
+      setAgileAccesDetail(null);
+      setAgileNewUserId('');
+      setAgileNewPerm('lecture');
+      return;
+    }
+    let cancelled = false;
+    setAgileAccesLoading(true);
+    setAgileAccesDetail(null);
+    setAgileNewUserId('');
+    setAgileNewPerm('lecture');
+    void loadAgileAccesDetail(agileAccesModal)
+      .catch((e: any) => {
+        if (!cancelled) {
+          alert(e?.response?.data?.error || e?.message || 'Erreur chargement accès');
+          setAgileAccesModal(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAgileAccesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agileAccesModal]);
+
+  const refreshAgileAcces = async () => {
+    if (!agileAccesModal) return;
+    await loadAgileAccesDetail(agileAccesModal);
+  };
+
+  const agilePermPathBase = agileAccesModal?.kind === 'epic' ? `/epics/${agileAccesModal.epic.id}` : agileAccesModal ? `/user-stories/${agileAccesModal.us.id}` : '';
+
+  const handleAgileAddPermission = async () => {
+    if (!agileAccesModal || !agileNewUserId) return;
+    try {
+      await api.post(`${agilePermPathBase}/permissions`, { userId: agileNewUserId, permission: agileNewPerm });
+      setAgileNewUserId('');
+      setAgileNewPerm('lecture');
+      await refreshAgileAcces();
+      await loadAll({ silent: true });
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleAgileUpdatePermission = async (permissionId: string, permission: string) => {
+    if (!agileAccesModal) return;
+    try {
+      await api.patch(`${agilePermPathBase}/permissions/${permissionId}`, { permission });
+      await refreshAgileAcces();
+      await loadAll({ silent: true });
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleAgileDeletePermission = async (permissionId: string) => {
+    if (!agileAccesModal) return;
+    if (!window.confirm('Retirer cet accès ?')) return;
+    try {
+      await api.delete(`${agilePermPathBase}/permissions/${permissionId}`);
+      await refreshAgileAcces();
+      await loadAll({ silent: true });
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleAgileRevokeAdmin = async (userId: string) => {
+    if (!agileAccesModal) return;
+    if (
+      !window.confirm(
+        "Retirer tout accès à cet administrateur ? Il ne verra plus l'élément tant que vous ne lui accorderez pas un accès explicite."
+      )
+    )
+      return;
+    try {
+      await api.post(`${agilePermPathBase}/admin-sans-acces`, { userId });
+      await refreshAgileAcces();
+      await loadAll({ silent: true });
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
+    }
+  };
+
+  const handleAgileRestoreAdmin = async (userId: string) => {
+    if (!agileAccesModal) return;
+    if (!window.confirm("Rétablir l'accès administrateur implicite pour cet utilisateur ?")) return;
+    try {
+      await api.delete(`${agilePermPathBase}/admin-sans-acces/${userId}`);
+      await refreshAgileAcces();
+      await loadAll({ silent: true });
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Erreur');
     }
   };
 
@@ -5537,100 +5722,181 @@ export default function Taches() {
 
       {agileAccesModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3 sm:p-6">
-          <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-3xl max-h-[min(92vh,880px)] overflow-y-auto">
-            {agileAccesModal.kind === 'epic' ? (
-              <>
-                <h3 className="text-xl font-semibold mb-2">Accès — {agileAccesModal.epic.nom}</h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  Vue des habilitations liées à l&apos;epic (entités, clients / fournisseurs, créateur, agrégat des tâches).
-                  Pour modifier les rattachements, utilisez « Modifier » sur la carte epic.
-                </p>
-                <div className="space-y-4 text-sm">
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Administrateurs</p>
-                    <ul className="space-y-1 text-gray-700">
-                      {users
-                        .filter((u) => u.role === 'admin')
-                        .map((a) => (
-                          <li key={a.id}>
-                            <span className="font-medium">
-                              {a.prenom} {a.nom}
+          <div className="bg-white rounded-lg shadow-xl p-6 sm:p-8 w-full max-w-5xl max-h-[min(94vh,960px)] overflow-y-auto">
+            <h3 className="text-xl font-semibold mb-2">
+              {agileAccesModal.kind === 'epic'
+                ? `Accès — ${agileAccesModal.epic.nom}`
+                : 'Accès — User story'}
+            </h3>
+            {agileAccesModal.kind === 'us' && (
+              <p className="text-sm text-gray-700 mb-4 whitespace-pre-wrap">{agileAccesModal.us.description}</p>
+            )}
+            <p className="text-sm text-gray-600 mb-5 leading-relaxed">
+              Le créateur gère les accès : exclusion d&apos;administrateurs, délégation explicite (lecture,
+              modification, suppression, gestion). Sans délégation, un admin non exclu conserve un accès complet.
+            </p>
+            {agileAccesLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : agileAccesDetail ? (
+              <div className="space-y-5 text-sm">
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Administrateurs</p>
+                  <ul className="space-y-2 text-gray-700">
+                    {(agileAccesDetail.admins || []).map((a: any) => {
+                      const row = (agileAccesDetail.delegations || []).find((d: any) => d.user?.id === a.id);
+                      const excluded = (agileAccesDetail.adminSansAccesUserIds || []).includes(a.id);
+                      const isCreator = agileAccesDetail.creator?.id === a.id;
+                      return (
+                        <li
+                          key={a.id}
+                          className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50"
+                        >
+                          <span className="font-medium">
+                            {a.prenom} {a.nom}
+                          </span>
+                          {excluded && !row ? (
+                            <span className="text-red-700 text-xs font-medium">— aucun accès (exclu)</span>
+                          ) : row ? (
+                            <span className="text-amber-800 text-xs font-medium">
+                              — accès explicite ({PERM_TACHE_LABEL[row.permission] || row.permission})
                             </span>
-                            <span className="text-gray-400"> (accès complet)</span>
-                          </li>
-                        ))}
-                    </ul>
-                  </div>
-                  {agileAccesModal.epic.createdBy && (
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Créateur de l&apos;epic</p>
-                      <p>
-                        <span className="font-medium">
-                          {agileAccesModal.epic.createdBy.prenom} {agileAccesModal.epic.createdBy.nom}
-                        </span>
-                      </p>
-                    </div>
-                  )}
-                  {(agileAccesModal.epic.assignesEntites?.length ?? 0) > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Entités rattachées</p>
-                      <ul className="space-y-1">
-                        {(agileAccesModal.epic.assignesEntites || []).map((ae: any) => (
-                          <li key={ae.id}>🏢 {ae.entite?.nom ?? '—'}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {(agileAccesModal.epic.assignesClientsFournisseurs?.length ?? 0) > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Clients / fournisseurs rattachés</p>
-                      <ul className="space-y-1">
-                        {(agileAccesModal.epic.assignesClientsFournisseurs || []).map((row: any) => (
-                          <li key={row.id}>
-                            🤝 {row.clientFournisseur?.nom ?? '—'}{' '}
-                            <span className="text-gray-500">
-                              ({row.clientFournisseur?.type === 'fournisseur' ? 'Fournisseur' : 'Client'})
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Personnes (synthèse tâches)</p>
-                    <AccesPersonnesBlock personnes={getAccesPersonnesEpic(agileAccesModal.epic, taches, users)} />
-                  </div>
+                          ) : (
+                            <span className="text-gray-400">— accès complet (défaut administrateur)</span>
+                          )}
+                          {agileAccesDetail.canManagePermissions && !isCreator && (
+                            <div className="flex flex-wrap items-center gap-2 ml-auto">
+                              {excluded && !row ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleAgileRestoreAdmin(a.id)}
+                                  className="text-xs px-3 py-1.5 bg-green-100 text-green-800 rounded-md hover:bg-green-200"
+                                >
+                                  Rétablir
+                                </button>
+                              ) : !row ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleAgileRevokeAdmin(a.id)}
+                                  className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                >
+                                  Retirer l&apos;accès
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleAgileDeletePermission(row.id)}
+                                  className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                >
+                                  Révoquer l&apos;accès
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
-              </>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Créateur</p>
+                  {agileAccesDetail.creator ? (
+                    <p>
+                      <span className="font-medium">
+                        {agileAccesDetail.creator.prenom} {agileAccesDetail.creator.nom}
+                      </span>
+                      <span className="text-gray-400"> — tous les droits</span>
+                    </p>
+                  ) : (
+                    <p className="text-amber-800 text-sm">Créateur non renseigné.</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Accès partagés</p>
+                  {(agileAccesDetail.delegations || []).length === 0 ? (
+                    <p className="text-gray-400 text-xs italic">Aucun accès délégué</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {(agileAccesDetail.delegations || []).map((d: any) => (
+                        <li
+                          key={d.id}
+                          className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50"
+                        >
+                          <span className="font-medium shrink-0">
+                            {d.user.prenom} {d.user.nom}
+                          </span>
+                          {agileAccesDetail.canManagePermissions ? (
+                            <select
+                              value={d.permission || 'lecture'}
+                              onChange={(e) => void handleAgileUpdatePermission(d.id, e.target.value)}
+                              className="text-xs border border-gray-300 rounded-md px-2 py-1.5 min-w-[12rem] flex-1 max-w-xs"
+                            >
+                              {PERM_TACHE_OPTIONS.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="text-gray-500 text-sm">— {PERM_TACHE_LABEL[d.permission] || d.permission}</span>
+                          )}
+                          {agileAccesDetail.canManagePermissions && (
+                            <button
+                              type="button"
+                              onClick={() => void handleAgileDeletePermission(d.id)}
+                              className="text-xs text-red-600 hover:underline ml-auto"
+                            >
+                              Retirer
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {agileAccesDetail.canManagePermissions && (
+                  <div className="border-t border-gray-200 pt-4 space-y-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Accorder un accès</p>
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+                      <select
+                        value={agileNewUserId}
+                        onChange={(e) => setAgileNewUserId(e.target.value)}
+                        className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        <option value="">— Utilisateur —</option>
+                        {users
+                          .filter((u) => (!(u as any).statut || (u as any).statut === 'actif') && u.id !== agileAccesDetail.creator?.id)
+                          .filter((u) => !(agileAccesDetail.delegations || []).some((d: any) => d.user?.id === u.id))
+                          .map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.prenom} {u.nom} {u.role === 'admin' ? '(admin)' : ''}
+                            </option>
+                          ))}
+                      </select>
+                      <select
+                        value={agileNewPerm}
+                        onChange={(e) => setAgileNewPerm(e.target.value)}
+                        className="w-full min-w-0 border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        {PERM_TACHE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => void handleAgileAddPermission()}
+                        disabled={!agileNewUserId}
+                        className="w-full lg:w-auto px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        Ajouter
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
-              <>
-                <h3 className="text-xl font-semibold mb-2">Accès — User story</h3>
-                <p className="text-sm text-gray-700 mb-4 whitespace-pre-wrap">{agileAccesModal.us.description}</p>
-                <p className="text-sm text-gray-600 mb-4">
-                  Les assignations utilisateur se gèrent au niveau des <strong>tâches</strong> liées à cette user story.
-                </p>
-                <div className="space-y-4 text-sm">
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Administrateurs</p>
-                    <ul className="space-y-1 text-gray-700">
-                      {users
-                        .filter((u) => u.role === 'admin')
-                        .map((a) => (
-                          <li key={a.id}>
-                            <span className="font-medium">
-                              {a.prenom} {a.nom}
-                            </span>
-                            <span className="text-gray-400"> (accès complet)</span>
-                          </li>
-                        ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Personnes (synthèse tâches)</p>
-                    <AccesPersonnesBlock personnes={getAccesPersonnesUserStory(agileAccesModal.us.id, taches, users)} />
-                  </div>
-                </div>
-              </>
+              <p className="text-sm text-gray-500">Impossible de charger le détail.</p>
             )}
             <div className="flex justify-end mt-6">
               <button

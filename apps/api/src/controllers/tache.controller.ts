@@ -182,6 +182,40 @@ export const deleteTacheAssigne = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const postTacheAdminSansAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId requis' });
+    const data = await tacheService.blockTacheAdminImplicit(
+      req.params.id,
+      userId,
+      req.user.userId,
+      req.user.role
+    );
+    res.json(data);
+  } catch (error: any) {
+    const code = error.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: error.message });
+  }
+};
+
+export const deleteTacheAdminSansAcces = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const data = await tacheService.restoreTacheAdminImplicit(
+      req.params.id,
+      req.params.userId,
+      req.user.userId,
+      req.user.role
+    );
+    res.json(data);
+  } catch (error: any) {
+    const code = error.message === 'Accès refusé' ? 403 : 400;
+    res.status(code).json({ error: error.message });
+  }
+};
+
 export const getTacheHistory = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
