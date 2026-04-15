@@ -9,6 +9,7 @@ import {
   TachesAvancementBlock,
   TachesDashboard,
   STATUT_OPTIONS,
+  type ClientFournisseurOption,
   type EntiteOption,
   type ProjetOption,
   type Tache,
@@ -148,6 +149,7 @@ export default function ProjetPilotageAgile({
   const [taskView, setTaskView] = useState<'list' | 'kanban' | 'gantt'>('list');
   const [projets, setProjets] = useState<ProjetOption[]>([]);
   const [entites, setEntites] = useState<EntiteOption[]>([]);
+  const [clientsFournisseurs, setClientsFournisseurs] = useState<ClientFournisseurOption[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editTache, setEditTache] = useState<Tache | undefined>();
 
@@ -177,12 +179,19 @@ export default function ProjetPilotageAgile({
 
   const loadMeta = useCallback(async () => {
     try {
-      const [pRes, eRes] = await Promise.all([api.get('/projets'), api.get('/entites')]);
+      const [pRes, eRes, cfRes] = await Promise.all([
+        api.get('/projets'),
+        api.get('/entites'),
+        api.get('/clients-fournisseurs').catch(() => ({ data: [] })),
+      ]);
       setProjets((pRes.data || []).map((p: any) => ({ id: p.id, nom: p.nom })));
       setEntites((eRes.data || []).map((e: any) => ({ id: e.id, nom: e.nom })));
+      const cfRaw = Array.isArray(cfRes.data) ? cfRes.data : [];
+      setClientsFournisseurs(cfRaw.map((c: any) => ({ id: c.id, nom: c.nom, type: c.type || 'client' })));
     } catch {
       setProjets([]);
       setEntites([]);
+      setClientsFournisseurs([]);
     }
   }, []);
 
@@ -201,6 +210,14 @@ export default function ProjetPilotageAgile({
   const peutEdit = peutModifierTacheSelonApi(currentUser);
   const peutCreer = !!currentUser;
   const nbMasquees = tachesBrutes.length - tachesVisibles.length;
+
+  const projetClientFournisseurIds = useMemo(
+    () =>
+      (projet?.clientsFournisseurs || [])
+        .map((x: any) => x.clientFournisseurId || x.clientFournisseur?.id)
+        .filter(Boolean),
+    [projet],
+  );
 
   const now = new Date();
   const term = tachesVisibles.filter((t) => t.statut === 'termine').length;
@@ -649,6 +666,8 @@ export default function ProjetPilotageAgile({
           projets={projets}
           users={usersForTaches}
           entites={entites}
+          clientsFournisseurs={clientsFournisseurs}
+          projetClientFournisseurIds={projetClientFournisseurIds}
           taches={tachesBrutes}
           editTache={editTache}
           lockProjetId={editTache ? undefined : projetId}

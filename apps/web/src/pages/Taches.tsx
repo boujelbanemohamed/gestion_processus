@@ -82,6 +82,7 @@ export type Tache = {
   projet?: { id: string; nom: string };
   assignesUtilisateurs?: { id: string; nom: string; prenom: string; permission?: string; tacheUserId?: string }[];
   assignesEntites?: { id: string; nom: string }[];
+  assignesClientsFournisseurs?: { id: string; nom: string; type: string }[];
   liaisons?: { id: string; tacheId: string; tacheLieeId: string; type: string; tacheLiee?: { id: string; nom: string; statut: string } }[];
   commentaires?: Commentaire[];
   documents?: DocTache[];
@@ -123,6 +124,7 @@ type Commentaire = {
 
 export type UserOption = { id: string; nom: string; prenom: string; role?: string };
 export type EntiteOption = { id: string; nom: string };
+export type ClientFournisseurOption = { id: string; nom: string; type: string };
 export type ProjetOption = { id: string; nom: string };
 
 export function StatutBadge({ statut }: { statut: string }) {
@@ -410,6 +412,8 @@ export function TacheModal({
   projets,
   users,
   entites,
+  clientsFournisseurs,
+  projetClientFournisseurIds,
   taches,
   editTache,
   lockProjetId,
@@ -421,6 +425,9 @@ export function TacheModal({
   projets: ProjetOption[];
   users: UserOption[];
   entites: EntiteOption[];
+  clientsFournisseurs: ClientFournisseurOption[];
+  /** Si renseigné (ex. fiche projet), la liste est filtrée sur ces fiches + sélection courante. */
+  projetClientFournisseurIds?: string[];
   taches: Tache[];
   editTache?: Tache;
   /** Si défini, le projet de la tâche est fixé (ex. création depuis la fiche projet). */
@@ -447,6 +454,9 @@ export function TacheModal({
   const [selectedEntites, setSelectedEntites] = useState<string[]>(
     editTache?.assignesEntites?.map(e => e.id) || []
   );
+  const [selectedClientFournisseurIds, setSelectedClientFournisseurIds] = useState<string[]>(
+    editTache?.assignesClientsFournisseurs?.map((c) => c.id) || []
+  );
   const [liaisons, setLiaisons] = useState<{ tacheLieeId: string; type: string }[]>(
     editTache?.liaisons?.map(l => ({ tacheLieeId: l.tacheLieeId, type: l.type })) || []
   );
@@ -458,6 +468,29 @@ export function TacheModal({
   useEffect(() => {
     if (lockUserStoryId) setUserStoryId(lockUserStoryId);
   }, [lockUserStoryId]);
+
+  useEffect(() => {
+    setSelectedClientFournisseurIds(editTache?.assignesClientsFournisseurs?.map((c) => c.id) || []);
+  }, [editTache?.id]);
+
+  const clientsFournisseursAffiches = useMemo(() => {
+    const pidSet =
+      projetClientFournisseurIds && projetClientFournisseurIds.length > 0
+        ? new Set(projetClientFournisseurIds)
+        : null;
+    if (!pidSet) return clientsFournisseurs;
+    const linked = clientsFournisseurs.filter((c) => pidSet!.has(c.id));
+    const sel = new Set(selectedClientFournisseurIds);
+    const extra = clientsFournisseurs.filter((c) => sel.has(c.id) && !pidSet!.has(c.id));
+    const seen = new Set<string>();
+    const out: ClientFournisseurOption[] = [];
+    for (const c of [...linked, ...extra]) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      out.push(c);
+    }
+    return out;
+  }, [clientsFournisseurs, projetClientFournisseurIds, selectedClientFournisseurIds]);
 
   useEffect(() => {
     const pid = form.projetId || lockProjetId;
@@ -496,6 +529,10 @@ export function TacheModal({
     setSelectedUsers(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   const toggleEntite = (id: string) =>
     setSelectedEntites(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const toggleClientFournisseur = (id: string) =>
+    setSelectedClientFournisseurIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
 
   const addLiaison = () => setLiaisons(prev => [...prev, { tacheLieeId: '', type: 'simple' }]);
   const removeLiaison = (i: number) => setLiaisons(prev => prev.filter((_, j) => j !== i));
@@ -511,6 +548,7 @@ export function TacheModal({
         ...form,
         assignesUtilisateurIds: selectedUsers,
         assignesEntiteIds: selectedEntites,
+        assignesClientFournisseurIds: selectedClientFournisseurIds,
         liaisons: liaisons.filter(l => l.tacheLieeId),
         userStoryId: userStoryId || null,
       };
@@ -640,6 +678,40 @@ export function TacheModal({
               </div>
             </div>
 
+            {/* Clients / fournisseurs assignés */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Clients / fournisseurs assignés</label>
+              {projetClientFournisseurIds && projetClientFournisseurIds.length > 0 && (
+                <p className="text-xs text-gray-500 mb-1">
+                  Liste priorisée sur les fiches rattachées au projet ; les fiches déjà cochées restent visibles.
+                </p>
+              )}
+              <div className="border border-gray-300 rounded-md max-h-36 overflow-y-auto p-2 space-y-1">
+                {clientsFournisseursAffiches.map((c) => (
+                  <label
+                    key={c.id}
+                    className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 px-2 py-1 rounded"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedClientFournisseurIds.includes(c.id)}
+                      onChange={() => toggleClientFournisseur(c.id)}
+                      className="rounded"
+                    />
+                    <span className="text-sm">
+                      <span className="font-medium">{c.nom}</span>
+                      <span className="text-gray-500 text-xs ml-1">
+                        ({c.type === 'fournisseur' ? 'Fournisseur' : c.type === 'client' ? 'Client' : c.type})
+                      </span>
+                    </span>
+                  </label>
+                ))}
+                {clientsFournisseursAffiches.length === 0 && (
+                  <p className="text-sm text-gray-400 px-2">Aucune fiche client / fournisseur disponible</p>
+                )}
+              </div>
+            </div>
+
             {/* Description */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
@@ -722,6 +794,7 @@ function UserStoryCreateModalInner({
   const [showTacheModal, setShowTacheModal] = useState(false);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [entites, setEntites] = useState<EntiteOption[]>([]);
+  const [clientsFournisseurs, setClientsFournisseurs] = useState<ClientFournisseurOption[]>([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [draftUserStoryId, setDraftUserStoryId] = useState<string | null>(null);
@@ -732,12 +805,19 @@ function UserStoryCreateModalInner({
   useEffect(() => {
     (async () => {
       try {
-        const [u, e] = await Promise.all([api.get('/users'), api.get('/entites')]);
+        const [u, e, cf] = await Promise.all([
+          api.get('/users'),
+          api.get('/entites'),
+          api.get('/clients-fournisseurs').catch(() => ({ data: [] })),
+        ]);
         setUsers(u.data || []);
         setEntites(e.data || []);
+        const cfRaw = Array.isArray(cf.data) ? cf.data : [];
+        setClientsFournisseurs(cfRaw.map((c: any) => ({ id: c.id, nom: c.nom, type: c.type || 'client' })));
       } catch {
         setUsers([]);
         setEntites([]);
+        setClientsFournisseurs([]);
       }
     })();
   }, []);
@@ -934,6 +1014,7 @@ function UserStoryCreateModalInner({
           projets={projets}
           users={users}
           entites={entites}
+          clientsFournisseurs={clientsFournisseurs}
           taches={taches}
           lockProjetId={lockProjetId}
           lockUserStoryId={draftUserStoryId}
@@ -2094,6 +2175,21 @@ export function TacheCard({
                   {tache.assignesEntites?.map((e) => (
                     <span key={e.id} className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs">
                       🏢 {e.nom}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {(tache.assignesClientsFournisseurs?.length || 0) > 0 && (
+                <div className="flex gap-1 flex-wrap">
+                  {tache.assignesClientsFournisseurs?.map((c) => (
+                    <span
+                      key={c.id}
+                      className="px-2 py-0.5 bg-amber-50 text-amber-900 rounded-full text-xs border border-amber-200"
+                    >
+                      🤝 {c.nom}
+                      <span className="text-amber-800/90 ml-1">
+                        ({c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})
+                      </span>
                     </span>
                   ))}
                 </div>
@@ -3342,6 +3438,7 @@ export default function Taches() {
   const [projets, setProjets] = useState<ProjetOption[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [entites, setEntites] = useState<EntiteOption[]>([]);
+  const [clientsFournisseursOptions, setClientsFournisseursOptions] = useState<ClientFournisseurOption[]>([]);
   const [epics, setEpics] = useState<EpicRow[]>([]);
   const [userStories, setUserStories] = useState<UserStoryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -3515,11 +3612,12 @@ export default function Taches() {
     const silent = !!opts?.silent;
     if (!silent) setLoading(true);
     try {
-      const [tRes, pRes, uRes, eRes, epicRes, usRes, retardRes] = await Promise.all([
+      const [tRes, pRes, uRes, eRes, cfRes, epicRes, usRes, retardRes] = await Promise.all([
         api.get('/taches'),
         api.get('/projets'),
         api.get('/users'),
         api.get('/entites'),
+        api.get('/clients-fournisseurs').catch(() => ({ data: [] })),
         api.get('/epics').catch(() => ({ data: [] })),
         api.get('/user-stories').catch(() => ({ data: [] })),
         api.get('/dashboard/taches-en-retard').catch(() => ({ data: [] as TacheEnRetardItem[] })),
@@ -3528,6 +3626,10 @@ export default function Taches() {
       setProjets(pRes.data);
       setUsers(uRes.data);
       setEntites(eRes.data);
+      const cfRaw = Array.isArray(cfRes.data) ? cfRes.data : [];
+      setClientsFournisseursOptions(
+        cfRaw.map((c: any) => ({ id: c.id, nom: c.nom, type: c.type || 'client' }))
+      );
       setEpics(Array.isArray(epicRes.data) ? epicRes.data : []);
       setUserStories(Array.isArray(usRes.data) ? usRes.data : []);
       setTachesEnRetard(Array.isArray(retardRes.data) ? retardRes.data : []);
@@ -5039,6 +5141,7 @@ export default function Taches() {
           projets={projets}
           users={users}
           entites={entites}
+          clientsFournisseurs={clientsFournisseursOptions}
           taches={taches}
           editTache={editTache}
           lockProjetId={tacheModalLockProjetId}

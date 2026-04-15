@@ -140,6 +140,11 @@ export class DashboardService {
         assignesEntites: {
           include: { entite: { select: { id: true, nom: true, code: true } } },
         },
+        assignesClientsFournisseurs: {
+          include: {
+            clientFournisseur: { select: { id: true, nom: true, type: true } },
+          },
+        },
       },
     });
 
@@ -160,6 +165,11 @@ export class DashboardService {
         id: te.entite.id,
         nom: te.entite.nom,
         code: te.entite.code,
+      })),
+      assignesClientsFournisseurs: t.assignesClientsFournisseurs.map((tc) => ({
+        id: tc.clientFournisseur.id,
+        nom: tc.clientFournisseur.nom,
+        type: tc.clientFournisseur.type,
       })),
     }));
   }

@@ -45,6 +45,13 @@ const TACHE_INCLUDE = {
       }
     },
   },
+  assignesClientsFournisseurs: {
+    include: {
+      clientFournisseur: {
+        select: { id: true, nom: true, type: true },
+      },
+    },
+  },
   liaisons: {
     include: {
       tacheLiee: { select: { id: true, nom: true, statut: true } },
@@ -96,6 +103,12 @@ function formatTache(t: any) {
       ...te.entite,
       membres: te.entite?.membres || [],
     })) || [],
+    assignesClientsFournisseurs:
+      t.assignesClientsFournisseurs?.map((tc: any) => ({
+        id: tc.clientFournisseur.id,
+        nom: tc.clientFournisseur.nom,
+        type: tc.clientFournisseur.type,
+      })) || [],
     documents: t.documents?.map((td: any) => td.document) || [],
   };
 }
@@ -249,6 +262,7 @@ export class TacheService {
       userStoryId,
       assignesUtilisateurIds = [],
       assignesEntiteIds = [],
+      assignesClientFournisseurIds = [],
       liaisons = [],
     } = data;
 
@@ -272,6 +286,11 @@ export class TacheService {
         },
         assignesEntites: {
           create: assignesEntiteIds.map((entiteId: string) => ({ entiteId })),
+        },
+        assignesClientsFournisseurs: {
+          create: assignesClientFournisseurIds.map((clientFournisseurId: string) => ({
+            clientFournisseurId,
+          })),
         },
         liaisons: {
           create: liaisons
@@ -335,6 +354,7 @@ export class TacheService {
       userStoryId,
       assignesUtilisateurIds,
       assignesEntiteIds,
+      assignesClientFournisseurIds,
       liaisons,
     } = data;
 
@@ -375,6 +395,20 @@ export class TacheService {
       if (assignesEntiteIds.length > 0) {
         await prisma.tacheEntite.createMany({
           data: assignesEntiteIds.map((entiteId: string) => ({ tacheId: id, entiteId })),
+          skipDuplicates: true,
+        });
+      }
+    }
+
+    // Sync clients / fournisseurs assignés
+    if (assignesClientFournisseurIds !== undefined) {
+      await prisma.tacheClientFournisseur.deleteMany({ where: { tacheId: id } });
+      if (assignesClientFournisseurIds.length > 0) {
+        await prisma.tacheClientFournisseur.createMany({
+          data: assignesClientFournisseurIds.map((clientFournisseurId: string) => ({
+            tacheId: id,
+            clientFournisseurId,
+          })),
           skipDuplicates: true,
         });
       }
@@ -658,6 +692,11 @@ export class TacheService {
         assignesEntites: {
           include: { entite: { select: { id: true, nom: true } } },
         },
+        assignesClientsFournisseurs: {
+          include: {
+            clientFournisseur: { select: { id: true, nom: true, type: true } },
+          },
+        },
       },
     });
     if (!t) return null;
@@ -679,9 +718,13 @@ export class TacheService {
         id: te.id,
         entite: te.entite,
       })),
+      clientsFournisseurs: t.assignesClientsFournisseurs.map((tc) => ({
+        id: tc.id,
+        clientFournisseur: tc.clientFournisseur,
+      })),
       canManagePermissions: canManage,
       noteEntites:
-        'Les entités liées à la tâche sont modifiables depuis le formulaire « Modifier la tâche ».',
+        'Les entités et clients / fournisseurs liés à la tâche sont modifiables depuis le formulaire « Modifier la tâche ».',
     };
   }
 

@@ -757,6 +757,7 @@ model ClientFournisseur {
   historique       ClientFournisseurHistorique[]
   pvReunionPresents PvReunionPresentClientFournisseur[]
   adminSansAcces    ClientFournisseurAdminSansAcces[]
+  tachesAssignees   TacheClientFournisseur[]
 }
 
 /// Administrateurs explicitement privés d’accès implicite (aligné ContratAdminSansAcces).
@@ -1050,9 +1051,10 @@ model Tache {
   updatedAt           DateTime      @updatedAt
   deletedAt           DateTime?
 
-  assignesUtilisateurs TacheUser[]
-  assignesEntites      TacheEntite[]
-  liaisons             TacheLiaison[] @relation("TacheLiaisonSource")
+  assignesUtilisateurs        TacheUser[]
+  assignesEntites             TacheEntite[]
+  assignesClientsFournisseurs TacheClientFournisseur[]
+  liaisons                    TacheLiaison[] @relation("TacheLiaisonSource")
   liaisonsVersMoi      TacheLiaison[] @relation("TacheLiaisonCible")
   commentaires         TacheCommentaire[]
   documents            TacheDocument[]
@@ -1090,6 +1092,19 @@ model TacheEntite {
   @@unique([tacheId, entiteId])
   @@index([tacheId])
   @@index([entiteId])
+}
+
+model TacheClientFournisseur {
+  id                  String            @id @default(uuid())
+  tacheId             String
+  tache               Tache             @relation(fields: [tacheId], references: [id], onDelete: Cascade)
+  clientFournisseurId String
+  clientFournisseur   ClientFournisseur @relation(fields: [clientFournisseurId], references: [id], onDelete: Cascade)
+  createdAt           DateTime          @default(now())
+
+  @@unique([tacheId, clientFournisseurId])
+  @@index([tacheId])
+  @@index([clientFournisseurId])
 }
 
 model TacheLiaison {

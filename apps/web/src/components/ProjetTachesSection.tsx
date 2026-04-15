@@ -7,6 +7,7 @@ import {
   TacheModal,
   TachesAvancementBlock,
   TachesDashboard,
+  type ClientFournisseurOption,
   type EntiteOption,
   type ProjetOption,
   type Tache,
@@ -32,6 +33,7 @@ export default function ProjetTachesSection({ projetId, projet, usersForTaches, 
   const [tachesBrutes, setTachesBrutes] = useState<Tache[]>([]);
   const [projets, setProjets] = useState<ProjetOption[]>([]);
   const [entites, setEntites] = useState<EntiteOption[]>([]);
+  const [clientsFournisseurs, setClientsFournisseurs] = useState<ClientFournisseurOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editTache, setEditTache] = useState<Tache | undefined>();
@@ -41,14 +43,17 @@ export default function ProjetTachesSection({ projetId, projet, usersForTaches, 
     if (!projetId) return;
     setLoading(true);
     try {
-      const [tRes, pRes, eRes] = await Promise.all([
+      const [tRes, pRes, eRes, cfRes] = await Promise.all([
         api.get('/taches', { params: { projetId } }),
         api.get('/projets'),
         api.get('/entites'),
+        api.get('/clients-fournisseurs').catch(() => ({ data: [] })),
       ]);
       setTachesBrutes(tRes.data || []);
       setProjets((pRes.data || []).map((p: any) => ({ id: p.id, nom: p.nom })));
       setEntites((eRes.data || []).map((e: any) => ({ id: e.id, nom: e.nom })));
+      const cfRaw = Array.isArray(cfRes.data) ? cfRes.data : [];
+      setClientsFournisseurs(cfRaw.map((c: any) => ({ id: c.id, nom: c.nom, type: c.type || 'client' })));
     } catch (e) {
       console.error('Chargement tâches projet:', e);
     } finally {
@@ -75,6 +80,14 @@ export default function ProjetTachesSection({ projetId, projet, usersForTaches, 
     : false;
 
   const nbMasquees = tachesBrutes.length - tachesVisibles.length;
+
+  const projetClientFournisseurIds = useMemo(
+    () =>
+      (projet?.clientsFournisseurs || [])
+        .map((x: any) => x.clientFournisseurId || x.clientFournisseur?.id)
+        .filter(Boolean),
+    [projet],
+  );
 
   if (loading) {
     return (
@@ -193,6 +206,10 @@ export default function ProjetTachesSection({ projetId, projet, usersForTaches, 
           projets={projets}
           users={usersForTaches}
           entites={entites}
+          clientsFournisseurs={clientsFournisseurs}
+          projetClientFournisseurIds={
+            projetClientFournisseurIds.length > 0 ? projetClientFournisseurIds : undefined
+          }
           taches={tachesBrutes}
           editTache={editTache}
           lockProjetId={editTache ? undefined : projetId}
