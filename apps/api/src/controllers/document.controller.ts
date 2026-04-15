@@ -40,6 +40,9 @@ export const uploadMiddleware = upload.single('file');
 
 export const getAllDocuments = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
     const {
       typeDocument,
       referenceType,
@@ -61,6 +64,8 @@ export const getAllDocuments = async (req: AuthRequest, res: Response) => {
       search: search as string,
       sortBy: sortBy as string,
       sortOrder: (sortOrder as 'asc' | 'desc') || 'asc',
+      requesterId: req.user.userId,
+      requesterRole: req.user.role,
     });
 
     const procRefId =

@@ -29,6 +29,15 @@ interface KPIs {
     tachesMisesAJour: number;
   }>;
   tachesEnRetard?: TacheEnRetardItem[];
+  tachesAssigneesEnInstance?: Array<{
+    id: string;
+    nom: string;
+    statut: string;
+    dateFinPrevue?: string | null;
+    updatedAt?: string;
+    projet?: { id: string; nom: string; codeProjet?: string } | null;
+  }>;
+  projetsAssignesCount?: number;
 }
 
 export default function Dashboard() {
@@ -38,6 +47,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   const isAdmin = user?.role === 'admin';
+  const isContributeur = user?.role === 'contributeur';
 
   useEffect(() => {
     loadKPIs();
@@ -61,6 +71,37 @@ export default function Dashboard() {
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
+      {isContributeur ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <button
+            type="button"
+            onClick={() => navigate('/taches')}
+            className="bg-white p-4 rounded-lg shadow text-left hover:bg-blue-50 transition"
+            title="Voir mes tâches assignées en instance"
+          >
+            <div className="text-sm text-blue-600">Tâches assignées en instance</div>
+            <div className="text-2xl font-bold text-blue-600">{kpis?.tachesAssigneesEnInstance?.length ?? 0}</div>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/taches')}
+            className="bg-white p-4 rounded-lg shadow text-left hover:bg-red-50 transition"
+            title="Voir mes tâches en retard"
+          >
+            <div className="text-sm text-red-600">Tâches en retard</div>
+            <div className="text-2xl font-bold text-red-600">{kpis?.tachesEnRetard?.length ?? 0}</div>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/projets')}
+            className="bg-white p-4 rounded-lg shadow text-left hover:bg-indigo-50 transition"
+            title="Voir mes projets concernés"
+          >
+            <div className="text-sm text-indigo-600">Projets concernés</div>
+            <div className="text-2xl font-bold text-indigo-600">{kpis?.projetsAssignesCount ?? 0}</div>
+          </button>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <button
           type="button"
@@ -100,10 +141,44 @@ export default function Dashboard() {
           <div className="text-2xl font-bold text-blue-600">{kpis?.documentsRecents?.length ?? 0}</div>
         </button>
       </div>
+      )}
+
+      {isContributeur && (
+        <div className="bg-white p-4 rounded-lg shadow mb-6">
+          <h2 className="text-lg font-semibold mb-1">Tâches assignées</h2>
+          <p className="text-xs text-gray-500 mb-4">
+            Affiche uniquement vos tâches assignées en instance (hors tâches terminées/archivées).
+          </p>
+          {(kpis?.tachesAssigneesEnInstance || []).length === 0 ? (
+            <p className="text-sm text-gray-500 italic">Aucune tâche assignée en instance.</p>
+          ) : (
+            <div className="space-y-2">
+              {(kpis?.tachesAssigneesEnInstance || []).map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => navigate('/taches')}
+                  className="w-full flex items-center justify-between p-3 border border-gray-200 rounded hover:bg-blue-50 text-left transition"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-gray-900 truncate">{t.nom}</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {t.projet?.nom ? `${t.projet.nom}${t.projet.codeProjet ? ` (${t.projet.codeProjet})` : ''} · ` : ''}
+                      <span className="capitalize">{String(t.statut || '').replace(/_/g, ' ')}</span>
+                      {t.dateFinPrevue ? ` · Échéance: ${new Date(t.dateFinPrevue).toLocaleDateString('fr-FR')}` : ''}
+                    </div>
+                  </div>
+                  <span className="ml-3 text-xs text-blue-700 font-medium shrink-0">Voir</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <TachesEnRetardBloc items={kpis?.tachesEnRetard ?? []} />
 
-      {kpis?.projetsPlusActifs && kpis.projetsPlusActifs.length > 0 && (
+      {!isContributeur && kpis?.projetsPlusActifs && kpis.projetsPlusActifs.length > 0 && (
         <div className="bg-white p-4 rounded-lg shadow mb-6">
           <h2 className="text-lg font-semibold mb-1">5 projets les plus actifs</h2>
           <p className="text-xs text-gray-500 mb-4">
@@ -142,7 +217,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {kpis?.processus?.parStatut && Object.keys(kpis.processus.parStatut).length > 0 && (
+      {!isContributeur && kpis?.processus?.parStatut && Object.keys(kpis.processus.parStatut).length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white p-4 rounded-lg shadow">
             <h2 className="text-lg font-semibold mb-4">Processus par statut</h2>
@@ -169,7 +244,7 @@ export default function Dashboard() {
           </div>
         </div>
       )}
-      {kpis?.projets?.parStatut && Object.keys(kpis.projets.parStatut).length > 0 && (
+      {!isContributeur && kpis?.projets?.parStatut && Object.keys(kpis.projets.parStatut).length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
           <div className="bg-white p-4 rounded-lg shadow">
             <h2 className="text-lg font-semibold mb-4">Projets par statut</h2>
@@ -195,7 +270,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {kpis?.entitesMembres && kpis.entitesMembres.length > 0 && (
+      {!isContributeur && kpis?.entitesMembres && kpis.entitesMembres.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
           <div className="bg-white p-4 rounded-lg shadow">
             <h2 className="text-lg font-semibold mb-4">Membres par entité</h2>
@@ -234,7 +309,7 @@ export default function Dashboard() {
       )}
 
       {/* Documents les plus visualisés et téléchargés */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
+      {!isContributeur && <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
         {kpis?.documentsPlusVisualises && kpis.documentsPlusVisualises.length > 0 && (
           <div className="bg-white p-4 rounded-lg shadow">
             <h2 className="text-lg font-semibold mb-4">Top 5 documents les plus visualisés</h2>
@@ -295,7 +370,7 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

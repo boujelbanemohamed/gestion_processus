@@ -27,6 +27,14 @@ function isAdminRole(role: string) {
   return role === 'admin';
 }
 
+async function getUserEntiteIds(userId: string): Promise<string[]> {
+  const rows = await prisma.userEntite.findMany({
+    where: { userId },
+    select: { entiteId: true },
+  });
+  return rows.map((r) => r.entiteId);
+}
+
 async function myPermTypesForProcessus(processusId: string, userId: string): Promise<PermissionType[]> {
   const rows = await prisma.permission.findMany({
     where: { ressourceType: 'processus', ressourceId: processusId, userId },
@@ -366,6 +374,18 @@ export class ProcessusService {
 
     where.deletedAt = null;
 
+    // Règle métier: hors admin, on ne voit que les processus rattachés à ses entités.
+    if (!isAdminRole(auth.role)) {
+      const entiteIds = await getUserEntiteIds(auth.userId);
+      if (entiteIds.length === 0) return [];
+      const entiteScope = { entites: { some: { entiteId: { in: entiteIds } } } };
+      if (where.entites) {
+        where.AND = [...(Array.isArray(where.AND) ? where.AND : []), entiteScope];
+      } else {
+        where.entites = entiteScope.entites;
+      }
+    }
+
     const processusList = await prisma.processus.findMany({
       where,
       include: processusIncludeList,
@@ -451,6 +471,16 @@ export class ProcessusService {
   }
 
   async findOne(id: string, auth: ProcessusAuth) {
+    if (!isAdminRole(auth.role)) {
+      const entiteIds = await getUserEntiteIds(auth.userId);
+      if (entiteIds.length === 0) return null;
+      const linked = await prisma.processusEntite.findFirst({
+        where: { processusId: id, entiteId: { in: entiteIds } },
+        select: { processusId: true },
+      });
+      if (!linked) return null;
+    }
+
     const p = await prisma.processus.findFirst({
       where: { id, deletedAt: null },
       include: {

@@ -137,14 +137,22 @@ export class EpicService {
     };
   }
 
-  async listEpics(filters: { projetId?: string }) {
+  async listEpics(filters: { projetId?: string; requesterId?: string; requesterRole?: string }) {
     const where: any = { deletedAt: null };
     if (filters.projetId) where.projetId = filters.projetId;
-    return prisma.epic.findMany({
+    const rows = await prisma.epic.findMany({
       where,
       include: epicInclude,
       orderBy: { updatedAt: 'desc' },
     });
+    if (!filters.requesterId || !filters.requesterRole) return rows;
+    const visible: typeof rows = [];
+    for (const row of rows) {
+      if (await this.canViewEpicByProjet(row.id, filters.requesterId, filters.requesterRole)) {
+        visible.push(row);
+      }
+    }
+    return visible;
   }
 
   async getEpic(id: string) {
@@ -368,7 +376,13 @@ export class EpicService {
     });
   }
 
-  async listUserStories(filters: { epicId?: string; projetId?: string; orphelines?: boolean }) {
+  async listUserStories(filters: {
+    epicId?: string;
+    projetId?: string;
+    orphelines?: boolean;
+    requesterId?: string;
+    requesterRole?: string;
+  }) {
     const parts: object[] = [
       { deletedAt: null },
       { OR: [{ epicId: null }, { epic: { deletedAt: null } }] },
@@ -389,11 +403,22 @@ export class EpicService {
       });
     }
     const where = parts.length === 1 ? parts[0] : { AND: parts };
-    const rows = await prisma.userStory.findMany({
+    let rows = await prisma.userStory.findMany({
       where,
       include: userStoryInclude,
       orderBy: { updatedAt: 'desc' },
     });
+    if (filters.requesterId && filters.requesterRole) {
+      const vis: typeof rows = [];
+      for (const r of rows) {
+        if (r.epicId) {
+          if (await this.canViewEpicByProjet(r.epicId, filters.requesterId, filters.requesterRole)) vis.push(r);
+        } else if (filters.requesterRole === 'admin' || r.createdById === filters.requesterId) {
+          vis.push(r);
+        }
+      }
+      rows = vis;
+    }
     if (rows.length === 0) return rows;
     const usIds = rows.map((r) => r.id);
     const natifs = await prisma.document.findMany({

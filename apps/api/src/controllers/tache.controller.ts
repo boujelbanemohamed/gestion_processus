@@ -28,10 +28,13 @@ export const uploadMiddleware = multer({ storage, limits: { fileSize: 10 * 1024 
 
 export const getAllTaches = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
     const { statut, projetId } = req.query;
     const taches = await tacheService.findAll({
       statut: statut as string,
       projetId: projetId as string,
+      requesterId: req.user.userId,
+      requesterRole: req.user.role,
     });
     res.json(taches);
   } catch (error: any) {

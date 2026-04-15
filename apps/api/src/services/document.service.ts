@@ -1,6 +1,7 @@
 import { prisma } from '../utils/prisma';
 import { DocType, DocStatut, RefType, type Prisma } from '../generated/prisma/client';
 import { canEditLicenceContent, canReadLicence, loadLicenceForAclById } from './licence.service';
+import { canViewPvReunion } from './pv-reunion.service';
 import { ProcessusService } from './processus.service';
 import { ProjetService } from './projet.service';
 import { EntiteService } from './entite.service';
@@ -232,6 +233,8 @@ export class DocumentService {
     search?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
+    requesterId?: string;
+    requesterRole?: string;
   }) {
     const where: any = { deletedAt: null };
     if (filters?.typeDocument) where.typeDocument = filters.typeDocument;
@@ -325,6 +328,37 @@ export class DocumentService {
         epicDocuments: {
           include: {
             epic: { select: { id: true, nom: true } },
+          },
+        },
+        pvReunionsPrincipal: {
+          where: { deletedAt: null },
+          select: {
+            id: true,
+            titre: true,
+            statut: true,
+            createdById: true,
+            createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+            permissions: {
+              include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
+            },
+            adminSansAcces: { select: { userId: true } },
+          },
+        },
+        pvReunionCommentPieces: {
+          include: {
+            pvReunion: {
+              select: {
+                id: true,
+                titre: true,
+                statut: true,
+                createdById: true,
+                createdBy: { select: { id: true, nom: true, prenom: true, email: true } },
+                permissions: {
+                  include: { user: { select: { id: true, nom: true, prenom: true, email: true, role: true } } },
+                },
+                adminSansAcces: { select: { userId: true } },
+              },
+            },
           },
         },
         _count: { select: { versions: true } },
@@ -465,12 +499,23 @@ export class DocumentService {
           docAdminSansAccesUserIds = await fetchDocumentAdminSansAccesUserIds(doc.id);
         }
 
+        const pvDirect = doc.pvReunionsPrincipal?.[0];
+        const pvFromComment = doc.pvReunionCommentPieces?.find((x: any) => !!x.pvReunion)?.pvReunion;
+        const pv = pvDirect || pvFromComment || null;
+        const pvReunion = pv
+          ? {
+              ...pv,
+              adminSansAccesUserIds: (pv.adminSansAcces || []).map((x: { userId: string }) => x.userId),
+            }
+          : null;
+
         return {
           ...doc,
           processus: processus || null,
           projet: projet || null,
           licence: licence || null,
           contrats: contrats || [],
+          pvReunion,
           nombreTelechargements: telechargements,
           nombreVisualisations: visualisations,
           adminSansAccesUserIds: docAdminSansAccesUserIds,
@@ -478,7 +523,13 @@ export class DocumentService {
       })
     );
 
-    return documentsWithProcessus;
+    if (!filters?.requesterId || !filters?.requesterRole) return documentsWithProcessus;
+    const visible: typeof documentsWithProcessus = [];
+    for (const doc of documentsWithProcessus) {
+      const ok = await this.canUserAccessDocument(doc.id, filters.requesterId, filters.requesterRole);
+      if (ok) visible.push(doc);
+    }
+    return visible;
   }
 
   async findOne(id: string) {
@@ -568,6 +619,40 @@ export class DocumentService {
     if (!document) return false;
 
     const r = role || 'lecteur';
+
+    const pvCommentLink =
+      document.referenceType === 'pvReunion' || document.typeDocument === 'pv_reunion'
+        ? true
+        : !!(await prisma.pvReunionCommentaire.findFirst({
+            where: { documentId },
+            select: { id: true },
+          }));
+    const shouldCheckPvAcl = document.referenceType === 'pvReunion' || document.typeDocument === 'pv_reunion' || pvCommentLink;
+    if (shouldCheckPvAcl) {
+      const pv = await prisma.pvReunion.findFirst({
+        where: {
+          deletedAt: null,
+          OR: [{ documentId }, { commentaires: { some: { documentId } } }],
+        },
+        select: {
+          id: true,
+          createdById: true,
+          permissions: { select: { userId: true, niveau: true } },
+          adminSansAcces: { select: { userId: true } },
+        },
+      });
+      if (!pv) return false;
+      return canViewPvReunion(
+        {
+          id: pv.id,
+          createdById: pv.createdById,
+          permissions: pv.permissions,
+          adminSansAcces: pv.adminSansAcces,
+        } as any,
+        userId,
+        r
+      );
+    }
 
     // Licence confidentielle : administrateurs « exclus » n’ont pas le raccourci global
     if (document.estConfidentiel && document.referenceType === 'licence' && document.referenceId && r === 'admin') {

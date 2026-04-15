@@ -24,6 +24,9 @@ const DROITS_ADMIN_LICENCE_DOC =
 
 const DROITS_ADMIN_DOC_PROJET_NATIF =
   'visualisation, modification statut, accès, suppression (admin non exclu de la pièce)';
+const DROITS_CREATEUR_PV_DOC = 'gestion des accès + modification + suppression + lecture';
+const DROITS_ADMIN_PV_DOC =
+  'modification + suppression + lecture (sans gestion des accès — réservée au créateur du PV)';
 
 const PMO_DOCUMENTS_ACCES_CHANGED = 'pmo-documents-acces-changed';
 
@@ -1067,11 +1070,15 @@ export default function Documents() {
             const isLicenceLinkedDoc = d.typeDocument === 'licence' || d.referenceType === 'licence';
             const linkedContrat = d.contrats?.[0]?.contrat;
             const isContratLinkedDoc = !!linkedContrat;
-            const showRestrictedAccess = d.estConfidentiel || isLicenceLinkedDoc || isContratLinkedDoc;
+            const linkedPv = d.pvReunion || d.pvReunionsPrincipal?.[0] || d.pvReunionCommentPieces?.[0]?.pvReunion || null;
+            const isPvLinkedDoc = !!linkedPv;
+            const showRestrictedAccess = d.estConfidentiel || isLicenceLinkedDoc || isContratLinkedDoc || isPvLinkedDoc;
             const statut =
-              d.typeDocument === 'contrat' && d.contrats?.[0]?.contrat?.statut
-                ? d.contrats[0].contrat.statut
-                : d.statut;
+              isPvLinkedDoc && linkedPv?.statut
+                ? linkedPv.statut
+                : d.typeDocument === 'contrat' && d.contrats?.[0]?.contrat?.statut
+                  ? d.contrats[0].contrat.statut
+                  : d.statut;
             const statutColor =
               statut === 'valide' || statut === 'actif'
                 ? 'bg-green-100 text-green-800'
@@ -1165,10 +1172,10 @@ export default function Documents() {
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-teal-50 text-teal-800 rounded text-xs font-medium">
                           🏢 Client / Fournisseur
                         </span>
-                      ) : d.referenceType === 'pvReunion' && d.referenceId ? (
+                      ) : (d.referenceType === 'pvReunion' && d.referenceId) || linkedPv?.id ? (
                         <button
                           type="button"
-                          onClick={() => navigate(`/pv-reunion/${d.referenceId}`)}
+                          onClick={() => navigate(`/pv-reunion/${d.referenceId || linkedPv?.id}`)}
                           className="text-blue-600 hover:underline"
                         >
                           PV de réunion
@@ -1206,7 +1213,7 @@ export default function Documents() {
                     {showRestrictedAccess && (
                       <div className="text-xs text-gray-700 space-y-1 mb-2">
                         <span className="inline-block px-2 py-0.5 bg-red-100 text-red-800 rounded">
-                          {isLicenceLinkedDoc ? 'Confidentiel (licence)' : 'Confidentiel'}
+                          {isLicenceLinkedDoc ? 'Confidentiel (licence)' : isPvLinkedDoc ? 'Accès restreint (PV de réunion)' : 'Confidentiel'}
                         </span>
                       </div>
                     )}
@@ -1309,7 +1316,47 @@ export default function Documents() {
                                 </div>
                               </>
                             )}
-                            {d.estConfidentiel && !isLicenceLinkedDoc && !isContratLinkedDoc && (
+                            {isPvLinkedDoc && linkedPv && !isLicenceLinkedDoc && !isContratLinkedDoc && (
+                              <>
+                                <p className="mt-1 text-xs text-indigo-800">
+                                  Aligné sur la fiche PV de réunion — actualisez la liste documents après un changement
+                                  d’accès sur la page PV.
+                                </p>
+                                <div className="mt-2 text-xs text-gray-700 space-y-1">
+                                  <AccessContratLikeAdminLines
+                                    keyPrefix={`doc-${d.id}-pv`}
+                                    users={usersList}
+                                    createdById={linkedPv.createdById}
+                                    createdBy={linkedPv.createdBy}
+                                    adminSansAccesUserIds={
+                                      linkedPv.adminSansAccesUserIds ??
+                                      (linkedPv.adminSansAcces || []).map((x: { userId: string }) => x.userId)
+                                    }
+                                    permissions={(linkedPv.permissions || []).map((p: any) => ({
+                                      userId: p.userId,
+                                      niveau: p.niveau,
+                                      user: p.user,
+                                    }))}
+                                    creatorRightsLabel={DROITS_CREATEUR_PV_DOC}
+                                    droitsAdminCompletLabel={DROITS_ADMIN_PV_DOC}
+                                    niveauLabel={(n) => NIVEAUX_CONTRAT_DOC.find((x) => x.value === n)?.label || n}
+                                  />
+                                  {(linkedPv.permissions || []).map((pp: any) => (
+                                    <div key={pp.id} className="min-w-0">
+                                      <span className="font-medium text-gray-900">
+                                        {pp.user?.prenom} {pp.user?.nom}
+                                      </span>
+                                      <span className="text-gray-500 italic ml-1">
+                                        (
+                                        {NIVEAUX_CONTRAT_DOC.find((x) => x.value === pp.niveau)?.label || pp.niveau} :{' '}
+                                        {pp.niveau === 'lecture' ? 'lecture' : niveauSummaryContratDoc(pp.niveau)})
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                            {d.estConfidentiel && !isLicenceLinkedDoc && !isContratLinkedDoc && !isPvLinkedDoc && (
                               <div className="mt-1 text-xs text-gray-600 space-y-0.5">
                                 {isNativeProjetUploadDoc(d) ? (
                                   <>

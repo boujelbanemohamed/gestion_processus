@@ -68,8 +68,13 @@ export const userStoryCommentUploadMiddleware = multer({
 
 export const getEpics = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
     const { projetId } = req.query;
-    const list = await epicService.listEpics({ projetId: projetId as string | undefined });
+    const list = await epicService.listEpics({
+      projetId: projetId as string | undefined,
+      requesterId: req.user.userId,
+      requesterRole: req.user.role,
+    });
     res.json(list);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -257,11 +262,14 @@ export const delierDocumentEpic = async (req: AuthRequest, res: Response) => {
 
 export const getUserStories = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
     const { epicId, projetId, orphelines } = req.query;
     const list = await epicService.listUserStories({
       epicId: epicId as string | undefined,
       projetId: projetId as string | undefined,
       orphelines: orphelines === 'true' || orphelines === '1',
+      requesterId: req.user.userId,
+      requesterRole: req.user.role,
     });
     res.json(list);
   } catch (e: any) {

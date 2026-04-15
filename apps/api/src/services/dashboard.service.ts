@@ -5,6 +5,35 @@ const JOURS_ACTIVITE_PROJET = 30;
 const TACHE_STATUTS_FINALISES = ['termine', 'archive'] as const;
 
 export class DashboardService {
+  private async getTachesAssigneesEnInstance(userId?: string, userRole?: string) {
+    if (!userId) return [];
+    if (userRole !== 'contributeur') return [];
+
+    const taches = await prisma.tache.findMany({
+      where: {
+        deletedAt: null,
+        statut: { notIn: [...TACHE_STATUTS_FINALISES] },
+        assignesUtilisateurs: { some: { userId } },
+      },
+      orderBy: [{ updatedAt: 'desc' }],
+      take: 15,
+      include: {
+        projet: { select: { id: true, nom: true, codeProjet: true } },
+      },
+    });
+
+    return taches.map((t) => ({
+      id: t.id,
+      nom: t.nom,
+      statut: t.statut,
+      dateFinPrevue: t.dateFinApprox?.toISOString() ?? null,
+      projet: t.projet
+        ? { id: t.projet.id, nom: t.projet.nom, codeProjet: t.projet.codeProjet }
+        : null,
+      updatedAt: t.updatedAt.toISOString(),
+    }));
+  }
+
   /** Top projets : sur 30 jours, actions journal (projet) + tches mises  jour ; complt par `updatedAt` si besoin. */
   private async getProjetsPlusActifs(projetWhere: any) {
     const depuis = new Date(Date.now() - JOURS_ACTIVITE_PROJET * 24 * 60 * 60 * 1000);
@@ -114,7 +143,19 @@ export class DashboardService {
 
     let where: any = { ...baseWhere };
 
-    if (userRole === 'lecteur' || userRole === 'contributeur') {
+    if (userRole === 'contributeur') {
+      if (!userId) {
+        return [];
+      }
+      where = {
+        AND: [
+          baseWhere,
+          {
+            assignesUtilisateurs: { some: { userId } },
+          },
+        ],
+      };
+    } else if (userRole === 'lecteur') {
       if (!userId) {
         return [];
       }
@@ -179,7 +220,48 @@ export class DashboardService {
     let entitesWhereClause: any = {};
     let projetWhereClause: any = { deletedAt: null };
 
-    if (userRole === 'lecteur' || userRole === 'contributeur') {
+    if (userRole === 'contributeur') {
+      if (!userId) {
+        whereClause = { id: { in: [] } };
+        entitesWhereClause = { id: { in: [] } };
+        projetWhereClause = { deletedAt: null, id: { in: [] } };
+      } else {
+        const assignedTasks = await prisma.tache.findMany({
+          where: {
+            deletedAt: null,
+            assignesUtilisateurs: { some: { userId } },
+          },
+          select: { projetId: true },
+        });
+        const projetIds = [...new Set(assignedTasks.map((t) => t.projetId).filter(Boolean))] as string[];
+        if (projetIds.length === 0) {
+          whereClause = { id: { in: [] } };
+          entitesWhereClause = { id: { in: [] } };
+          projetWhereClause = { deletedAt: null, id: { in: [] } };
+        } else {
+          const entitesProjet = await prisma.projetEntite.findMany({
+            where: { projetId: { in: projetIds } },
+            select: { entiteId: true },
+          });
+          const entiteIds = [...new Set(entitesProjet.map((x) => x.entiteId))];
+          whereClause =
+            entiteIds.length > 0
+              ? {
+                  entites: {
+                    some: {
+                      entiteId: { in: entiteIds },
+                    },
+                  },
+                }
+              : { id: { in: [] } };
+          entitesWhereClause = entiteIds.length > 0 ? { id: { in: entiteIds } } : { id: { in: [] } };
+          projetWhereClause = {
+            deletedAt: null,
+            id: { in: projetIds },
+          };
+        }
+      }
+    } else if (userRole === 'lecteur') {
       const user = await prisma.user.findUnique({
         where: { id: userId },
         select: {
@@ -331,6 +413,11 @@ export class DashboardService {
       this.getProjetsPlusActifs(projetWhereClause),
       this.getTachesEnRetard(userId, userRole),
     ]);
+    const tachesAssigneesEnInstance = await this.getTachesAssigneesEnInstance(userId, userRole);
+    const projetsAssignesCount =
+      userRole === 'contributeur'
+        ? new Set(tachesAssigneesEnInstance.map((t) => t.projet?.id).filter(Boolean)).size
+        : undefined;
 
     return {
       processus: { total: processusTotal, parStatut },
@@ -349,6 +436,8 @@ export class DashboardService {
       entitesMembres: entitesAvecMembres,
       documentsPlusVisualises: documentsVisualisesTries,
       documentsPlusTelecharges: documentsTelechargesTries,
+      tachesAssigneesEnInstance,
+      projetsAssignesCount,
     };
   }
 }

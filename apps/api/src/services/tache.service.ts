@@ -190,7 +190,20 @@ export class TacheService {
     return eff !== null && this.permRank(eff) >= this.permRank(PermissionType.suppression);
   }
 
-  async findAll(filters: { statut?: string; projetId?: string; createurId?: string } = {}) {
+  private canUserViewTacheRow(
+    row: { createurId: string | null; assignesUtilisateurs: { userId: string; permission: PermissionType }[]; adminSansAcces?: { userId: string }[] },
+    userId: string,
+    role: string
+  ): boolean {
+    const eff = this.effectiveDeleguePermission(userId, role, {
+      createurId: row.createurId,
+      assignesUtilisateurs: row.assignesUtilisateurs || [],
+      adminSansAcces: row.adminSansAcces || [],
+    });
+    return eff !== null && this.permRank(eff) >= this.permRank(PermissionType.lecture);
+  }
+
+  async findAll(filters: { statut?: string; projetId?: string; createurId?: string; requesterId?: string; requesterRole?: string } = {}) {
     const where: any = { deletedAt: null };
     if (filters.statut) where.statut = filters.statut;
     if (filters.projetId) where.projetId = filters.projetId;
@@ -201,7 +214,10 @@ export class TacheService {
       include: TACHE_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
-    return taches.map(formatTache);
+    const visible = filters.requesterId && filters.requesterRole
+      ? taches.filter((t: any) => this.canUserViewTacheRow(t, filters.requesterId!, filters.requesterRole!))
+      : taches;
+    return visible.map(formatTache);
   }
 
   async findOne(id: string) {
