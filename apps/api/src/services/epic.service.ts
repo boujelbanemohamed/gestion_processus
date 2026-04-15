@@ -23,7 +23,14 @@ const epicInclude = {
           fichierType: true,
           statut: true,
           estConfidentiel: true,
+          referenceType: true,
+          referenceId: true,
+          uploadedById: true,
           uploadedBy: { select: { id: true, nom: true, prenom: true } },
+          permissionsUtilisateurs: {
+            include: { user: { select: { id: true, nom: true, prenom: true, role: true } } },
+          },
+          adminSansAcces: { select: { userId: true } },
         },
       },
     },
@@ -270,14 +277,22 @@ export class EpicService {
     userId: string,
     fichier: Express.Multer.File,
     nom: string,
-    description?: string
+    description?: string,
+    permissionUserIds?: string[]
   ) {
     const ep = await prisma.epic.findFirst({ where: { id: epicId, deletedAt: null } });
     if (!ep) throw new Error('Epic introuvable');
+    const permSet = new Set<string>();
+    for (const id of permissionUserIds || []) {
+      if (id?.trim()) permSet.add(id.trim());
+    }
+    const explicitPerms = [...permSet].filter((uid) => uid !== userId);
     const document = await prisma.document.create({
       data: {
         nom: nom || fichier.originalname,
-        typeDocument: 'autre',
+        typeDocument: 'epic',
+        referenceType: 'epic',
+        referenceId: epicId,
         fichierUrl: fichier.path,
         fichierNomOriginal: fichier.originalname,
         fichierTaille: fichier.size,
@@ -285,12 +300,60 @@ export class EpicService {
         description: description || null,
         statut: 'valide',
         uploadedById: userId,
+        estConfidentiel: true,
+        ...(explicitPerms.length > 0
+          ? {
+              permissionsUtilisateurs: {
+                create: explicitPerms.map((uid) => ({ userId: uid })),
+              },
+            }
+          : {}),
       },
     });
     await prisma.epicDocument.create({
       data: { epicId, documentId: document.id },
     });
     return document;
+  }
+
+  async uploadDocumentUserStory(
+    userStoryId: string,
+    userId: string,
+    fichier: Express.Multer.File,
+    nom: string,
+    description?: string,
+    permissionUserIds?: string[]
+  ) {
+    const us = await prisma.userStory.findFirst({ where: { id: userStoryId, deletedAt: null } });
+    if (!us) throw new Error('User story introuvable');
+    const permSet = new Set<string>();
+    for (const id of permissionUserIds || []) {
+      if (id?.trim()) permSet.add(id.trim());
+    }
+    const explicitPerms = [...permSet].filter((uid) => uid !== userId);
+    return prisma.document.create({
+      data: {
+        nom: nom || fichier.originalname,
+        typeDocument: 'user_story',
+        referenceType: 'userStory',
+        referenceId: userStoryId,
+        fichierUrl: fichier.path,
+        fichierNomOriginal: fichier.originalname,
+        fichierTaille: fichier.size,
+        fichierType: fichier.mimetype,
+        description: description || null,
+        statut: 'valide',
+        uploadedById: userId,
+        estConfidentiel: true,
+        ...(explicitPerms.length > 0
+          ? {
+              permissionsUtilisateurs: {
+                create: explicitPerms.map((uid) => ({ userId: uid })),
+              },
+            }
+          : {}),
+      },
+    });
   }
 
   async listUserStories(filters: { epicId?: string; projetId?: string; orphelines?: boolean }) {
@@ -314,18 +377,71 @@ export class EpicService {
       });
     }
     const where = parts.length === 1 ? parts[0] : { AND: parts };
-    return prisma.userStory.findMany({
+    const rows = await prisma.userStory.findMany({
       where,
       include: userStoryInclude,
       orderBy: { updatedAt: 'desc' },
     });
+    if (rows.length === 0) return rows;
+    const usIds = rows.map((r) => r.id);
+    const natifs = await prisma.document.findMany({
+      where: { deletedAt: null, referenceType: 'userStory', referenceId: { in: usIds } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        nom: true,
+        typeDocument: true,
+        fichierType: true,
+        statut: true,
+        estConfidentiel: true,
+        referenceType: true,
+        referenceId: true,
+        uploadedById: true,
+        uploadedBy: { select: { id: true, nom: true, prenom: true } },
+        permissionsUtilisateurs: {
+          include: { user: { select: { id: true, nom: true, prenom: true, role: true } } },
+        },
+        adminSansAcces: { select: { userId: true } },
+      },
+    });
+    const byUs = new Map<string, typeof natifs>();
+    for (const d of natifs) {
+      const rid = d.referenceId;
+      if (!rid) continue;
+      const arr = byUs.get(rid) ?? [];
+      arr.push(d);
+      byUs.set(rid, arr);
+    }
+    return rows.map((r) => ({ ...r, documentsNatifs: byUs.get(r.id) ?? [] }));
   }
 
   async getUserStory(id: string) {
-    return prisma.userStory.findFirst({
+    const us = await prisma.userStory.findFirst({
       where: { id, deletedAt: null },
       include: userStoryInclude,
     });
+    if (!us) return null;
+    const documentsNatifs = await prisma.document.findMany({
+      where: { deletedAt: null, referenceType: 'userStory', referenceId: id },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        nom: true,
+        typeDocument: true,
+        fichierType: true,
+        statut: true,
+        estConfidentiel: true,
+        referenceType: true,
+        referenceId: true,
+        uploadedById: true,
+        uploadedBy: { select: { id: true, nom: true, prenom: true } },
+        permissionsUtilisateurs: {
+          include: { user: { select: { id: true, nom: true, prenom: true, role: true } } },
+        },
+        adminSansAcces: { select: { userId: true } },
+      },
+    });
+    return { ...us, documentsNatifs };
   }
 
   async createUserStory(data: {

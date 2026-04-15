@@ -46,15 +46,37 @@ export function isNativeProjetUploadDocument(doc: {
 }): boolean {
   const typeDoc = String(doc.typeDocument ?? '');
   const refType = String(doc.referenceType ?? '');
-  const nativePair =
-    (typeDoc === 'projet' && refType === 'projet') ||
-    (typeDoc === 'processus' && refType === 'processus');
-  return (
-    !!doc.estConfidentiel &&
-    nativePair &&
-    doc.referenceId != null &&
-    String(doc.referenceId).length > 0
-  );
+  if (!doc.estConfidentiel || doc.referenceId == null || String(doc.referenceId).trim() === '') {
+    return false;
+  }
+  const nativePairs: [string, string][] = [
+    ['projet', 'projet'],
+    ['processus', 'processus'],
+    ['epic', 'epic'],
+    ['user_story', 'userStory'],
+  ];
+  return nativePairs.some(([t, r]) => typeDoc === t && refType === r);
+}
+
+async function resolveEpicProjetId(epicId: string): Promise<string | null> {
+  const ep = await prisma.epic.findFirst({
+    where: { id: epicId, deletedAt: null },
+    select: { projetId: true },
+  });
+  return ep?.projetId ?? null;
+}
+
+async function resolveUserStoryProjetId(userStoryId: string): Promise<string | null> {
+  const us = await prisma.userStory.findFirst({
+    where: { id: userStoryId, deletedAt: null },
+    select: {
+      epic: { select: { projetId: true } },
+      taches: { where: { deletedAt: null }, take: 1, select: { projetId: true } },
+    },
+  });
+  if (!us) return null;
+  if (us.epic?.projetId) return us.epic.projetId;
+  return us.taches[0]?.projetId ?? null;
 }
 
 async function fetchDocumentAdminSansAccesUserIds(documentId: string): Promise<string[]> {
@@ -142,6 +164,7 @@ function buildDocumentLinkClause(linkType: string, linkId: string): Record<strin
     case 'userStory':
       return {
         OR: [
+          { AND: [{ referenceType: 'userStory' as RefType }, { referenceId: linkId }] },
           { tacheDocuments: { some: { tache: { userStoryId: linkId, deletedAt: null } } } },
           {
             epicDocuments: {
@@ -556,6 +579,20 @@ export class DocumentService {
     if (document.referenceType === 'clientFournisseur' && document.referenceId) {
       const cfAccess = await clientFournisseurService.canAccess(document.referenceId, userId, r);
       if (!cfAccess.canAccess) return false;
+    }
+    if (document.referenceType === 'epic' && document.referenceId) {
+      const pid = await resolveEpicProjetId(document.referenceId);
+      if (pid) {
+        const projAccess = await projetService.canAccess(pid, userId, r);
+        if (!projAccess.canAccess) return false;
+      }
+    }
+    if (document.referenceType === 'userStory' && document.referenceId) {
+      const pid = await resolveUserStoryProjetId(document.referenceId);
+      if (pid) {
+        const projAccess = await projetService.canAccess(pid, userId, r);
+        if (!projAccess.canAccess) return false;
+      }
     }
 
     if (!document.estConfidentiel) return true;

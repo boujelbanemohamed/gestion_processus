@@ -256,6 +256,27 @@ export const createVersion = async (req: AuthRequest, res: Response) => {
             error: 'Vous n\'avez pas les permissions pour créer une nouvelle version de ce document.',
           });
         }
+      } else if (
+        (oldDocument.referenceType === 'epic' || oldDocument.referenceType === 'userStory') &&
+        oldDocument.referenceId
+      ) {
+        if (isNativeProjetUploadDocument(oldDocument as any)) {
+          const ok = await documentService.canUserDeleteOrAddVersion(
+            oldDocument.id,
+            req.user.userId,
+            req.user.role
+          );
+          if (!ok) {
+            return res.status(403).json({
+              error:
+                'Vous ne pouvez pas créer de version : seuls l’auteur ou un utilisateur explicitement autorisé sur cette pièce le peuvent.',
+            });
+          }
+        } else {
+          return res.status(403).json({
+            error: 'Vous n\'avez pas les permissions pour créer une nouvelle version de ce document.',
+          });
+        }
       } else {
         // Si le document n'est pas lié à un processus ni à une licence, seuls les admins peuvent créer une version
         return res.status(403).json({ 
@@ -570,6 +591,27 @@ export const deleteDocument = async (req: AuthRequest, res: Response) => {
           });
         }
       } else if (document.referenceType === 'projet' && document.referenceId) {
+        if (isNativeProjetUploadDocument(document as any)) {
+          const ok = await documentService.canUserDeleteOrAddVersion(
+            document.id,
+            req.user.userId,
+            req.user.role
+          );
+          if (!ok) {
+            return res.status(403).json({
+              error:
+                'Suppression non autorisée : seuls l’auteur ou un utilisateur explicitement autorisé sur cette pièce peuvent supprimer.',
+            });
+          }
+        } else {
+          return res.status(403).json({
+            error: 'Vous n\'avez pas les permissions pour supprimer ce document.',
+          });
+        }
+      } else if (
+        (document.referenceType === 'epic' || document.referenceType === 'userStory') &&
+        document.referenceId
+      ) {
         if (isNativeProjetUploadDocument(document as any)) {
           const ok = await documentService.canUserDeleteOrAddVersion(
             document.id,

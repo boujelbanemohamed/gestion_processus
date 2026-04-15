@@ -6,6 +6,8 @@ export const DOCUMENT_TYPE_OPTIONS: readonly { value: string; label: string }[] 
   { value: 'general', label: 'Général' },
   { value: 'processus', label: 'Processus' },
   { value: 'projet', label: 'Projet' },
+  { value: 'epic', label: 'Epic' },
+  { value: 'user_story', label: 'User story' },
   { value: 'procedure', label: 'Procédure' },
   { value: 'formulaire', label: 'Formulaire' },
   { value: 'contrat', label: 'Contrat' },

@@ -18,8 +18,15 @@ import {
   type UserStoryRow,
 } from '../components/EpicUserStoryModals';
 import { PvReunionsLieesBlock } from '../components/PvReunionsLieesBlock';
+import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
+import { DocumentAccesNatifModal } from '../components/DocumentAccesNatifModal';
+import { AgileDocumentsUserStorySection } from '../components/AgileDocumentsUserStorySection';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
+import { isNativeAuthorControlledUploadDoc, normalizeDocumentAclFields } from '../utils/documentNativeAcces';
+
+const DROITS_ADMIN_DOC_PROJET_NATIF =
+  'visualisation, modification statut, accès, suppression (admin non exclu de la pièce)';
 
 export const STATUT_OPTIONS = [
   { value: 'cree', label: 'Créée', color: 'bg-gray-100 text-gray-700' },
@@ -110,8 +117,12 @@ export type DocTache = {
   fichierType: string;
   statut: string;
   estConfidentiel: boolean;
+  referenceType?: string | null;
+  referenceId?: string | null;
+  uploadedById?: string;
   uploadedBy?: { id: string; nom: string; prenom: string };
   permissionsUtilisateurs?: { user: { id: string; nom: string; prenom: string } }[];
+  adminSansAccesUserIds?: string[];
 };
 
 type Commentaire = {
@@ -1667,13 +1678,17 @@ function DocumentsEpic({
   documents,
   canEdit,
   onDocumentsChange,
+  users,
 }: {
   epicId: string;
   documents: DocTache[];
   canEdit: boolean;
   onDocumentsChange?: () => void;
+  users: UserOption[];
 }) {
-  const [docs, setDocs] = useState<DocTache[]>(documents);
+  const { user: currentUser } = useAuth();
+  const [natifAccesDoc, setNatifAccesDoc] = useState<{ id: string; nom: string } | null>(null);
+  const [docs, setDocs] = useState<DocTache[]>(() => documents.map((d) => normalizeDocumentAclFields(d)));
   const [showUpload, setShowUpload] = useState(false);
   const [showLier, setShowLier] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1686,7 +1701,7 @@ function DocumentsEpic({
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setDocs(documents);
+    setDocs(documents.map((d) => normalizeDocumentAclFields(d)));
   }, [documents]);
 
   const loadDocsLiables = async () => {
@@ -1713,7 +1728,7 @@ function DocumentsEpic({
       const res = await api.post(`/epics/${epicId}/documents`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setDocs((prev) => [...prev, res.data]);
+      setDocs((prev) => [...prev, normalizeDocumentAclFields(res.data)]);
       setShowUpload(false);
       setUploadFile(null);
       setUploadNom('');
@@ -1731,7 +1746,7 @@ function DocumentsEpic({
     try {
       await api.post(`/epics/${epicId}/documents/lier`, { documentId: selectedDocId });
       const doc = docsLiables.find((d) => d.id === selectedDocId);
-      if (doc) setDocs((prev) => [...prev, doc]);
+      if (doc) setDocs((prev) => [...prev, normalizeDocumentAclFields(doc)]);
       setShowLier(false);
       setSelectedDocId('');
       onDocumentsChange?.();
@@ -1834,6 +1849,9 @@ function DocumentsEpic({
               Annuler
             </button>
           </div>
+          <p className="text-[11px] text-amber-800">
+            Déposé en confidentiel : gestion des accès (administrateurs, invités) via « Accès » pour l&apos;auteur du dépôt.
+          </p>
         </div>
       )}
 
@@ -1908,6 +1926,7 @@ function DocumentsEpic({
       <div className="space-y-2">
         {docs.length === 0 && <p className="text-sm text-gray-400">Aucun document lié</p>}
         {docs.map((doc) => {
+          const natif = isNativeAuthorControlledUploadDoc(doc);
           const accesPersonnes = getAccesDocument(doc);
           return (
             <div key={doc.id} className="bg-white border border-gray-200 rounded-lg p-3">
@@ -1929,53 +1948,110 @@ function DocumentsEpic({
                     </div>
                   </div>
                 </div>
-                {canEdit && (
-                  <button type="button" onClick={() => void handleDelier(doc.id)} className="text-xs text-red-500 hover:text-red-700 shrink-0">
-                    Délier
-                  </button>
-                )}
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  {natif && doc.uploadedById === currentUser?.id && (
+                    <button
+                      type="button"
+                      onClick={() => setNatifAccesDoc({ id: doc.id, nom: doc.nom })}
+                      className="text-xs px-2 py-1 bg-purple-100 text-purple-800 rounded hover:bg-purple-200"
+                    >
+                      {'\u{1F511}'} Accès
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button type="button" onClick={() => void handleDelier(doc.id)} className="text-xs text-red-500 hover:text-red-700">
+                      Délier
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="border-t border-gray-100 pt-2 mt-2">
                 <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Accès :</p>
-                <div className="flex items-start gap-3 flex-wrap">
-                  {doc.estConfidentiel ? (
-                    <div className="flex flex-col items-center">
+                {natif ? (
+                  <div className="text-xs text-gray-700 space-y-2">
+                    <div className="flex flex-col items-center w-fit">
                       <div className="w-14 h-14 bg-red-100 border border-red-300 rounded-lg flex flex-col items-center justify-center">
-                        <span className="text-xl">🔒</span>
+                        <span className="text-xl">{'\u{1F512}'}</span>
                       </div>
                       <span className="text-xs text-red-600 font-medium mt-1">Accès restreint</span>
                     </div>
-                  ) : (
-                    <div className="flex flex-col items-center">
-                      <div className="w-14 h-14 bg-green-100 border border-green-300 rounded-lg flex flex-col items-center justify-center">
-                        <span className="text-xl">🌐</span>
+                    <AccessContratLikeAdminLines
+                      keyPrefix={`epic-doc-${doc.id}`}
+                      users={users}
+                      createdById={doc.uploadedById}
+                      createdBy={doc.uploadedBy}
+                      adminSansAccesUserIds={doc.adminSansAccesUserIds}
+                      permissions={(doc.permissionsUtilisateurs || [])
+                        .filter((p: any) => p.user?.role === 'admin')
+                        .map((p: any) => ({
+                          userId: p.userId || p.user?.id,
+                          niveau: 'lecture',
+                          user: p.user,
+                        }))}
+                      droitsAdminCompletLabel={DROITS_ADMIN_DOC_PROJET_NATIF}
+                      creatorRightsLabel="auteur — tous les droits sur ce document"
+                      niveauLabel={() => 'Lecture'}
+                      limitedPrefix="Admin : accès limité —"
+                    />
+                    {(doc.permissionsUtilisateurs || [])
+                      .filter((p: any) => p.user && p.user.role !== 'admin')
+                      .map((p: any) => (
+                        <div key={p.id || p.user.id} className="min-w-0">
+                          <span className="font-medium text-gray-900">
+                            {p.user.prenom} {p.user.nom}
+                          </span>
+                          <span className="text-gray-500 italic ml-1">(Accès explicite : lecture)</span>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-3 flex-wrap">
+                    {doc.estConfidentiel ? (
+                      <div className="flex flex-col items-center">
+                        <div className="w-14 h-14 bg-red-100 border border-red-300 rounded-lg flex flex-col items-center justify-center">
+                          <span className="text-xl">{'\u{1F512}'}</span>
+                        </div>
+                        <span className="text-xs text-red-600 font-medium mt-1">Accès restreint</span>
                       </div>
-                      <span className="text-xs text-green-600 font-medium mt-1">Accès libre</span>
-                    </div>
-                  )}
-                  {accesPersonnes.map((p, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                        {p.nom
-                          .split(' ')
-                          .map((n: string) => n[0])
-                          .join('')
-                          .slice(0, 2)
-                          .toUpperCase()}
+                    ) : (
+                      <div className="flex flex-col items-center">
+                        <div className="w-14 h-14 bg-green-100 border border-green-300 rounded-lg flex flex-col items-center justify-center">
+                          <span className="text-xl">{'\u{1F310}'}</span>
+                        </div>
+                        <span className="text-xs text-green-600 font-medium mt-1">Accès libre</span>
                       </div>
-                      <div>
-                        <p className="text-xs font-medium text-gray-800">{p.nom}</p>
-                        <p className="text-xs text-gray-500 italic">({p.droit})</p>
+                    )}
+                    {accesPersonnes.map((p, i) => (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                          {p.nom
+                            .split(' ')
+                            .map((n: string) => n[0])
+                            .join('')
+                            .slice(0, 2)
+                            .toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-gray-800">{p.nom}</p>
+                          <p className="text-xs text-gray-500 italic">({p.droit})</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
       </div>
+      <DocumentAccesNatifModal
+        open={!!natifAccesDoc}
+        document={natifAccesDoc}
+        users={users}
+        onClose={() => setNatifAccesDoc(null)}
+        onAfterMutation={() => onDocumentsChange?.()}
+      />
     </div>
   );
 }
@@ -4637,6 +4713,13 @@ export default function Taches() {
                             }
                           />
                         )}
+                        <AgileDocumentsUserStorySection
+                          userStoryId={us.id}
+                          documentsNatifs={us.documentsNatifs || []}
+                          canEdit={!!canEditUsEpic}
+                          onDocumentsChange={loadAll}
+                          users={users}
+                        />
                         <div>
                           <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">Description</h4>
                           <p className="text-gray-800 whitespace-pre-wrap">{us.description}</p>
@@ -5036,6 +5119,7 @@ export default function Taches() {
                           documents={(ep.documents || []).map((ed) => ed.document)}
                           canEdit={!!canEditUsEpic}
                           onDocumentsChange={loadAll}
+                          users={users}
                         />
                         <div className="scroll-mt-4 border-t border-gray-200 pt-4 space-y-2">
                           <h4 className="text-xs font-semibold text-gray-500 uppercase">Personnes habilitées (aperçu)</h4>
@@ -5211,7 +5295,7 @@ export default function Taches() {
       )}
 
       {detailEpicId && (
-        <EpicDetailModal epicId={detailEpicId} onClose={() => setDetailEpicId(null)} />
+        <EpicDetailModal epicId={detailEpicId} onClose={() => setDetailEpicId(null)} users={users} />
       )}
 
       {editUserStoryId && (
@@ -5244,6 +5328,8 @@ export default function Taches() {
             setDetailUserStoryId(null);
             setDetailEpicId(eid);
           }}
+          users={users}
+          canEdit={!!canEditUsEpic}
         />
       )}
 

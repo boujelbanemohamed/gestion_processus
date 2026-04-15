@@ -45,6 +45,8 @@ enum DocType {
   licence
   autre
   pv_reunion
+  epic
+  user_story
 }
 
 enum RefType {
@@ -54,6 +56,8 @@ enum RefType {
   clientFournisseur
   licence
   pvReunion
+  epic
+  userStory
 }
 
 enum DocStatut {

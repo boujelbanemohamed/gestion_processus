@@ -174,7 +174,62 @@ export const uploadDocumentEpic = async (req: AuthRequest, res: Response) => {
     if (!req.file) return res.status(400).json({ error: 'Fichier requis' });
     const nom = (req.body.nom as string) || req.file.originalname;
     const description = req.body.description as string | undefined;
-    const doc = await epicService.uploadDocumentEpic(req.params.id, req.user.userId, req.file, nom, description);
+    let permissionUserIds: string[] = [];
+    const raw = req.body.permissionUserIds;
+    if (raw) {
+      if (Array.isArray(raw)) permissionUserIds = raw.map(String);
+      else if (typeof raw === 'string')
+        permissionUserIds = raw.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    const doc = await epicService.uploadDocumentEpic(
+      req.params.id,
+      req.user.userId,
+      req.file,
+      nom,
+      description,
+      permissionUserIds
+    );
+    res.status(201).json(doc);
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+};
+
+const userStoryDocDir = path.join(process.cwd(), 'uploads', 'user-stories');
+if (!fs.existsSync(userStoryDocDir)) fs.mkdirSync(userStoryDocDir, { recursive: true });
+const userStoryDocStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, userStoryDocDir),
+  filename: (_req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `${unique}${path.extname(file.originalname)}`);
+  },
+});
+export const userStoryDocumentUploadMiddleware = multer({
+  storage: userStoryDocStorage,
+  limits: { fileSize: 100 * 1024 * 1024 },
+}).single('fichier');
+
+export const uploadDocumentUserStory = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    if (!req.file) return res.status(400).json({ error: 'Fichier requis' });
+    const nom = (req.body.nom as string) || req.file.originalname;
+    const description = req.body.description as string | undefined;
+    let permissionUserIds: string[] = [];
+    const raw = req.body.permissionUserIds;
+    if (raw) {
+      if (Array.isArray(raw)) permissionUserIds = raw.map(String);
+      else if (typeof raw === 'string')
+        permissionUserIds = raw.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    const doc = await epicService.uploadDocumentUserStory(
+      req.params.id,
+      req.user.userId,
+      req.file,
+      nom,
+      description,
+      permissionUserIds
+    );
     res.status(201).json(doc);
   } catch (e: any) {
     res.status(400).json({ error: e.message });

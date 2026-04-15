@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { api, API_BASE_URL } from '../services/api';
+import { useAuth } from '../store/auth';
 import { PvReunionsLieesBlock } from './PvReunionsLieesBlock';
+import { DocumentAccesNatifModal } from './DocumentAccesNatifModal';
+import { AgileDocumentsUserStorySection } from './AgileDocumentsUserStorySection';
+import { isNativeAuthorControlledUploadDoc, normalizeDocumentAclFields } from '../utils/documentNativeAcces';
 import type { ProjetOption, EntiteOption, DocTache, ClientFournisseurOption } from '../pages/Taches';
 
 export type EpicRow = {
@@ -22,6 +26,7 @@ export type UserStoryRow = {
   epicId?: string | null;
   epic?: EpicRow | null;
   taches?: { id: string; nom: string; statut: string; projetId?: string | null }[];
+  documentsNatifs?: DocTache[];
 };
 
 function truncate(s: string, n: number) {
@@ -756,9 +761,19 @@ export function EpicEditModal({
   );
 }
 
-export function EpicDetailModal({ epicId, onClose }: { epicId: string; onClose: () => void }) {
+export function EpicDetailModal({
+  epicId,
+  onClose,
+  users,
+}: {
+  epicId: string;
+  onClose: () => void;
+  users: { id: string; nom: string; prenom: string; role?: string; statut?: string }[];
+}) {
+  const { user: currentUser } = useAuth();
   const [epic, setEpic] = useState<EpicRow | null>(null);
   const [loading, setLoading] = useState(true);
+  const [natifAccesDoc, setNatifAccesDoc] = useState<{ id: string; nom: string } | null>(null);
 
   useEffect(() => {
     let cancel = false;
@@ -847,19 +862,32 @@ export function EpicDetailModal({ epicId, onClose }: { epicId: string; onClose: 
           </div>
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Documents</p>
-            <ul className="space-y-1">
-              {(epic.documents || []).map((ed) => (
-                <li key={ed.document.id}>
-                  <a
-                    href={`${API_BASE_URL}/documents/${ed.document.id}/view?token=${localStorage.getItem('token')}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-blue-600 hover:underline"
-                  >
-                    {ed.document.nom}
-                  </a>
-                </li>
-              ))}
+            <ul className="space-y-2">
+              {(epic.documents || []).map((ed) => {
+                const d = normalizeDocumentAclFields(ed.document);
+                const natif = isNativeAuthorControlledUploadDoc(d);
+                return (
+                  <li key={d.id} className="flex flex-wrap items-center gap-2 text-sm">
+                    <a
+                      href={`${API_BASE_URL}/documents/${d.id}/view?token=${localStorage.getItem('token')}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      {d.nom}
+                    </a>
+                    {natif && d.uploadedById === currentUser?.id && (
+                      <button
+                        type="button"
+                        onClick={() => setNatifAccesDoc({ id: d.id, nom: d.nom })}
+                        className="text-xs px-2 py-0.5 bg-purple-100 text-purple-800 rounded"
+                      >
+                        Accès
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
               {(epic.documents || []).length === 0 && <p className="text-gray-400">Aucun</p>}
             </ul>
           </div>
@@ -868,6 +896,17 @@ export function EpicDetailModal({ epicId, onClose }: { epicId: string; onClose: 
           </div>
         </div>
       </div>
+      <DocumentAccesNatifModal
+        open={!!natifAccesDoc}
+        document={natifAccesDoc}
+        users={users}
+        classNameZ="z-[90]"
+        onClose={() => setNatifAccesDoc(null)}
+        onAfterMutation={async () => {
+          const { data } = await api.get(`/epics/${epicId}`);
+          setEpic(data);
+        }}
+      />
     </div>
   );
 }
@@ -876,10 +915,14 @@ export function UserStoryDetailModal({
   userStoryId,
   onClose,
   onOpenEpicId,
+  users,
+  canEdit = true,
 }: {
   userStoryId: string;
   onClose: () => void;
   onOpenEpicId?: (epicId: string) => void;
+  users: { id: string; nom: string; prenom: string; role?: string; statut?: string }[];
+  canEdit?: boolean;
 }) {
   const [us, setUs] = useState<UserStoryRow | null>(null);
   const [loading, setLoading] = useState(true);
@@ -964,6 +1007,16 @@ export function UserStoryDetailModal({
               {(us.taches || []).length === 0 && <li className="text-gray-400 list-none">Aucune</li>}
             </ul>
           </div>
+          <AgileDocumentsUserStorySection
+            userStoryId={us.id}
+            documentsNatifs={us.documentsNatifs || []}
+            canEdit={canEdit}
+            users={users}
+            onDocumentsChange={async () => {
+              const { data } = await api.get(`/user-stories/${userStoryId}`);
+              setUs(data);
+            }}
+          />
           <div className="border-t border-gray-100 pt-4">
             <PvReunionsLieesBlock apiPath={`/user-stories/${userStoryId}/pv-reunions`} />
           </div>

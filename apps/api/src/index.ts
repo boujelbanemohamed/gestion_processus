@@ -409,6 +409,11 @@ app.put("/api/v1/epics/:id", epicController.updateEpic);
 app.get("/api/v1/user-stories", epicController.getUserStories);
 app.get("/api/v1/user-stories/corbeille", epicController.getUserStoriesCorbeille);
 app.post("/api/v1/user-stories", epicController.createUserStory);
+app.post(
+  "/api/v1/user-stories/:id/documents",
+  epicController.userStoryDocumentUploadMiddleware,
+  epicController.uploadDocumentUserStory,
+);
 app.get("/api/v1/user-stories/:id/commentaires", epicController.getUserStoryCommentaires);
 app.post(
   "/api/v1/user-stories/:id/commentaires",
