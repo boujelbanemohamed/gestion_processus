@@ -84,6 +84,27 @@ function getClientLabel(p: any): string {
   return '— (sans client)';
 }
 
+function getProjetEntitesLabels(p: any): string[] {
+  if (!Array.isArray(p?.entites)) return [];
+  return p.entites
+    .map((pe: any) => pe?.entite?.nom || pe?.entite?.code || '')
+    .filter((v: string) => !!v);
+}
+
+function getProjetClientFournisseurLabels(p: any): string[] {
+  if (!Array.isArray(p?.clientsFournisseurs)) return [];
+  const labels = p.clientsFournisseurs
+    .map((cf: any) => {
+      const item = cf?.clientFournisseur;
+      if (!item) return '';
+      const nom = item.nom || '';
+      const type = item.type || item.typeSociete?.nom || '';
+      return [nom, type ? `(${type})` : ''].filter(Boolean).join(' ');
+    })
+    .filter((v: string) => !!v);
+  return Array.from(new Set(labels));
+}
+
 function isProjetEnRetard(p: any): boolean {
   const tr = p.tachesResume || {};
   if ((tr.enRetard ?? 0) > 0) return true;
@@ -604,6 +625,8 @@ export default function Projets() {
               const c = cap(p);
               const tr = p.tachesResume || { total: 0, parStatut: {}, enRetard: 0, avancementPct: null };
               const rowOpen = isProjetRowExpanded(p.id);
+              const entiteLabels = getProjetEntitesLabels(p);
+              const clientFournisseurLabels = getProjetClientFournisseurLabels(p);
               return (
                 <div key={p.id} className="bg-white rounded-lg shadow overflow-hidden">
                   <button
@@ -625,6 +648,30 @@ export default function Projets() {
                         ▼
                       </span>
                     )}
+                    <div className="w-full flex flex-wrap gap-2 text-xs mt-1">
+                      <span className="text-gray-500 font-medium">Entités :</span>
+                      {entiteLabels.length > 0 ? (
+                        entiteLabels.map((label) => (
+                          <span key={`ent-${p.id}-${label}`} className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            {label}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-gray-400">Sans entité</span>
+                      )}
+                    </div>
+                    <div className="w-full flex flex-wrap gap-2 text-xs">
+                      <span className="text-gray-500 font-medium">Clients/Fournisseurs :</span>
+                      {clientFournisseurLabels.length > 0 ? (
+                        clientFournisseurLabels.map((label) => (
+                          <span key={`cf-${p.id}-${label}`} className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100">
+                            {label}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-gray-400">Aucun</span>
+                      )}
+                    </div>
                   </button>
 
                   {rowOpen && (
