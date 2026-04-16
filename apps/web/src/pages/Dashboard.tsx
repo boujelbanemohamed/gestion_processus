@@ -305,11 +305,20 @@ export default function Dashboard() {
             {kpis.adminProjetsParStatutEtEntites.parStatut.map((row) => {
               const max = Math.max(...kpis.adminProjetsParStatutEtEntites!.parStatut.map((x) => x.count), 1);
               const width = Math.max(6, Math.round((row.count / max) * 100));
+              const totalProjets = kpis.adminProjetsParStatutEtEntites!.totalProjets || 1;
+              const percent = Math.round((row.count / totalProjets) * 100);
               return (
                 <div key={row.statut} className="border border-gray-200 rounded-lg p-3">
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <div className="text-sm font-semibold text-gray-800 capitalize">{row.statut.replace(/_/g, ' ')}</div>
-                    <div className="text-xs text-gray-600">{row.count} projet(s)</div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5">
+                        Total: {row.count} projet(s)
+                      </div>
+                      <div className="text-xs font-semibold text-gray-600">
+                        {percent}% des projets
+                      </div>
+                    </div>
                   </div>
                   <div className="w-full h-3 bg-gray-100 rounded">
                     <div className="h-3 rounded bg-indigo-600" style={{ width: `${width}%` }} />
@@ -325,7 +334,7 @@ export default function Dashboard() {
                         if (diffDays === 0) return "Clôture aujourd'hui";
                         return `${Math.abs(diffDays)} jour(s) de retard`;
                       })();
-                      const entites = (p.entites || []).map((e) => e.nom).join(', ') || 'Sans entité';
+                      const entites = p.entites || [];
                       return (
                         <button
                           key={p.id}
@@ -336,7 +345,23 @@ export default function Dashboard() {
                           <div className="text-sm font-medium text-gray-900">
                             {p.nom} <span className="text-xs text-gray-500">({p.codeProjet})</span>
                           </div>
-                          <div className="text-xs text-gray-600 mt-0.5">Entité(s) : {entites}</div>
+                          <div className="text-xs text-gray-600 mt-1">
+                            <span className="font-medium">Entité(s) assignée(s) :</span>{' '}
+                            {entites.length === 0 ? (
+                              <span className="italic text-gray-500">Sans entité</span>
+                            ) : (
+                              <span className="inline-flex flex-wrap gap-1 align-middle">
+                                {entites.map((e) => (
+                                  <span
+                                    key={e.id}
+                                    className="inline-flex items-center px-1.5 py-0.5 rounded bg-sky-50 text-sky-800 border border-sky-200"
+                                  >
+                                    {e.nom}
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                          </div>
                           <div className="text-xs text-gray-600">{remainingLabel}</div>
                         </button>
                       );
