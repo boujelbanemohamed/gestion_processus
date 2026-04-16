@@ -426,6 +426,81 @@ function mapProjetListItem(
 }
 
 export class ProjetService {
+  private async collectDerivedProjetIntervenantUserIds(
+    tx: typeof prisma,
+    projetId: string
+  ): Promise<string[]> {
+    const rows = await tx.tache.findMany({
+      where: {
+        deletedAt: null,
+        OR: [
+          { projetId },
+          { userStory: { is: { epic: { is: { projetId, deletedAt: null } }, deletedAt: null } } },
+        ],
+      },
+      select: {
+        assignesUtilisateurs: { select: { userId: true } },
+      },
+    });
+    const ids = new Set<string>();
+    for (const t of rows) {
+      for (const au of t.assignesUtilisateurs || []) {
+        if (au.userId) ids.add(au.userId);
+      }
+    }
+    return [...ids];
+  }
+
+  private async syncDerivedGovernanceAndEntites(tx: typeof prisma, projetId: string): Promise<void> {
+    const projet = await tx.projet.findUnique({
+      where: { id: projetId },
+      select: {
+        id: true,
+        sponsors: { select: { userId: true } },
+        chefsProjet: { select: { userId: true } },
+        techLeads: { select: { userId: true } },
+        equipe: { select: { userId: true } },
+      },
+    });
+    if (!projet) return;
+
+    // 1) Intervenants auto depuis les tâches du projet (directes ou via userStory->epic)
+    const derivedTaskUsers = await this.collectDerivedProjetIntervenantUserIds(tx, projetId);
+    if (derivedTaskUsers.length > 0) {
+      const existingEquipe = new Set((projet.equipe || []).map((e) => e.userId));
+      const toAddEquipe = derivedTaskUsers.filter((uid) => !existingEquipe.has(uid));
+      if (toAddEquipe.length > 0) {
+        await tx.projetEquipe.createMany({
+          data: toAddEquipe.map((userId) => ({ projetId, userId })),
+          skipDuplicates: true,
+        });
+      }
+    }
+
+    // 2) Déduire les entités depuis tous les utilisateurs de gouvernance/intervenants
+    const allGovUserIds = new Set<string>([
+      ...(projet.sponsors || []).map((x) => x.userId),
+      ...(projet.chefsProjet || []).map((x) => x.userId),
+      ...(projet.techLeads || []).map((x) => x.userId),
+      ...(projet.equipe || []).map((x) => x.userId),
+      ...derivedTaskUsers,
+    ]);
+    const govIds = [...allGovUserIds];
+    if (govIds.length === 0) return;
+
+    const userEntites = await tx.userEntite.findMany({
+      where: { userId: { in: govIds } },
+      select: { entiteId: true },
+    });
+    const entiteIds = [...new Set(userEntites.map((x) => x.entiteId).filter(Boolean))];
+    if (entiteIds.length === 0) return;
+
+    await tx.projetEntite.createMany({
+      data: entiteIds.map((entiteId) => ({ projetId, entiteId })),
+      skipDuplicates: true,
+    });
+  }
+
   private async ensureCodeProjet(userCode: string | undefined): Promise<string> {
     const trimmed = typeof userCode === 'string' ? userCode.trim() : '';
     if (trimmed) return trimmed;
@@ -1010,6 +1085,8 @@ export class ProjetService {
         });
       }
 
+      await this.syncDerivedGovernanceAndEntites(tx, projet.id);
+
       return tx.projet.findUniqueOrThrow({
         where: { id: projet.id },
         include: projetListInclude,
@@ -1134,18 +1211,21 @@ export class ProjetService {
       pickProjetScalarUpdateData(updateData as Record<string, unknown>)
     );
 
-    return prisma.projet.update({
-      where: { id },
-      data: {
-        ...scalarPayload,
-        dateDebut: dateDebut ? new Date(dateDebut) : undefined,
-        dateFinPrevue: dateFinPrevue ? new Date(dateFinPrevue) : undefined,
-        partiesPrenantes: partiesPrenantes !== undefined ? JSON.stringify(partiesPrenantes) : undefined,
-        kpis: kpis !== undefined ? JSON.stringify(kpis) : undefined,
-        objectifsStrategiques: objectifsStrategiques !== undefined ? JSON.stringify(objectifsStrategiques) : undefined,
-        objectifsOperationnels: objectifsOperationnels !== undefined ? JSON.stringify(objectifsOperationnels) : undefined,
-      },
-      include: projetListInclude,
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.projet.update({
+        where: { id },
+        data: {
+          ...scalarPayload,
+          dateDebut: dateDebut ? new Date(dateDebut) : undefined,
+          dateFinPrevue: dateFinPrevue ? new Date(dateFinPrevue) : undefined,
+          partiesPrenantes: partiesPrenantes !== undefined ? JSON.stringify(partiesPrenantes) : undefined,
+          kpis: kpis !== undefined ? JSON.stringify(kpis) : undefined,
+          objectifsStrategiques: objectifsStrategiques !== undefined ? JSON.stringify(objectifsStrategiques) : undefined,
+          objectifsOperationnels: objectifsOperationnels !== undefined ? JSON.stringify(objectifsOperationnels) : undefined,
+        },
+      });
+      await this.syncDerivedGovernanceAndEntites(tx, id);
+      return tx.projet.findUniqueOrThrow({ where: { id: updated.id }, include: projetListInclude });
     });
   }
 
