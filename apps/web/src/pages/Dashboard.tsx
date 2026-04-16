@@ -50,6 +50,20 @@ interface KPIs {
     documentsTotal: number;
     utilisateursTotal: number;
   };
+  adminProjetsParStatutEtEntites?: {
+    totalProjets: number;
+    parStatut: Array<{
+      statut: string;
+      count: number;
+      projets: Array<{
+        id: string;
+        nom: string;
+        codeProjet: string;
+        dateFinPrevue: string | null;
+        entites: Array<{ id: string; nom: string; code: string | null }>;
+      }>;
+    }>;
+  };
 }
 
 export default function Dashboard() {
@@ -281,6 +295,60 @@ export default function Dashboard() {
         </div>
       )}
 
+      {isAdmin && kpis?.adminProjetsParStatutEtEntites && (
+        <div className="bg-white p-4 rounded-lg shadow mb-6">
+          <h2 className="text-lg font-semibold mb-1">Projets par statut et entité</h2>
+          <p className="text-xs text-gray-500 mb-4">
+            Total projets : <span className="font-semibold text-gray-700">{kpis.adminProjetsParStatutEtEntites.totalProjets}</span>
+          </p>
+          <div className="space-y-4">
+            {kpis.adminProjetsParStatutEtEntites.parStatut.map((row) => {
+              const max = Math.max(...kpis.adminProjetsParStatutEtEntites!.parStatut.map((x) => x.count), 1);
+              const width = Math.max(6, Math.round((row.count / max) * 100));
+              return (
+                <div key={row.statut} className="border border-gray-200 rounded-lg p-3">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="text-sm font-semibold text-gray-800 capitalize">{row.statut.replace(/_/g, ' ')}</div>
+                    <div className="text-xs text-gray-600">{row.count} projet(s)</div>
+                  </div>
+                  <div className="w-full h-3 bg-gray-100 rounded">
+                    <div className="h-3 rounded bg-indigo-600" style={{ width: `${width}%` }} />
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {row.projets.map((p) => {
+                      const remainingLabel = (() => {
+                        if (!p.dateFinPrevue) return 'Échéance non définie';
+                        const now = new Date();
+                        const end = new Date(p.dateFinPrevue);
+                        const diffDays = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                        if (diffDays > 0) return `${diffDays} jour(s) restant(s)`;
+                        if (diffDays === 0) return "Clôture aujourd'hui";
+                        return `${Math.abs(diffDays)} jour(s) de retard`;
+                      })();
+                      const entites = (p.entites || []).map((e) => e.nom).join(', ') || 'Sans entité';
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => navigate(`/projets/${p.id}`)}
+                          className="w-full text-left p-2 rounded border border-gray-100 hover:bg-blue-50"
+                        >
+                          <div className="text-sm font-medium text-gray-900">
+                            {p.nom} <span className="text-xs text-gray-500">({p.codeProjet})</span>
+                          </div>
+                          <div className="text-xs text-gray-600 mt-0.5">Entité(s) : {entites}</div>
+                          <div className="text-xs text-gray-600">{remainingLabel}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {!isContributeur && kpis?.processus?.parStatut && Object.keys(kpis.processus.parStatut).length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white p-4 rounded-lg shadow">
@@ -308,7 +376,7 @@ export default function Dashboard() {
           </div>
         </div>
       )}
-      {!isContributeur && kpis?.projets?.parStatut && Object.keys(kpis.projets.parStatut).length > 0 && (
+      {!isContributeur && !isAdmin && kpis?.projets?.parStatut && Object.keys(kpis.projets.parStatut).length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
           <div className="bg-white p-4 rounded-lg shadow">
             <h2 className="text-lg font-semibold mb-4">Projets par statut</h2>

@@ -5,6 +5,65 @@ const JOURS_ACTIVITE_PROJET = 30;
 const TACHE_STATUTS_FINALISES = ['termine', 'archive'] as const;
 
 export class DashboardService {
+  private async getAdminProjetsParStatutEtEntites() {
+    const projets = await prisma.projet.findMany({
+      where: { deletedAt: null },
+      select: {
+        id: true,
+        nom: true,
+        codeProjet: true,
+        statut: true,
+        dateFinPrevue: true,
+        entites: {
+          include: {
+            entite: { select: { id: true, nom: true, code: true } },
+          },
+        },
+      },
+      orderBy: [{ statut: 'asc' }, { nom: 'asc' }],
+    });
+
+    const byStatut = new Map<
+      string,
+      {
+        statut: string;
+        count: number;
+        projets: {
+          id: string;
+          nom: string;
+          codeProjet: string;
+          dateFinPrevue: string | null;
+          entites: { id: string; nom: string; code: string | null }[];
+        }[];
+      }
+    >();
+
+    for (const p of projets) {
+      const key = p.statut || 'inconnu';
+      if (!byStatut.has(key)) {
+        byStatut.set(key, { statut: key, count: 0, projets: [] });
+      }
+      const bucket = byStatut.get(key)!;
+      bucket.count += 1;
+      bucket.projets.push({
+        id: p.id,
+        nom: p.nom,
+        codeProjet: p.codeProjet,
+        dateFinPrevue: p.dateFinPrevue ? p.dateFinPrevue.toISOString() : null,
+        entites: (p.entites || []).map((pe) => ({
+          id: pe.entite.id,
+          nom: pe.entite.nom,
+          code: pe.entite.code ?? null,
+        })),
+      });
+    }
+
+    return {
+      totalProjets: projets.length,
+      parStatut: Array.from(byStatut.values()).sort((a, b) => b.count - a.count),
+    };
+  }
+
   private async getAdminGlobalTotals() {
     const [
       processusTotal,
@@ -473,6 +532,8 @@ export class DashboardService {
       this.getProjetsPlusActifs(projetWhereClause),
       this.getTachesEnRetard(userId, userRole),
     ]);
+    const adminProjetsParStatutEtEntites =
+      userRole === 'admin' ? await this.getAdminProjetsParStatutEtEntites() : undefined;
     const adminGlobalTotals = userRole === 'admin' ? await this.getAdminGlobalTotals() : undefined;
     const tachesAssigneesEnInstance = await this.getTachesAssigneesEnInstance(userId, userRole);
     const projetsAssignesCount =
@@ -500,6 +561,7 @@ export class DashboardService {
       tachesAssigneesEnInstance,
       projetsAssignesCount,
       adminGlobalTotals,
+      adminProjetsParStatutEtEntites,
     };
   }
 }
