@@ -64,6 +64,9 @@ const PERM_TACHE_LABEL: Record<string, string> = Object.fromEntries(
   PERM_TACHE_OPTIONS.map((o) => [o.value, o.label])
 ) as Record<string, string>;
 
+const MSG_ACCES_ASSIGNE_TACHE =
+  "Impossible : cette personne est assignée à une tâche liée. Retirez d'abord l'assignation sur la tâche.";
+
 const STATUT_SORT_RANK: Record<string, number> = {
   cree: 1,
   a_faire: 2,
@@ -1230,7 +1233,23 @@ function getNiveauAcces(droit: string): number {
   return 1;
 }
 
-function getAccesPersonnes(tache: Tache, allUsers: UserOption[]) {
+/** Aligné sur les délégations tâche / epic / user story (PermissionType). */
+function droitFromAssignPermission(perm?: string): string {
+  switch (perm) {
+    case 'lecture':
+      return 'lecture';
+    case 'modification':
+      return 'modification + lecture';
+    case 'suppression':
+      return 'modification + suppression + lecture';
+    case 'gestion':
+      return 'modification + accès + lecture';
+    default:
+      return 'modification + lecture';
+  }
+}
+
+function getAccesPersonnes(tache: Tache, allUsers: UserOption[], opts?: { skipImplicitAdmins?: boolean }) {
   const personnesMap = new Map<string, { id: string; nom: string; roles: string[]; meilleurAcces: string }>();
 
   const add = (id: string, nom: string, role: string, acces: string) => {
@@ -1245,28 +1264,16 @@ function getAccesPersonnes(tache: Tache, allUsers: UserOption[]) {
     }
   };
 
-  // 1. Admins
-  allUsers.filter(u => (u as any).role === 'admin').forEach(u =>
-    add(u.id, `${(u as any).prenom} ${u.nom}`, 'Admin', 'modification + accès + lecture')
-  );
+  // 1. Admins (désactivé si la synthèse API couvre déjà les droits admin / exclusions)
+  if (!opts?.skipImplicitAdmins) {
+    allUsers.filter((u) => (u as any).role === 'admin').forEach((u) =>
+      add(u.id, `${(u as any).prenom} ${u.nom}`, 'Admin', 'modification + accès + lecture')
+    );
+  }
 
   // 2. Assignés à la tâche (niveau issu de la délégation sur la tâche)
-  const accesPourPerm = (perm?: string) => {
-    switch (perm) {
-      case 'lecture':
-        return 'lecture';
-      case 'modification':
-        return 'modification + lecture';
-      case 'suppression':
-        return 'modification + suppression + lecture';
-      case 'gestion':
-        return 'modification + accès + lecture';
-      default:
-        return 'modification + lecture';
-    }
-  };
   (tache.assignesUtilisateurs || []).forEach((u) =>
-    add(u.id, `${u.prenom} ${u.nom}`, 'Assigné à la tâche', accesPourPerm(u.permission))
+    add(u.id, `${u.prenom} ${u.nom}`, 'Assigné à la tâche', droitFromAssignPermission(u.permission))
   );
 
   // 3. Membres du projet
@@ -1308,7 +1315,7 @@ function getAccesPersonnes(tache: Tache, allUsers: UserOption[]) {
 
 type PersonneAcces = { id: string; nom: string; roles: string[]; droit: string };
 
-function aggregateAccesFromTasks(tasks: Tache[], allUsers: UserOption[]): PersonneAcces[] {
+function aggregateAccesFromTasks(tasks: Tache[], allUsers: UserOption[], skipImplicitAdmins?: boolean): PersonneAcces[] {
   const merged = new Map<string, { id: string; nom: string; roles: string[]; meilleurAcces: string }>();
   const mergeOne = (p: PersonneAcces) => {
     if (merged.has(p.id)) {
@@ -1322,7 +1329,7 @@ function aggregateAccesFromTasks(tasks: Tache[], allUsers: UserOption[]): Person
     }
   };
   for (const t of tasks) {
-    for (const p of getAccesPersonnes(t, allUsers)) mergeOne(p);
+    for (const p of getAccesPersonnes(t, allUsers, { skipImplicitAdmins: !!skipImplicitAdmins })) mergeOne(p);
   }
   return Array.from(merged.values())
     .map((p) => ({ id: p.id, nom: p.nom, roles: p.roles, droit: p.meilleurAcces }))
@@ -1338,9 +1345,9 @@ function getTachesLieesUserStory(usId: string, taches: Tache[]): Tache[] {
   return taches.filter((t) => t.userStory?.id === usId);
 }
 
-function getAccesPersonnesEpic(ep: EpicRow, taches: Tache[], allUsers: UserOption[]): PersonneAcces[] {
+function getAccesPersonnesEpic(ep: EpicRow, taches: Tache[], allUsers: UserOption[], skipImplicitAdmins?: boolean): PersonneAcces[] {
   const tasks = getTachesLieesEpic(ep, taches);
-  const base = aggregateAccesFromTasks(tasks, allUsers);
+  const base = aggregateAccesFromTasks(tasks, allUsers, skipImplicitAdmins);
   if (ep.createdBy?.id) {
     const id = ep.createdBy.id;
     const nom = `${ep.createdBy.prenom} ${ep.createdBy.nom}`;
@@ -1357,8 +1364,122 @@ function getAccesPersonnesEpic(ep: EpicRow, taches: Tache[], allUsers: UserOptio
   return base.sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
 }
 
-function getAccesPersonnesUserStory(usId: string, taches: Tache[], allUsers: UserOption[]): PersonneAcces[] {
-  return aggregateAccesFromTasks(getTachesLieesUserStory(usId, taches), allUsers);
+function getAccesPersonnesUserStory(usId: string, taches: Tache[], allUsers: UserOption[], skipImplicitAdmins?: boolean): PersonneAcces[] {
+  return aggregateAccesFromTasks(getTachesLieesUserStory(usId, taches), allUsers, skipImplicitAdmins);
+}
+
+function mergeDeuxListesPersonnesAcces(a: PersonneAcces[], b: PersonneAcces[]): PersonneAcces[] {
+  const merged = new Map<string, { id: string; nom: string; roles: string[]; meilleurAcces: string }>();
+  const mergeOne = (p: PersonneAcces) => {
+    if (merged.has(p.id)) {
+      const ex = merged.get(p.id)!;
+      for (const r of p.roles) {
+        if (!ex.roles.includes(r)) ex.roles.push(r);
+      }
+      if (getNiveauAcces(p.droit) > getNiveauAcces(ex.meilleurAcces)) ex.meilleurAcces = p.droit;
+    } else {
+      merged.set(p.id, { id: p.id, nom: p.nom, roles: [...p.roles], meilleurAcces: p.droit });
+    }
+  };
+  for (const p of a) mergeOne(p);
+  for (const p of b) mergeOne(p);
+  return Array.from(merged.values())
+    .map((p) => ({ id: p.id, nom: p.nom, roles: p.roles, droit: p.meilleurAcces }))
+    .sort((x, y) => x.nom.localeCompare(y.nom, 'fr'));
+}
+
+/** Synthèse à partir du JSON renvoyé par GET …/acces (epic, user story ou tâche). */
+function personnesFromAgileAccesApiDetail(
+  detail: any | null | undefined,
+  labels: { creatorRole: string; explicitRole: string; adminImplicitRole: string }
+): PersonneAcces[] {
+  if (!detail) return [];
+  const merged = new Map<string, { id: string; nom: string; roles: string[]; meilleurAcces: string }>();
+  const mergeOne = (p: PersonneAcces) => {
+    if (merged.has(p.id)) {
+      const ex = merged.get(p.id)!;
+      for (const r of p.roles) {
+        if (!ex.roles.includes(r)) ex.roles.push(r);
+      }
+      if (getNiveauAcces(p.droit) > getNiveauAcces(ex.meilleurAcces)) ex.meilleurAcces = p.droit;
+    } else {
+      merged.set(p.id, { id: p.id, nom: p.nom, roles: [...p.roles], meilleurAcces: p.droit });
+    }
+  };
+  const deleg = (detail.delegations || []) as { user?: { id: string; nom: string; prenom: string }; permission?: string }[];
+  const adminSans = new Set((detail.adminSansAccesUserIds || []) as string[]);
+
+  if (detail.creator?.id) {
+    mergeOne({
+      id: detail.creator.id,
+      nom: `${detail.creator.prenom} ${detail.creator.nom}`,
+      roles: [labels.creatorRole],
+      droit: 'modification + accès + lecture',
+    });
+  }
+  for (const d of deleg) {
+    if (!d.user?.id) continue;
+    mergeOne({
+      id: d.user.id,
+      nom: `${d.user.prenom} ${d.user.nom}`,
+      roles: [labels.explicitRole],
+      droit: droitFromAssignPermission(d.permission),
+    });
+  }
+  for (const adm of detail.admins || []) {
+    if (!adm?.id) continue;
+    const row = deleg.find((d: any) => d.user?.id === adm.id);
+    const excluded = adminSans.has(adm.id);
+    if (excluded && !row) continue;
+    if (row) continue;
+    mergeOne({
+      id: adm.id,
+      nom: `${adm.prenom} ${adm.nom}`,
+      roles: [labels.adminImplicitRole],
+      droit: 'modification + accès + lecture',
+    });
+  }
+  return Array.from(merged.values())
+    .map((p) => ({ id: p.id, nom: p.nom, roles: p.roles, droit: p.meilleurAcces }))
+    .sort((x, y) => x.nom.localeCompare(y.nom, 'fr'));
+}
+
+function getAssigneeUserIdsUnderEpic(ep: EpicRow, taches: Tache[]): Set<string> {
+  const ids = new Set<string>();
+  for (const t of getTachesLieesEpic(ep, taches)) {
+    for (const u of t.assignesUtilisateurs || []) ids.add(u.id);
+  }
+  return ids;
+}
+
+function getAssigneeUserIdsUnderUserStory(usId: string, taches: Tache[]): Set<string> {
+  const ids = new Set<string>();
+  for (const t of getTachesLieesUserStory(usId, taches)) {
+    for (const u of t.assignesUtilisateurs || []) ids.add(u.id);
+  }
+  return ids;
+}
+
+function getPersonnesHabiliteesEpic(ep: EpicRow, taches: Tache[], users: UserOption[], snapshot: Record<string, any>) {
+  const snap = snapshot[`epic:${ep.id}`];
+  const inherited = getAccesPersonnesEpic(ep, taches, users, !!snap);
+  const apiOverlay = personnesFromAgileAccesApiDetail(snap ?? null, {
+    creatorRole: 'Créateur epic',
+    explicitRole: "Accès délégué sur l'epic",
+    adminImplicitRole: 'Administrateur',
+  });
+  return mergeDeuxListesPersonnesAcces(inherited, apiOverlay);
+}
+
+function getPersonnesHabiliteesUserStory(usId: string, taches: Tache[], users: UserOption[], snapshot: Record<string, any>) {
+  const snap = snapshot[`us:${usId}`];
+  const inherited = getAccesPersonnesUserStory(usId, taches, users, !!snap);
+  const apiOverlay = personnesFromAgileAccesApiDetail(snap ?? null, {
+    creatorRole: 'Créateur user story',
+    explicitRole: 'Accès délégué sur la user story',
+    adminImplicitRole: 'Administrateur',
+  });
+  return mergeDeuxListesPersonnesAcces(inherited, apiOverlay);
 }
 
 function getAssignesDepuisTaches(tasks: Tache[]) {
@@ -2255,8 +2376,29 @@ export function TacheCard({
   const [showHistModal, setShowHistModal] = useState(false);
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
+  /** GET /taches/:id/acces pour fusionner l'aperçu « Personnes habilitées » avec les exclusions admin réelles. */
+  const [accesApercuDetail, setAccesApercuDetail] = useState<any | null>(null);
   const now = new Date();
   const isLate = tache.dateFinApprox && new Date(tache.dateFinApprox) < now && tache.statut !== 'termine' && tache.statut !== 'archive';
+
+  const assignesIdsKey = (tache.assignesUtilisateurs || [])
+    .map((u) => u.id)
+    .sort()
+    .join(',');
+
+  useEffect(() => {
+    if (!expanded) {
+      setAccesApercuDetail(null);
+      return;
+    }
+    let cancel = false;
+    void api.get(`/taches/${tache.id}/acces`).then(({ data }) => {
+      if (!cancel) setAccesApercuDetail(data);
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [expanded, tache.id, assignesIdsKey]);
 
   const openAccesModal = async () => {
     setShowAccesModal(true);
@@ -2267,6 +2409,7 @@ export function TacheCard({
     try {
       const { data } = await api.get(`/taches/${tache.id}/acces`);
       setAccesDetail(data);
+      setAccesApercuDetail(data);
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Erreur chargement accès');
       setShowAccesModal(false);
@@ -2278,6 +2421,7 @@ export function TacheCard({
   const refreshAcces = async () => {
     const { data } = await api.get(`/taches/${tache.id}/acces`);
     setAccesDetail(data);
+    setAccesApercuDetail(data);
   };
 
   const handleAddAssigne = async () => {
@@ -2626,8 +2770,20 @@ export function TacheCard({
                 Création : {new Date(tache.createdAt).toLocaleString('fr-FR')}
               </p>
             )}
-            <p className="text-xs text-gray-500">Agrégation depuis la tâche et les liaisons. Utilisez « Accès » pour gérer les assignations.</p>
-            <AccesPersonnesBlock personnes={getAccesPersonnes(tache, allUsers)} />
+            <p className="text-xs text-gray-500">
+              Projet / entités / assignations, fusionnés avec les droits réels (API) lorsque le détail est chargé. Les
+              assignations se retirent via « Modifier » la tâche.
+            </p>
+            <AccesPersonnesBlock
+              personnes={mergeDeuxListesPersonnesAcces(
+                getAccesPersonnes(tache, allUsers, { skipImplicitAdmins: !!accesApercuDetail }),
+                personnesFromAgileAccesApiDetail(accesApercuDetail, {
+                  creatorRole: 'Créateur de la tâche',
+                  explicitRole: 'Assignation sur la tâche',
+                  adminImplicitRole: 'Administrateur',
+                })
+              )}
+            />
           </div>
 
           <div className="border-t border-gray-200 pt-4">
@@ -2729,6 +2885,10 @@ export function TacheCard({
                   </div>
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Assignations</p>
+                  <p className="text-[11px] text-gray-500 mb-2">
+                    Pour ajouter ou retirer une personne assignée, utilisez le bouton « Modifier » sur la tâche. Ici vous
+                    pouvez ajuster les droits des assignés déjà présents.
+                  </p>
                   {(accesDetail.delegations || []).length === 0 ? (
                     <p className="text-gray-400 text-xs italic">Aucune personne assignée directement</p>
                   ) : (
@@ -2755,15 +2915,6 @@ export function TacheCard({
                             </select>
                           ) : (
                             <span className="text-gray-500 text-sm">— {d.permissionLabel || d.permission || 'Lecture'}</span>
-                          )}
-                          {accesDetail.canManagePermissions && (
-                            <button
-                              type="button"
-                              onClick={() => void handleRemoveAssigne(d.id)}
-                              className="text-xs text-red-600 hover:underline ml-auto shrink-0"
-                            >
-                              Retirer
-                            </button>
                           )}
                         </li>
                       ))}
@@ -3803,6 +3954,8 @@ export default function Taches() {
   >(null);
   const [agileAccesDetail, setAgileAccesDetail] = useState<any | null>(null);
   const [agileAccesLoading, setAgileAccesLoading] = useState(false);
+  /** Dernière réponse GET …/acces par epic ou user story (aperçu « Personnes habilitées » à jour). */
+  const [agileAccesSnapshot, setAgileAccesSnapshot] = useState<Record<string, any>>({});
   const [agileNewUserId, setAgileNewUserId] = useState('');
   const [agileNewPerm, setAgileNewPerm] = useState('lecture');
   const [showAgileCorbeilleModal, setShowAgileCorbeilleModal] = useState(false);
@@ -3859,6 +4012,42 @@ export default function Taches() {
     setUsRetardPage(1);
     setEpicRetardPage(1);
   }, [filters, mesTachesOnly, mesTachesFinaliseesOnly]);
+
+  useEffect(() => {
+    if (!agileAccesModal || !agileAccesDetail) return;
+    const key = agileAccesModal.kind === 'epic' ? `epic:${agileAccesModal.epic.id}` : `us:${agileAccesModal.us.id}`;
+    setAgileAccesSnapshot((prev) => ({ ...prev, [key]: agileAccesDetail }));
+  }, [agileAccesDetail, agileAccesModal]);
+
+  useEffect(() => {
+    const id = expandedEpicListId;
+    if (!id) return;
+    let cancel = false;
+    void api
+      .get(`/epics/${id}/acces`)
+      .then(({ data }) => {
+        if (!cancel && data) setAgileAccesSnapshot((p) => ({ ...p, [`epic:${id}`]: data }));
+      })
+      .catch(() => {});
+    return () => {
+      cancel = true;
+    };
+  }, [expandedEpicListId]);
+
+  useEffect(() => {
+    const id = expandedUsListId;
+    if (!id) return;
+    let cancel = false;
+    void api
+      .get(`/user-stories/${id}/acces`)
+      .then(({ data }) => {
+        if (!cancel && data) setAgileAccesSnapshot((p) => ({ ...p, [`us:${id}`]: data }));
+      })
+      .catch(() => {});
+    return () => {
+      cancel = true;
+    };
+  }, [expandedUsListId]);
 
   const loadEpics = async () => {
     try {
@@ -4137,6 +4326,13 @@ export default function Taches() {
 
   const canCreate = isAdmin || isContributeur || !!currentUser;
   const canEditUsEpic = isAdmin || isContributeur;
+
+  const agileAccesAssigneeIds = useMemo(() => {
+    if (!agileAccesModal) return new Set<string>();
+    return agileAccesModal.kind === 'epic'
+      ? getAssigneeUserIdsUnderEpic(agileAccesModal.epic, taches)
+      : getAssigneeUserIdsUnderUserStory(agileAccesModal.us.id, taches);
+  }, [agileAccesModal, taches]);
 
   const openNewTacheModal = (opts?: { lockProjetId?: string; lockUserStoryId?: string }) => {
     setEditTache(undefined);
@@ -5303,9 +5499,10 @@ export default function Taches() {
                         <div className="scroll-mt-4 border-t border-gray-200 pt-4 space-y-2">
                           <h4 className="text-xs font-semibold text-gray-500 uppercase">Personnes habilitées (aperçu)</h4>
                           <p className="text-xs text-gray-500">
-                            Synthèse depuis les tâches liées. Le journal détaillé est disponible via le bouton « Historique ».
+                            Tâches liées, projet / entités, et accès délégués sur la user story (bouton « Accès »). Historique
+                            : « Historique ».
                           </p>
-                          <AccesPersonnesBlock personnes={getAccesPersonnesUserStory(us.id, taches, users)} />
+                          <AccesPersonnesBlock personnes={getPersonnesHabiliteesUserStory(us.id, taches, users, agileAccesSnapshot)} />
                         </div>
                         <div className="border-t border-gray-200 pt-4">
                           <CommentairesSection target={{ kind: 'userStory', id: us.id }} users={users} />
@@ -5693,9 +5890,10 @@ export default function Taches() {
                             </p>
                           )}
                           <p className="text-xs text-gray-500">
-                            Entités de l&apos;epic et personnes issues des tâches. Le journal détaillé : bouton « Historique ».
+                            Tâches liées, projet / entités, et accès délégués sur l&apos;epic (bouton « Accès »). Historique :
+                            « Historique ».
                           </p>
-                          <AccesPersonnesBlock personnes={getAccesPersonnesEpic(ep, taches, users)} />
+                          <AccesPersonnesBlock personnes={getPersonnesHabiliteesEpic(ep, taches, users, agileAccesSnapshot)} />
                         </div>
                         <div className="border-t border-gray-200 pt-4">
                           <CommentairesSection target={{ kind: 'epic', id: ep.id }} users={users} />
@@ -5960,7 +6158,9 @@ export default function Taches() {
             )}
             <p className="text-sm text-gray-600 mb-5 leading-relaxed">
               Le créateur gère les accès : exclusion d&apos;administrateurs, délégation explicite (lecture,
-              modification, suppression, gestion). Sans délégation, un admin non exclu conserve un accès complet.
+              modification, suppression, gestion). Sans délégation, un admin non exclu conserve un accès complet. Un
+              utilisateur assigné à une tâche liée ne peut pas être retiré des accès tant qu&apos;il reste assigné sur
+              la tâche.
             </p>
             {agileAccesLoading ? (
               <p className="text-sm text-gray-500">Chargement…</p>
@@ -5973,6 +6173,7 @@ export default function Taches() {
                       const row = (agileAccesDetail.delegations || []).find((d: any) => d.user?.id === a.id);
                       const excluded = (agileAccesDetail.adminSansAccesUserIds || []).includes(a.id);
                       const isCreator = agileAccesDetail.creator?.id === a.id;
+                      const bloqueAssigne = agileAccesAssigneeIds.has(a.id);
                       return (
                         <li
                           key={a.id}
@@ -6003,16 +6204,28 @@ export default function Taches() {
                               ) : !row ? (
                                 <button
                                   type="button"
+                                  disabled={bloqueAssigne}
+                                  title={bloqueAssigne ? MSG_ACCES_ASSIGNE_TACHE : undefined}
                                   onClick={() => void handleAgileRevokeAdmin(a.id)}
-                                  className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                  className={`text-xs px-3 py-1.5 rounded-md ${
+                                    bloqueAssigne
+                                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                      : 'bg-red-100 text-red-800 hover:bg-red-200'
+                                  }`}
                                 >
                                   Retirer l&apos;accès
                                 </button>
                               ) : (
                                 <button
                                   type="button"
+                                  disabled={bloqueAssigne}
+                                  title={bloqueAssigne ? MSG_ACCES_ASSIGNE_TACHE : undefined}
                                   onClick={() => void handleAgileDeletePermission(row.id)}
-                                  className="text-xs px-3 py-1.5 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                                  className={`text-xs px-3 py-1.5 rounded-md ${
+                                    bloqueAssigne
+                                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                      : 'bg-red-100 text-red-800 hover:bg-red-200'
+                                  }`}
                                 >
                                   Révoquer l&apos;accès
                                 </button>
@@ -6043,7 +6256,9 @@ export default function Taches() {
                     <p className="text-gray-400 text-xs italic">Aucun accès délégué</p>
                   ) : (
                     <ul className="space-y-2">
-                      {(agileAccesDetail.delegations || []).map((d: any) => (
+                      {(agileAccesDetail.delegations || []).map((d: any) => {
+                        const bloqueD = agileAccesAssigneeIds.has(d.user?.id);
+                        return (
                         <li
                           key={d.id}
                           className="flex flex-wrap items-center gap-2 border border-gray-100 rounded-md px-3 py-2 bg-gray-50"
@@ -6069,14 +6284,19 @@ export default function Taches() {
                           {agileAccesDetail.canManagePermissions && (
                             <button
                               type="button"
+                              disabled={bloqueD}
+                              title={bloqueD ? MSG_ACCES_ASSIGNE_TACHE : undefined}
                               onClick={() => void handleAgileDeletePermission(d.id)}
-                              className="text-xs text-red-600 hover:underline ml-auto"
+                              className={`text-xs ml-auto ${
+                                bloqueD ? 'text-gray-400 cursor-not-allowed' : 'text-red-600 hover:underline'
+                              }`}
                             >
                               Retirer
                             </button>
                           )}
                         </li>
-                      ))}
+                        );
+                      })}
                     </ul>
                   )}
                 </div>

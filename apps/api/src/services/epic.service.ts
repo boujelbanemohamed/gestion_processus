@@ -70,9 +70,37 @@ const userStoryInclude = {
   },
 };
 
+const ERR_ACCES_ASSIGNE_TACHE =
+  "Impossible de retirer cet accès : l'utilisateur est assigné à une tâche liée à cet élément. Retirez d'abord l'assignation sur la tâche concernée.";
+
 export class EpicService {
   private notificationService = new NotificationService();
   private projetService = new ProjetService();
+
+  /** Utilisateur encore présent comme assigné sur au moins une tâche (non supprimée) rattachée à l'epic. */
+  private async isUserAssignedToTaskUnderEpic(epicId: string, userId: string): Promise<boolean> {
+    const t = await prisma.tache.findFirst({
+      where: {
+        deletedAt: null,
+        userStory: { epicId, deletedAt: null },
+        assignesUtilisateurs: { some: { userId } },
+      },
+      select: { id: true },
+    });
+    return !!t;
+  }
+
+  private async isUserAssignedToTaskUnderUserStory(userStoryId: string, userId: string): Promise<boolean> {
+    const t = await prisma.tache.findFirst({
+      where: {
+        deletedAt: null,
+        userStoryId,
+        assignesUtilisateurs: { some: { userId } },
+      },
+      select: { id: true },
+    });
+    return !!t;
+  }
 
   private async getInheritedEntitesByEpicIds(epicIds: string[]) {
     const map = new Map<string, { id: string; nom: string }[]>();
@@ -685,6 +713,9 @@ export class EpicService {
       include: { user: { select: { role: true } } },
     });
     if (!row) throw new Error('Permission introuvable');
+    if (await this.isUserAssignedToTaskUnderEpic(epicId, row.userId)) {
+      throw new Error(ERR_ACCES_ASSIGNE_TACHE);
+    }
     await prisma.epicPermission.delete({ where: { id: permissionId } });
     if (row.user.role === 'admin') {
       await prisma.epicAdminSansAcces.upsert({
@@ -705,6 +736,9 @@ export class EpicService {
     if (epic.createdById === targetUserId) throw new Error("Le créateur ne peut pas être exclu");
     const target = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
     if (!target || target.role !== 'admin') throw new Error("Seuls les administrateurs peuvent être exclus");
+    if (await this.isUserAssignedToTaskUnderEpic(epicId, targetUserId)) {
+      throw new Error(ERR_ACCES_ASSIGNE_TACHE);
+    }
     await prisma.epicPermission.deleteMany({ where: { epicId, userId: targetUserId } });
     await prisma.epicAdminSansAcces.upsert({
       where: { epicId_userId: { epicId, userId: targetUserId } },
@@ -808,6 +842,9 @@ export class EpicService {
       include: { user: { select: { role: true } } },
     });
     if (!row) throw new Error('Permission introuvable');
+    if (await this.isUserAssignedToTaskUnderUserStory(userStoryId, row.userId)) {
+      throw new Error(ERR_ACCES_ASSIGNE_TACHE);
+    }
     await prisma.userStoryPermission.delete({ where: { id: permissionId } });
     if (row.user.role === 'admin') {
       await prisma.userStoryAdminSansAcces.upsert({
@@ -828,6 +865,9 @@ export class EpicService {
     if (us.createdById === targetUserId) throw new Error("Le créateur ne peut pas être exclu");
     const target = await prisma.user.findUnique({ where: { id: targetUserId }, select: { role: true } });
     if (!target || target.role !== 'admin') throw new Error("Seuls les administrateurs peuvent être exclus");
+    if (await this.isUserAssignedToTaskUnderUserStory(userStoryId, targetUserId)) {
+      throw new Error(ERR_ACCES_ASSIGNE_TACHE);
+    }
     await prisma.userStoryPermission.deleteMany({ where: { userStoryId, userId: targetUserId } });
     await prisma.userStoryAdminSansAcces.upsert({
       where: { userStoryId_userId: { userStoryId, userId: targetUserId } },
