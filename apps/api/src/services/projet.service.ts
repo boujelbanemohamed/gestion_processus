@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto';
 import { prisma } from '../utils/prisma';
+import { Prisma } from '../generated/prisma/client';
 import { PermissionType } from '../generated/prisma/enums';
 import { fetchProjetAdminExcludedByProjetIds, fetchProjetAdminExcludedForUser } from '../utils/resourceAdminSansAcces';
 
@@ -427,7 +428,7 @@ function mapProjetListItem(
 
 export class ProjetService {
   private async collectDerivedProjetIntervenantUserIds(
-    tx: typeof prisma,
+    tx: Prisma.TransactionClient,
     projetId: string
   ): Promise<string[]> {
     const rows = await tx.tache.findMany({
@@ -451,7 +452,7 @@ export class ProjetService {
     return [...ids];
   }
 
-  private async syncDerivedGovernanceAndEntites(tx: typeof prisma, projetId: string): Promise<void> {
+  private async syncDerivedGovernanceAndEntites(tx: Prisma.TransactionClient, projetId: string): Promise<void> {
     const projet = await tx.projet.findUnique({
       where: { id: projetId },
       select: {
