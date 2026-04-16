@@ -3090,7 +3090,10 @@ function UserStoryLienEpicEtTachesBlock({
                   onChange={() => toggleTache(t.id)}
                   className="rounded"
                 />
-                <span>{t.nom}</span>
+                <span className="min-w-0 flex-1 truncate">{t.nom}</span>
+                <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-700 shrink-0">
+                  {STATUT_OPTIONS.find((s) => s.value === t.statut)?.label || t.statut || '—'}
+                </span>
               </label>
             ))}
             {candidateTaches.length === 0 && (
