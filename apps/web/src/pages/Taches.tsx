@@ -3832,6 +3832,7 @@ export default function Taches() {
   });
   const [showFiltres, setShowFiltres] = useState(false);
   const [mesTachesOnly, setMesTachesOnly] = useState(false);
+  const [mesTachesFinaliseesOnly, setMesTachesFinaliseesOnly] = useState(false);
   const [voirArchives, setVoirArchives] = useState(false);
   const [page, setPage] = useState(1);
   const [usPage, setUsPage] = useState(1);
@@ -3854,7 +3855,7 @@ export default function Taches() {
     setEpicPage(1);
     setUsRetardPage(1);
     setEpicRetardPage(1);
-  }, [filters, mesTachesOnly]);
+  }, [filters, mesTachesOnly, mesTachesFinaliseesOnly]);
 
   const loadEpics = async () => {
     try {
@@ -4157,13 +4158,19 @@ export default function Taches() {
 
   // Filtrage selon rôle + filtres UI
   const visibleTaches = taches.filter(t => {
-    if (!voirArchives && t.statut === 'archive') return false;
+    if (!voirArchives && t.statut === 'archive' && !mesTachesFinaliseesOnly) return false;
 
     if (mesTachesOnly) {
       const uid = currentUser?.id;
       const isAssignedToMe = !!uid && !!t.assignesUtilisateurs?.some((u) => u.id === uid);
       if (!isAssignedToMe) return false;
       if (t.statut === 'termine' || t.statut === 'archive') return false;
+    }
+    if (mesTachesFinaliseesOnly) {
+      const uid = currentUser?.id;
+      const isAssignedToMe = !!uid && !!t.assignesUtilisateurs?.some((u) => u.id === uid);
+      if (!isAssignedToMe) return false;
+      if (t.statut !== 'termine' && t.statut !== 'archive') return false;
     }
 
     // Filtre rôle
@@ -4844,13 +4851,37 @@ export default function Taches() {
           </button>
           <button
             type="button"
-            onClick={() => setMesTachesOnly((v) => !v)}
+            onClick={() =>
+              setMesTachesOnly((v) => {
+                const next = !v;
+                if (next) setMesTachesFinaliseesOnly(false);
+                return next;
+              })
+            }
             className={`px-3 py-2 rounded border text-sm font-medium ${
               mesTachesOnly ? 'bg-indigo-600 text-white border-indigo-600' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
             }`}
-            title="Afficher uniquement mes tâches assignées non terminées et non archivées"
+            title="Afficher uniquement mes tâches assignées à faire / en cours"
           >
-            {mesTachesOnly ? 'Toutes les tâches' : 'Mes tâches'}
+            Mes Tâches à faire / en cours
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setMesTachesFinaliseesOnly((v) => {
+                const next = !v;
+                if (next) setMesTachesOnly(false);
+                return next;
+              })
+            }
+            className={`px-3 py-2 rounded border text-sm font-medium ${
+              mesTachesFinaliseesOnly
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
+            title="Afficher uniquement mes tâches assignées finalisées"
+          >
+            Mes Tâches Finalisées
           </button>
           {canCreate && (
             <button
