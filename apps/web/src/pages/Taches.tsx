@@ -3828,6 +3828,7 @@ export default function Taches() {
     dateDebutTo: '',
     dateFinFrom: '',
     dateFinTo: '',
+    triDate: '',
   });
   const [showFiltres, setShowFiltres] = useState(false);
   const [mesTachesOnly, setMesTachesOnly] = useState(false);
@@ -4284,7 +4285,27 @@ export default function Taches() {
       const t = new Date(d).getTime();
       return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
     };
+    const toTsDesc = (d?: string) => {
+      if (!d) return Number.NEGATIVE_INFINITY;
+      const t = new Date(d).getTime();
+      return Number.isFinite(t) ? t : Number.NEGATIVE_INFINITY;
+    };
     return [...visibleTaches].sort((a, b) => {
+      if (filters.triDate === 'createdAt') {
+        const da = toTsDesc(a.createdAt);
+        const db = toTsDesc(b.createdAt);
+        if (da !== db) return db - da;
+      }
+      if (filters.triDate === 'dateDebut') {
+        const da = toTsDesc(a.dateDebut);
+        const db = toTsDesc(b.dateDebut);
+        if (da !== db) return db - da;
+      }
+      if (filters.triDate === 'dateFin') {
+        const da = toTsDesc(a.dateFinApprox);
+        const db = toTsDesc(b.dateFinApprox);
+        if (da !== db) return db - da;
+      }
       const sa = STATUT_SORT_RANK[a.statut] ?? 999;
       const sb = STATUT_SORT_RANK[b.statut] ?? 999;
       if (sa !== sb) return sa - sb;
@@ -4293,7 +4314,7 @@ export default function Taches() {
       if (da !== db) return da - db;
       return (a.nom || '').localeCompare(b.nom || '', 'fr');
     });
-  }, [visibleTaches]);
+  }, [visibleTaches, filters.triDate]);
 
   const sortedVisibleUserStories = useMemo(() => {
     const toTs = (d?: string) => {
@@ -4481,7 +4502,8 @@ export default function Taches() {
               filters.dateDebutFrom ||
               filters.dateDebutTo ||
               filters.dateFinFrom ||
-              filters.dateFinTo)
+              filters.dateFinTo ||
+              filters.triDate)
               ? ' ●'
               : ''}
           </span>
@@ -4677,6 +4699,19 @@ export default function Taches() {
                   />
                 </div>
               </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Tri des tâches (date)</label>
+                <select
+                  value={filters.triDate}
+                  onChange={(e) => setFilters({ ...filters, triDate: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">Statut puis échéance (défaut)</option>
+                  <option value="createdAt">Trier par date de création</option>
+                  <option value="dateDebut">Trier par date de début</option>
+                  <option value="dateFin">Trier par date de fin</option>
+                </select>
+              </div>
         </div>
         <div className="flex justify-end mt-3">
               <button
@@ -4695,6 +4730,7 @@ export default function Taches() {
                     dateDebutTo: '',
                     dateFinFrom: '',
                     dateFinTo: '',
+                    triDate: '',
                   })
                 }
                 className="px-3 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
