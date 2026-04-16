@@ -591,7 +591,11 @@ export function TacheModal({
     }
   };
 
-  const autresTaches = taches.filter(t => t.id !== editTache?.id);
+  const currentProjetIdForLiaison = form.projetId || lockProjetId || editTache?.projetId || '';
+  const autresTaches =
+    currentProjetIdForLiaison
+      ? taches.filter((t) => t.id !== editTache?.id && t.projetId === currentProjetIdForLiaison)
+      : [];
 
   return (
     <div
