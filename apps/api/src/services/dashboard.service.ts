@@ -5,6 +5,66 @@ const JOURS_ACTIVITE_PROJET = 30;
 const TACHE_STATUTS_FINALISES = ['termine', 'archive'] as const;
 
 export class DashboardService {
+  private async getAdminGlobalTotals() {
+    const [
+      processusTotal,
+      projetsTotal,
+      epicsTotal,
+      userStoriesTotal,
+      tachesTotal,
+      clientsTotal,
+      fournisseursTotal,
+      contratsTotal,
+      pvReunionsTotal,
+      licencesTotal,
+      certificationsTotal,
+      entitesTotal,
+      documentsTotal,
+      utilisateursTotal,
+    ] = await Promise.all([
+      prisma.processus.count({ where: { deletedAt: null } }),
+      prisma.projet.count({ where: { deletedAt: null } }),
+      prisma.epic.count({ where: { deletedAt: null } }),
+      prisma.userStory.count({ where: { deletedAt: null } }),
+      prisma.tache.count({ where: { deletedAt: null } }),
+      prisma.clientFournisseur.count({ where: { deletedAt: null, type: { contains: 'client', mode: 'insensitive' } } }),
+      prisma.clientFournisseur.count({ where: { deletedAt: null, type: { contains: 'fournisseur', mode: 'insensitive' } } }),
+      prisma.contrat.count({ where: { deletedAt: null } }),
+      prisma.pvReunion.count({ where: { deletedAt: null } }),
+      prisma.licence.count({ where: { deletedAt: null } }),
+      prisma.licence.count({ where: { deletedAt: null, typeLicence: { contains: 'certif', mode: 'insensitive' } } }),
+      prisma.entite.count({ where: { deletedAt: null } }),
+      prisma.document.count({ where: { deletedAt: null } }),
+      prisma.user.count(),
+    ]);
+
+    return {
+      processusTotal,
+      projetsTotal,
+      epicUserStoryTache: {
+        epics: epicsTotal,
+        userStories: userStoriesTotal,
+        taches: tachesTotal,
+        total: epicsTotal + userStoriesTotal + tachesTotal,
+      },
+      clientsFournisseurs: {
+        clients: clientsTotal,
+        fournisseurs: fournisseursTotal,
+        total: clientsTotal + fournisseursTotal,
+      },
+      contratsTotal,
+      pvReunionsTotal,
+      licencesCertifications: {
+        licences: Math.max(licencesTotal - certificationsTotal, 0),
+        certifications: certificationsTotal,
+        total: licencesTotal,
+      },
+      entitesTotal,
+      documentsTotal,
+      utilisateursTotal,
+    };
+  }
+
   private async getTachesAssigneesEnInstance(userId?: string, userRole?: string) {
     if (!userId) return [];
     if (userRole !== 'contributeur') return [];
@@ -413,6 +473,7 @@ export class DashboardService {
       this.getProjetsPlusActifs(projetWhereClause),
       this.getTachesEnRetard(userId, userRole),
     ]);
+    const adminGlobalTotals = userRole === 'admin' ? await this.getAdminGlobalTotals() : undefined;
     const tachesAssigneesEnInstance = await this.getTachesAssigneesEnInstance(userId, userRole);
     const projetsAssignesCount =
       userRole === 'contributeur'
@@ -438,6 +499,7 @@ export class DashboardService {
       documentsPlusTelecharges: documentsTelechargesTries,
       tachesAssigneesEnInstance,
       projetsAssignesCount,
+      adminGlobalTotals,
     };
   }
 }

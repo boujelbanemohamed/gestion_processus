@@ -38,6 +38,18 @@ interface KPIs {
     projet?: { id: string; nom: string; codeProjet?: string } | null;
   }>;
   projetsAssignesCount?: number;
+  adminGlobalTotals?: {
+    processusTotal: number;
+    projetsTotal: number;
+    epicUserStoryTache: { epics: number; userStories: number; taches: number; total: number };
+    clientsFournisseurs: { clients: number; fournisseurs: number; total: number };
+    contratsTotal: number;
+    pvReunionsTotal: number;
+    licencesCertifications: { licences: number; certifications: number; total: number };
+    entitesTotal: number;
+    documentsTotal: number;
+    utilisateursTotal: number;
+  };
 }
 
 export default function Dashboard() {
@@ -71,7 +83,59 @@ export default function Dashboard() {
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
-      {isContributeur ? (
+      {isAdmin ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
+          <button type="button" onClick={() => navigate('/processus')} className="bg-white p-4 rounded-lg shadow text-left hover:bg-blue-50 transition">
+            <div className="text-sm text-blue-600">Processus</div>
+            <div className="text-2xl font-bold text-blue-600">{kpis?.adminGlobalTotals?.processusTotal ?? 0}</div>
+          </button>
+          <button type="button" onClick={() => navigate('/projets')} className="bg-white p-4 rounded-lg shadow text-left hover:bg-indigo-50 transition">
+            <div className="text-sm text-indigo-600">Projets</div>
+            <div className="text-2xl font-bold text-indigo-600">{kpis?.adminGlobalTotals?.projetsTotal ?? 0}</div>
+          </button>
+          <button type="button" onClick={() => navigate('/taches')} className="bg-white p-4 rounded-lg shadow text-left hover:bg-violet-50 transition">
+            <div className="text-sm text-violet-600">Epic + User story + Tâches</div>
+            <div className="text-2xl font-bold text-violet-600">{kpis?.adminGlobalTotals?.epicUserStoryTache?.total ?? 0}</div>
+            <div className="text-xs text-gray-500 mt-1">
+              Epic {kpis?.adminGlobalTotals?.epicUserStoryTache?.epics ?? 0} · US {kpis?.adminGlobalTotals?.epicUserStoryTache?.userStories ?? 0} · Tâches {kpis?.adminGlobalTotals?.epicUserStoryTache?.taches ?? 0}
+            </div>
+          </button>
+          <button type="button" onClick={() => navigate('/clients-fournisseurs')} className="bg-white p-4 rounded-lg shadow text-left hover:bg-cyan-50 transition">
+            <div className="text-sm text-cyan-700">Clients + Fournisseurs</div>
+            <div className="text-2xl font-bold text-cyan-700">{kpis?.adminGlobalTotals?.clientsFournisseurs?.total ?? 0}</div>
+            <div className="text-xs text-gray-500 mt-1">
+              Clients {kpis?.adminGlobalTotals?.clientsFournisseurs?.clients ?? 0} · Fournisseurs {kpis?.adminGlobalTotals?.clientsFournisseurs?.fournisseurs ?? 0}
+            </div>
+          </button>
+          <button type="button" onClick={() => navigate('/contrats')} className="bg-white p-4 rounded-lg shadow text-left hover:bg-purple-50 transition">
+            <div className="text-sm text-purple-700">Contrats</div>
+            <div className="text-2xl font-bold text-purple-700">{kpis?.adminGlobalTotals?.contratsTotal ?? 0}</div>
+          </button>
+          <button type="button" onClick={() => navigate('/pv-reunion')} className="bg-white p-4 rounded-lg shadow text-left hover:bg-amber-50 transition">
+            <div className="text-sm text-amber-700">PV de réunion</div>
+            <div className="text-2xl font-bold text-amber-700">{kpis?.adminGlobalTotals?.pvReunionsTotal ?? 0}</div>
+          </button>
+          <button type="button" onClick={() => navigate('/licences')} className="bg-white p-4 rounded-lg shadow text-left hover:bg-emerald-50 transition">
+            <div className="text-sm text-emerald-700">Licences + Certifications</div>
+            <div className="text-2xl font-bold text-emerald-700">{kpis?.adminGlobalTotals?.licencesCertifications?.total ?? 0}</div>
+            <div className="text-xs text-gray-500 mt-1">
+              Licences {kpis?.adminGlobalTotals?.licencesCertifications?.licences ?? 0} · Certifications {kpis?.adminGlobalTotals?.licencesCertifications?.certifications ?? 0}
+            </div>
+          </button>
+          <button type="button" onClick={() => navigate('/entites')} className="bg-white p-4 rounded-lg shadow text-left hover:bg-sky-50 transition">
+            <div className="text-sm text-sky-700">Entités</div>
+            <div className="text-2xl font-bold text-sky-700">{kpis?.adminGlobalTotals?.entitesTotal ?? 0}</div>
+          </button>
+          <button type="button" onClick={() => navigate('/documents')} className="bg-white p-4 rounded-lg shadow text-left hover:bg-blue-50 transition">
+            <div className="text-sm text-blue-700">Documents</div>
+            <div className="text-2xl font-bold text-blue-700">{kpis?.adminGlobalTotals?.documentsTotal ?? 0}</div>
+          </button>
+          <button type="button" onClick={() => navigate('/users')} className="bg-white p-4 rounded-lg shadow text-left hover:bg-gray-50 transition">
+            <div className="text-sm text-gray-700">Utilisateurs</div>
+            <div className="text-2xl font-bold text-gray-700">{kpis?.adminGlobalTotals?.utilisateursTotal ?? 0}</div>
+          </button>
+        </div>
+      ) : isContributeur ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <button
             type="button"
