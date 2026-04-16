@@ -15,6 +15,7 @@ export default function EntiteDetail() {
   const isLecteur = currentUser?.role === 'lecteur';
   const [entite, setEntite] = useState<any>(null);
   const [processus, setProcessus] = useState<any[]>([]);
+  const [projets, setProjets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -54,6 +55,7 @@ export default function EntiteDetail() {
         }
       })();
       loadProcessus();
+      loadProjets();
       loadHistory(1);
     } else {
       setError('ID de l\'entité manquant dans l\'URL');
@@ -126,6 +128,16 @@ export default function EntiteDetail() {
     }
   };
 
+  const loadProjets = async () => {
+    try {
+      const response = await api.get(`/projets?entiteId=${id}`);
+      setProjets(Array.isArray(response.data) ? response.data : []);
+    } catch (error) {
+      console.error('Erreur chargement projets:', error);
+      setProjets([]);
+    }
+  };
+
   const loadHistory = async (page: number = 1) => {
     try {
       const response = await api.get(`/entites/${id}/history?page=${page}&limit=10`);
@@ -171,6 +183,7 @@ export default function EntiteDetail() {
         await api.put(`/entites/${id}`, updateData);
         await loadEntite();
         await loadProcessus();
+        await loadProjets();
         await loadHistory(1); // Recharger l'historique à la page 1
       }
 
@@ -434,6 +447,68 @@ export default function EntiteDetail() {
               </div>
             )}
           </div>
+        )}
+      </div>
+
+      {/* Projets associés */}
+      <div className="bg-white rounded-lg shadow p-6 mb-6">
+        <h2 className="text-lg font-semibold mb-4">Projets associés</h2>
+        {projets.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nom</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priorité</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fin prévue</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {projets.map((p) => (
+                  <tr key={p.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{p.codeProjet}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <a
+                        href={`/projets/${p.id}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          navigate(`/projets/${p.id}`);
+                        }}
+                        className="text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        {p.nom}
+                      </a>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <span
+                        className={`px-2 py-1 text-xs rounded ${
+                          p.statut === 'en_cours'
+                            ? 'bg-blue-100 text-blue-800'
+                            : p.statut === 'en_preparation'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : p.statut === 'termine'
+                                ? 'bg-green-100 text-green-800'
+                                : p.statut === 'en_pause'
+                                  ? 'bg-gray-100 text-gray-800'
+                                  : 'bg-slate-100 text-slate-800'
+                        }`}
+                      >
+                        {p.statut || '-'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">{p.priorite || '-'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {p.dateFinPrevue ? new Date(p.dateFinPrevue).toLocaleDateString('fr-FR') : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-8 text-gray-500">Aucun projet associé à cette entité</div>
         )}
       </div>
 
