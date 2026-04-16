@@ -1444,6 +1444,22 @@ function personnesFromAgileAccesApiDetail(
     .sort((x, y) => x.nom.localeCompare(y.nom, 'fr'));
 }
 
+/**
+ * Admin exclu de la tâche (adminSansAcces) sans ligne de délégation : ne plus l’afficher dans l’aperçu
+ * uniquement comme membre projet / sponsor / entité — il n’a plus de droit effectif sur la tâche.
+ */
+function filterInheritedPersonnesPourAccesTache(inherited: PersonneAcces[], detail: any | null | undefined): PersonneAcces[] {
+  if (!detail) return inherited;
+  const excluded = new Set((detail.adminSansAccesUserIds || []) as string[]);
+  const avecDelegation = new Set(
+    (detail.delegations || []).map((d: any) => d.user?.id).filter(Boolean) as string[]
+  );
+  return inherited.filter((p) => {
+    if (!excluded.has(p.id)) return true;
+    return avecDelegation.has(p.id);
+  });
+}
+
 function getAssigneeUserIdsUnderEpic(ep: EpicRow, taches: Tache[]): Set<string> {
   const ids = new Set<string>();
   for (const t of getTachesLieesEpic(ep, taches)) {
@@ -2776,7 +2792,10 @@ export function TacheCard({
             </p>
             <AccesPersonnesBlock
               personnes={mergeDeuxListesPersonnesAcces(
-                getAccesPersonnes(tache, allUsers, { skipImplicitAdmins: !!accesApercuDetail }),
+                filterInheritedPersonnesPourAccesTache(
+                  getAccesPersonnes(tache, allUsers, { skipImplicitAdmins: !!accesApercuDetail }),
+                  accesApercuDetail
+                ),
                 personnesFromAgileAccesApiDetail(accesApercuDetail, {
                   creatorRole: 'Créateur de la tâche',
                   explicitRole: 'Assignation sur la tâche',
