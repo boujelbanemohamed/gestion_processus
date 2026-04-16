@@ -19,9 +19,85 @@ export class DashboardService {
             entite: { select: { id: true, nom: true, code: true } },
           },
         },
+        sponsors: { select: { userId: true } },
+        chefsProjet: { select: { userId: true } },
+        techLeads: { select: { userId: true } },
+        equipe: { select: { userId: true } },
       },
       orderBy: [{ statut: 'asc' }, { nom: 'asc' }],
     });
+
+    const projetIds = projets.map((p) => p.id);
+    const userIdsByProjet = new Map<string, Set<string>>();
+    const allUserIds = new Set<string>();
+
+    const ensureProjetUserSet = (projetId: string) => {
+      if (!userIdsByProjet.has(projetId)) userIdsByProjet.set(projetId, new Set<string>());
+      return userIdsByProjet.get(projetId)!;
+    };
+
+    for (const p of projets) {
+      const users = ensureProjetUserSet(p.id);
+      for (const u of [...(p.sponsors || []), ...(p.chefsProjet || []), ...(p.techLeads || []), ...(p.equipe || [])]) {
+        if (!u?.userId) continue;
+        users.add(u.userId);
+        allUserIds.add(u.userId);
+      }
+    }
+
+    if (projetIds.length > 0) {
+      const taches = await prisma.tache.findMany({
+        where: {
+          deletedAt: null,
+          OR: [
+            { projetId: { in: projetIds } },
+            {
+              userStory: {
+                is: {
+                  deletedAt: null,
+                  epic: { is: { deletedAt: null, projetId: { in: projetIds } } },
+                },
+              },
+            },
+          ],
+        },
+        select: {
+          projetId: true,
+          userStory: { select: { epic: { select: { projetId: true } } } },
+          assignesUtilisateurs: { select: { userId: true } },
+        },
+      });
+
+      for (const t of taches) {
+        const projetId = t.projetId ?? t.userStory?.epic?.projetId ?? null;
+        if (!projetId) continue;
+        const users = ensureProjetUserSet(projetId);
+        for (const au of t.assignesUtilisateurs || []) {
+          if (!au?.userId) continue;
+          users.add(au.userId);
+          allUserIds.add(au.userId);
+        }
+      }
+    }
+
+    const entitesByUserId = new Map<string, { id: string; nom: string; code: string | null }[]>();
+    if (allUserIds.size > 0) {
+      const userEntites = await prisma.userEntite.findMany({
+        where: { userId: { in: [...allUserIds] }, entite: { is: { deletedAt: null } } },
+        select: {
+          userId: true,
+          entite: { select: { id: true, nom: true, code: true } },
+        },
+      });
+      for (const row of userEntites) {
+        if (!entitesByUserId.has(row.userId)) entitesByUserId.set(row.userId, []);
+        entitesByUserId.get(row.userId)!.push({
+          id: row.entite.id,
+          nom: row.entite.nom,
+          code: row.entite.code ?? null,
+        });
+      }
+    }
 
     const byStatut = new Map<
       string,
@@ -45,16 +121,26 @@ export class DashboardService {
       }
       const bucket = byStatut.get(key)!;
       bucket.count += 1;
+      const explicitEntites = (p.entites || []).map((pe) => ({
+        id: pe.entite.id,
+        nom: pe.entite.nom,
+        code: pe.entite.code ?? null,
+      }));
+      const mergedEntites = new Map<string, { id: string; nom: string; code: string | null }>(
+        explicitEntites.map((e) => [e.id, e])
+      );
+      const linkedUsers = userIdsByProjet.get(p.id) || new Set<string>();
+      for (const userId of linkedUsers) {
+        for (const entite of entitesByUserId.get(userId) || []) {
+          if (!mergedEntites.has(entite.id)) mergedEntites.set(entite.id, entite);
+        }
+      }
       bucket.projets.push({
         id: p.id,
         nom: p.nom,
         codeProjet: p.codeProjet,
         dateFinPrevue: p.dateFinPrevue ? p.dateFinPrevue.toISOString() : null,
-        entites: (p.entites || []).map((pe) => ({
-          id: pe.entite.id,
-          nom: pe.entite.nom,
-          code: pe.entite.code ?? null,
-        })),
+        entites: Array.from(mergedEntites.values()),
       });
     }
 
