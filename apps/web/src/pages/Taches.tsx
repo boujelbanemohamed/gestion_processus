@@ -64,6 +64,16 @@ const PERM_TACHE_LABEL: Record<string, string> = Object.fromEntries(
   PERM_TACHE_OPTIONS.map((o) => [o.value, o.label])
 ) as Record<string, string>;
 
+const STATUT_SORT_RANK: Record<string, number> = {
+  cree: 1,
+  a_faire: 2,
+  en_cours: 3,
+  en_attente: 4,
+  bloque: 5,
+  termine: 6,
+  archive: 7,
+};
+
 const LABEL_RESSOURCE: Record<string, string> = {
   processus: 'Processus',
   document: 'Document',
@@ -4264,6 +4274,77 @@ export default function Taches() {
     return true;
   });
 
+  const sortedVisibleTaches = useMemo(() => {
+    const toTs = (d?: string) => {
+      if (!d) return Number.POSITIVE_INFINITY;
+      const t = new Date(d).getTime();
+      return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+    };
+    return [...visibleTaches].sort((a, b) => {
+      const sa = STATUT_SORT_RANK[a.statut] ?? 999;
+      const sb = STATUT_SORT_RANK[b.statut] ?? 999;
+      if (sa !== sb) return sa - sb;
+      const da = toTs(a.dateFinApprox);
+      const db = toTs(b.dateFinApprox);
+      if (da !== db) return da - db;
+      return (a.nom || '').localeCompare(b.nom || '', 'fr');
+    });
+  }, [visibleTaches]);
+
+  const sortedVisibleUserStories = useMemo(() => {
+    const toTs = (d?: string) => {
+      if (!d) return Number.POSITIVE_INFINITY;
+      const t = new Date(d).getTime();
+      return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+    };
+    return [...visibleUserStories].sort((a, b) => {
+      const ta = getTachesLieesUserStory(a.id, taches);
+      const tb = getTachesLieesUserStory(b.id, taches);
+      const sa = deriveAggregatedStatutFromTasks(
+        ta.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
+        new Date()
+      );
+      const sb = deriveAggregatedStatutFromTasks(
+        tb.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
+        new Date()
+      );
+      const ra = STATUT_SORT_RANK[sa] ?? 999;
+      const rb = STATUT_SORT_RANK[sb] ?? 999;
+      if (ra !== rb) return ra - rb;
+      const da = toTs(dateRangeFromTasks(ta).dateFinApprox);
+      const db = toTs(dateRangeFromTasks(tb).dateFinApprox);
+      if (da !== db) return da - db;
+      return (a.description || '').localeCompare(b.description || '', 'fr');
+    });
+  }, [visibleUserStories, taches]);
+
+  const sortedVisibleEpics = useMemo(() => {
+    const toTs = (d?: string) => {
+      if (!d) return Number.POSITIVE_INFINITY;
+      const t = new Date(d).getTime();
+      return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+    };
+    return [...visibleEpics].sort((a, b) => {
+      const ta = getTachesLieesEpic(a, taches);
+      const tb = getTachesLieesEpic(b, taches);
+      const sa = deriveAggregatedStatutFromTasks(
+        ta.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
+        new Date()
+      );
+      const sb = deriveAggregatedStatutFromTasks(
+        tb.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
+        new Date()
+      );
+      const ra = STATUT_SORT_RANK[sa] ?? 999;
+      const rb = STATUT_SORT_RANK[sb] ?? 999;
+      if (ra !== rb) return ra - rb;
+      const da = toTs(dateRangeFromTasks(ta).dateFinApprox);
+      const db = toTs(dateRangeFromTasks(tb).dateFinApprox);
+      if (da !== db) return da - db;
+      return (a.nom || '').localeCompare(b.nom || '', 'fr');
+    });
+  }, [visibleEpics, taches]);
+
   const nowKpi = new Date();
   const usIdsEnRetard = new Set<string>();
   const epicIdsEnRetard = new Set<string>();
@@ -4272,37 +4353,37 @@ export default function Taches() {
     if (t.userStory?.id) usIdsEnRetard.add(t.userStory.id);
     if (t.userStory?.epic?.id) epicIdsEnRetard.add(t.userStory.epic.id);
   }
-  const userStoriesEnRetardList = visibleUserStories.filter((us) => usIdsEnRetard.has(us.id));
-  const epicsEnRetardList = visibleEpics.filter((ep) => epicIdsEnRetard.has(ep.id));
+  const userStoriesEnRetardList = sortedVisibleUserStories.filter((us) => usIdsEnRetard.has(us.id));
+  const epicsEnRetardList = sortedVisibleEpics.filter((ep) => epicIdsEnRetard.has(ep.id));
 
-  const visibleTacheIds = new Set(visibleTaches.map((t) => t.id));
+  const visibleTacheIds = new Set(sortedVisibleTaches.map((t) => t.id));
   const tachesEnRetardFiltrees = tachesEnRetard.filter((item) => visibleTacheIds.has(item.id));
 
   const usAgileKanbanItems = useMemo(
-    () => visibleUserStories.map((us) => userStoryToKanbanAndGantt(us, taches).kanban),
-    [visibleUserStories, taches]
+    () => sortedVisibleUserStories.map((us) => userStoryToKanbanAndGantt(us, taches).kanban),
+    [sortedVisibleUserStories, taches]
   );
   const usAgileGanttItems = useMemo(
-    () => visibleUserStories.map((us) => userStoryToKanbanAndGantt(us, taches).gantt),
-    [visibleUserStories, taches]
+    () => sortedVisibleUserStories.map((us) => userStoryToKanbanAndGantt(us, taches).gantt),
+    [sortedVisibleUserStories, taches]
   );
   const epicAgileKanbanItems = useMemo(
-    () => visibleEpics.map((ep) => epicToKanbanAndGantt(ep, taches, userStories).kanban),
-    [visibleEpics, taches, userStories]
+    () => sortedVisibleEpics.map((ep) => epicToKanbanAndGantt(ep, taches, userStories).kanban),
+    [sortedVisibleEpics, taches, userStories]
   );
   const epicAgileGanttItems = useMemo(
-    () => visibleEpics.map((ep) => epicToKanbanAndGantt(ep, taches, userStories).gantt),
-    [visibleEpics, taches, userStories]
+    () => sortedVisibleEpics.map((ep) => epicToKanbanAndGantt(ep, taches, userStories).gantt),
+    [sortedVisibleEpics, taches, userStories]
   );
 
-  const pageTasksEff = clampListPage(page, visibleTaches.length, pageSize);
-  const pagedTaches = visibleTaches.slice((pageTasksEff - 1) * pageSize, pageTasksEff * pageSize);
+  const pageTasksEff = clampListPage(page, sortedVisibleTaches.length, pageSize);
+  const pagedTaches = sortedVisibleTaches.slice((pageTasksEff - 1) * pageSize, pageTasksEff * pageSize);
 
-  const pageUsEff = clampListPage(usPage, visibleUserStories.length, pageSize);
-  const pagedUserStories = visibleUserStories.slice((pageUsEff - 1) * pageSize, pageUsEff * pageSize);
+  const pageUsEff = clampListPage(usPage, sortedVisibleUserStories.length, pageSize);
+  const pagedUserStories = sortedVisibleUserStories.slice((pageUsEff - 1) * pageSize, pageUsEff * pageSize);
 
-  const pageEpicEff = clampListPage(epicPage, visibleEpics.length, pageSize);
-  const pagedEpics = visibleEpics.slice((pageEpicEff - 1) * pageSize, pageEpicEff * pageSize);
+  const pageEpicEff = clampListPage(epicPage, sortedVisibleEpics.length, pageSize);
+  const pagedEpics = sortedVisibleEpics.slice((pageEpicEff - 1) * pageSize, pageEpicEff * pageSize);
 
   const pageUsRetardEff = clampListPage(usRetardPage, userStoriesEnRetardList.length, pageSize);
   const pagedUserStoriesEnRetard = userStoriesEnRetardList.slice(

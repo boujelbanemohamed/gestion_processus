@@ -24,6 +24,13 @@ const STATUS_LABELS: Record<string, string> = {
   en_pause: 'En pause',
 };
 
+const STATUS_SORT_ORDER: Record<string, number> = {
+  en_preparation: 1,
+  en_cours: 2,
+  en_pause: 3,
+  termine: 4,
+};
+
 const PRIORITY_COLORS: Record<string, string> = {
   haute: 'bg-red-100 text-red-800',
   moyenne: 'bg-orange-100 text-orange-800',
@@ -362,10 +369,29 @@ export default function Projets() {
     }
   };
 
-  const totalPages = Math.max(1, Math.ceil(projets.length / PAGE_SIZE));
+  const sortedProjets = useMemo(() => {
+    const toTs = (d?: string | null) => {
+      if (!d) return Number.POSITIVE_INFINITY;
+      const t = new Date(d).getTime();
+      return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+    };
+    return [...projets].sort((a, b) => {
+      const sa = STATUS_SORT_ORDER[a.statut] ?? 999;
+      const sb = STATUS_SORT_ORDER[b.statut] ?? 999;
+      if (sa !== sb) return sa - sb;
+
+      const da = toTs(a.dateFinPrevue);
+      const db = toTs(b.dateFinPrevue);
+      if (da !== db) return da - db;
+
+      return String(a.nom || '').localeCompare(String(b.nom || ''), 'fr');
+    });
+  }, [projets]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedProjets.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const startIdx = (safePage - 1) * PAGE_SIZE;
-  const pageSlice = projets.slice(startIdx, startIdx + PAGE_SIZE);
+  const pageSlice = sortedProjets.slice(startIdx, startIdx + PAGE_SIZE);
 
   const dashboard = useMemo(() => {
     const list = projets;
