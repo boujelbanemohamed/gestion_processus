@@ -1086,8 +1086,22 @@ export default function ProjetDetail() {
       doc?.typeDocument === 'projet' && doc?.referenceType === 'projet' && !!doc?.referenceId;
     if (isProjetNativeLink && !isNativeProjetUploadDoc(doc)) {
       try {
-        await api.put(`/documents/${doc.id}`, { estConfidentiel: true });
-        target = { ...doc, estConfidentiel: true };
+        const existingPermIds = (doc.permissionsUtilisateurs || [])
+          .map((p: any) => p.userId || p.user?.id)
+          .filter(Boolean);
+        const basePermIds =
+          existingPermIds.length > 0
+            ? existingPermIds
+            : currentUser?.id
+              ? [currentUser.id]
+              : [];
+
+        await api.put(`/documents/${doc.id}`, {
+          estConfidentiel: true,
+          // Satisfait la validation backend "au moins un utilisateur" pour les documents confidentiels.
+          permissionUserIds: basePermIds,
+        });
+        target = { ...doc, estConfidentiel: true, permissionsUtilisateurs: doc.permissionsUtilisateurs };
         await loadDocuments();
       } catch (err: any) {
         alert(
