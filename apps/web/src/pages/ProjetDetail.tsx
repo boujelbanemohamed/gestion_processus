@@ -688,7 +688,7 @@ export default function ProjetDetail() {
   const [uploading, setUploading] = useState(false);
   const [uploadNom, setUploadNom] = useState('');
   const [uploadDescription, setUploadDescription] = useState('');
-  const [uploadEstConfidentiel, setUploadEstConfidentiel] = useState(false);
+  const [uploadEstConfidentiel, setUploadEstConfidentiel] = useState(true);
   const [uploadPermissionUserIds, setUploadPermissionUserIds] = useState<string[]>([]);
   const [viewingDocument, setViewingDocument] = useState<any>(null);
   const [documentUrl, setDocumentUrl] = useState<string | null>(null);
@@ -1077,13 +1077,36 @@ export default function ProjetDetail() {
     }
   };
   const handleOpenAccesModal = async (doc: any) => {
-    setAcceDoc(doc);
-    if (isNativeProjetUploadDoc(doc)) {
+    let target = doc;
+
+    // Si le document est rattaché nativement au projet mais pas encore marqué confidentiel,
+    // on active le mode "pièce native" pour permettre au créateur de gérer les accès
+    // (exclusion / limitation des administrateurs) comme sur la fiche projet.
+    const isProjetNativeLink =
+      doc?.typeDocument === 'projet' && doc?.referenceType === 'projet' && !!doc?.referenceId;
+    if (isProjetNativeLink && !isNativeProjetUploadDoc(doc)) {
+      try {
+        await api.put(`/documents/${doc.id}`, { estConfidentiel: true });
+        target = { ...doc, estConfidentiel: true };
+        await loadDocuments();
+      } catch (err: any) {
+        alert(
+          err?.response?.data?.error ||
+            "Erreur lors de l'activation de la gestion avancée des accès pour ce document"
+        );
+        return;
+      }
+    }
+
+    setAcceDoc(target);
+    if (isNativeProjetUploadDoc(target)) {
       setShowDocAccesContratModal(true);
       return;
     }
-    setAcceEstConfidentiel(doc.estConfidentiel || false);
-    setAccePermissionUserIds(doc.permissionsUtilisateurs?.map((p: any) => p.userId || p.user?.id).filter(Boolean) || []);
+    setAcceEstConfidentiel(target.estConfidentiel || false);
+    setAccePermissionUserIds(
+      target.permissionsUtilisateurs?.map((p: any) => p.userId || p.user?.id).filter(Boolean) || []
+    );
     setShowAccesModal(true);
   };
 
