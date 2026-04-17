@@ -2394,6 +2394,7 @@ export function TacheCard({
   const [histoLoading, setHistoLoading] = useState(false);
   /** GET /taches/:id/acces pour fusionner l'aperçu « Personnes habilitées » avec les exclusions admin réelles. */
   const [accesApercuDetail, setAccesApercuDetail] = useState<any | null>(null);
+  const [statutSaving, setStatutSaving] = useState(false);
   const now = new Date();
   const isLate = tache.dateFinApprox && new Date(tache.dateFinApprox) < now && tache.statut !== 'termine' && tache.statut !== 'archive';
 
@@ -2415,6 +2416,19 @@ export function TacheCard({
       cancel = true;
     };
   }, [expanded, tache.id, assignesIdsKey]);
+
+  const handleStatutChange = async (newStatut: string) => {
+    if (!canEdit || newStatut === tache.statut) return;
+    setStatutSaving(true);
+    try {
+      await api.put(`/taches/${tache.id}`, { statut: newStatut });
+      await onRefreshData?.();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.message || 'Impossible de mettre à jour le statut');
+    } finally {
+      setStatutSaving(false);
+    }
+  };
 
   const openAccesModal = async () => {
     setShowAccesModal(true);
@@ -2527,16 +2541,45 @@ export function TacheCard({
   return (
     <>
     <div className={`bg-white border rounded-lg shadow overflow-hidden ${isLate ? 'border-red-300' : 'border-gray-200'}`}>
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex flex-wrap items-center gap-2 sm:gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
-        aria-expanded={expanded}
-        aria-label={expanded ? 'Replier le détail de la tâche' : 'Afficher le détail et les actions de la tâche'}
-      >
-        <span className="shrink-0" title={tache.statut}>
-          <StatutBadge statut={tache.statut} />
-        </span>
+      <div className="flex w-full items-stretch">
+        <div
+          className="flex items-center shrink-0 px-2 sm:px-3 py-3 border-r border-gray-100 bg-gray-50/60"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          {canEdit ? (
+            <div className="flex flex-col gap-0.5 min-w-0">
+              <span className="hidden sm:block text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                Statut
+              </span>
+              <select
+                value={tache.statut}
+                disabled={statutSaving}
+                onChange={(e) => void handleStatutChange(e.target.value)}
+                className="text-xs font-medium border border-gray-300 rounded-md px-2 py-1.5 max-w-[min(14rem,42vw)] sm:max-w-[15rem] bg-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-60"
+                title="Changer le statut de la tâche"
+                aria-label="Statut de la tâche"
+              >
+                {STATUT_OPTIONS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <span className="shrink-0 px-1" title={tache.statut}>
+              <StatutBadge statut={tache.statut} />
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="flex-1 min-w-0 flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+          aria-expanded={expanded}
+          aria-label={expanded ? 'Replier le détail de la tâche' : 'Afficher le détail et les actions de la tâche'}
+        >
         <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate text-left">{tache.nom}</h2>
         <div
           className="flex items-center gap-1.5 shrink-0 min-w-0 max-w-[min(20rem,55vw)]"
@@ -2575,7 +2618,8 @@ export function TacheCard({
             ▼
           </span>
         )}
-      </button>
+        </button>
+      </div>
 
       {expanded && (
         <div className="border-t border-gray-100 bg-gray-50/80">

@@ -188,6 +188,10 @@ export default function ProjetTachesSection({ projetId, projet, usersForTaches, 
             users={usersForTaches}
             currentUserRole={currentUser?.role || ''}
             allUsers={usersForTaches}
+            onRefreshData={async () => {
+              await load();
+              onTachesRefresh?.();
+            }}
           />
         ))}
       </div>
