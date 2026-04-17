@@ -34,6 +34,14 @@ type UserStoryRow = {
   epic?: { id: string; nom: string } | null;
 };
 
+type ProgressRow = {
+  key: string;
+  label: string;
+  total: number;
+  done: number;
+  pct: number;
+};
+
 type Props = {
   projetId: string;
   projet: any;
@@ -82,6 +90,84 @@ function collectEntitesFromTaches(taches: Tache[]) {
     }
   }
   return [...m.values()].sort((a, b) => b.n - a.n);
+}
+
+function buildProgressRows(
+  taches: Tache[],
+  collectKeys: (t: Tache) => Array<{ key: string; label: string }>
+): ProgressRow[] {
+  const m = new Map<string, { label: string; total: number; done: number }>();
+  for (const t of taches) {
+    const refs = collectKeys(t);
+    const isDone = t.statut === 'termine';
+    for (const r of refs) {
+      const prev = m.get(r.key) || { label: r.label, total: 0, done: 0 };
+      prev.total += 1;
+      if (isDone) prev.done += 1;
+      m.set(r.key, prev);
+    }
+  }
+  return [...m.entries()]
+    .map(([key, v]) => ({
+      key,
+      label: v.label,
+      total: v.total,
+      done: v.done,
+      pct: v.total > 0 ? Math.round((v.done / v.total) * 100) : 0,
+    }))
+    .sort((a, b) => {
+      if (b.pct !== a.pct) return b.pct - a.pct;
+      if (b.total !== a.total) return b.total - a.total;
+      return a.label.localeCompare(b.label, 'fr');
+    });
+}
+
+function ProgressTable({
+  title,
+  rows,
+  emptyLabel,
+}: {
+  title: string;
+  rows: ProgressRow[];
+  emptyLabel: string;
+}) {
+  return (
+    <div>
+      <h4 className="text-sm font-semibold text-gray-700 mb-2">{title}</h4>
+      <div className="overflow-x-auto border border-gray-200 rounded-lg">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
+            <tr>
+              <th className="px-3 py-2">Élément</th>
+              <th className="px-3 py-2">Avancement</th>
+              <th className="px-3 py-2">%</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {rows.map((r) => (
+              <tr key={r.key}>
+                <td className="px-3 py-2 font-medium text-gray-900 max-w-[340px] truncate" title={r.label}>
+                  {r.label}
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-36 h-2 rounded bg-gray-100 overflow-hidden">
+                      <div className="h-full bg-indigo-500" style={{ width: `${r.pct}%` }} />
+                    </div>
+                    <span className="text-xs text-gray-600 tabular-nums">
+                      {r.done}/{r.total}
+                    </span>
+                  </div>
+                </td>
+                <td className="px-3 py-2 tabular-nums font-semibold text-gray-800">{r.pct}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {rows.length === 0 && <p className="p-4 text-gray-400 text-sm">{emptyLabel}</p>}
+      </div>
+    </div>
+  );
 }
 
 function buildPersonnesRessources(projet: any, taches: Tache[]) {
@@ -240,6 +326,65 @@ export default function ProjetPilotageAgile({
   );
   const entitesRes = useMemo(() => collectEntitesFromTaches(tachesVisibles), [tachesVisibles]);
 
+  const epicProgressRows = useMemo(
+    () =>
+      buildProgressRows(tachesVisibles, (t) =>
+        t.userStory?.epic?.id
+          ? [{ key: t.userStory.epic.id, label: t.userStory.epic.nom || `Epic ${t.userStory.epic.id}` }]
+          : []
+      ),
+    [tachesVisibles]
+  );
+
+  const userStoryProgressRows = useMemo(
+    () =>
+      buildProgressRows(tachesVisibles, (t) =>
+        t.userStory?.id
+          ? [
+              {
+                key: t.userStory.id,
+                label: t.userStory.description
+                  ? t.userStory.description.length > 90
+                    ? `${t.userStory.description.slice(0, 90)}…`
+                    : t.userStory.description
+                  : `User story ${t.userStory.id}`,
+              },
+            ]
+          : []
+      ),
+    [tachesVisibles]
+  );
+
+  const entiteProgressRows = useMemo(
+    () =>
+      buildProgressRows(tachesVisibles, (t) =>
+        (t.assignesEntites || []).map((e) => ({ key: e.id, label: e.nom || `Entité ${e.id}` }))
+      ),
+    [tachesVisibles]
+  );
+
+  const personneProgressRows = useMemo(
+    () =>
+      buildProgressRows(tachesVisibles, (t) =>
+        (t.assignesUtilisateurs || []).map((u) => ({
+          key: u.id,
+          label: `${u.prenom || ''} ${u.nom || ''}`.trim() || `Utilisateur ${u.id}`,
+        }))
+      ),
+    [tachesVisibles]
+  );
+
+  const clientFournisseurProgressRows = useMemo(
+    () =>
+      buildProgressRows(tachesVisibles, (t) =>
+        (t.assignesClientsFournisseurs || []).map((c) => ({
+          key: c.id,
+          label: `${c.nom || c.id}${c.type ? ` (${c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})` : ''}`,
+        }))
+      ),
+    [tachesVisibles]
+  );
+
   const handleKanbanMove = async (tacheId: string, newStatut: string) => {
     try {
       await api.put(`/taches/${tacheId}`, { statut: newStatut });
@@ -322,6 +467,36 @@ export default function ProjetPilotageAgile({
                 hideAvancement
               />
             )}
+          </div>
+        </div>
+
+        <div className="mt-6 grid md:grid-cols-2 gap-6">
+          <ProgressTable
+            title="Avancement global par Epic"
+            rows={epicProgressRows}
+            emptyLabel="Aucun epic lié aux tâches visibles."
+          />
+          <ProgressTable
+            title="Avancement global par User story"
+            rows={userStoryProgressRows}
+            emptyLabel="Aucune user story liée aux tâches visibles."
+          />
+          <ProgressTable
+            title="Avancement global par Entité"
+            rows={entiteProgressRows}
+            emptyLabel="Aucune entité assignée sur les tâches visibles."
+          />
+          <ProgressTable
+            title="Avancement global par Personne"
+            rows={personneProgressRows}
+            emptyLabel="Aucune personne assignée sur les tâches visibles."
+          />
+          <div className="md:col-span-2">
+            <ProgressTable
+              title="Avancement global par Client / Fournisseur"
+              rows={clientFournisseurProgressRows}
+              emptyLabel="Aucun client/fournisseur assigné sur les tâches visibles."
+            />
           </div>
         </div>
       </section>
