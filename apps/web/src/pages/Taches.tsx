@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import TachesGanttView, { type TacheGantt } from '../components/TachesGanttView';
 import TachesKanbanView, { type KanbanTache } from '../components/TachesKanbanView';
 import TachesEnRetardBloc, { type TacheEnRetardItem } from '../components/TachesEnRetardBloc';
@@ -4086,6 +4086,7 @@ const noopKanbanMove = async (_id: string, _s: string) => {};
 // ─── Page Principale ──────────────────────────────────────────────────────────
 export default function Taches() {
   const { user: currentUser } = useAuth();
+  const location = useLocation();
   const [taches, setTaches] = useState<Tache[]>([]);
   const [tachesEnRetard, setTachesEnRetard] = useState<TacheEnRetardItem[]>([]);
   const [projets, setProjets] = useState<ProjetOption[]>([]);
@@ -4183,6 +4184,23 @@ export default function Taches() {
     setUsRetardPage(1);
     setEpicRetardPage(1);
   }, [filters, mesTachesOnly, mesTachesFinaliseesOnly]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const projetIdFromUrl = params.get('projetId') || '';
+    if (!projetIdFromUrl) return;
+    setFilters((prev) => {
+      if (prev.projetId === projetIdFromUrl) return prev;
+      return {
+        ...prev,
+        projetId: projetIdFromUrl,
+        tacheId: '',
+        userStoryId: '',
+        epicId: '',
+      };
+    });
+    setShowFiltres(true);
+  }, [location.search]);
 
   useEffect(() => {
     if (!agileAccesModal || !agileAccesDetail) return;

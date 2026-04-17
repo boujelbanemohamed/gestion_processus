@@ -569,7 +569,13 @@ export default function ProjetPilotageAgile({
             </button>
             <button
               type="button"
-              onClick={() => navigate('/taches')}
+              onClick={() =>
+                navigate(
+                  projetId
+                    ? `/taches?projetId=${encodeURIComponent(projetId)}`
+                    : '/taches'
+                )
+              }
               className="px-3 py-2 rounded border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
             >
               Page Tâches
