@@ -139,7 +139,8 @@ function ProgressTable({
           <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
             <tr>
               <th className="px-3 py-2">Élément</th>
-              <th className="px-3 py-2">Avancement</th>
+              <th className="px-3 py-2">Terminées</th>
+              <th className="px-3 py-2">Total</th>
               <th className="px-3 py-2">%</th>
             </tr>
           </thead>
@@ -149,16 +150,8 @@ function ProgressTable({
                 <td className="px-3 py-2 font-medium text-gray-900 max-w-[340px] truncate" title={r.label}>
                   {r.label}
                 </td>
-                <td className="px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-36 h-2 rounded bg-gray-100 overflow-hidden">
-                      <div className="h-full bg-indigo-500" style={{ width: `${r.pct}%` }} />
-                    </div>
-                    <span className="text-xs text-gray-600 tabular-nums">
-                      {r.done}/{r.total}
-                    </span>
-                  </div>
-                </td>
+                <td className="px-3 py-2 tabular-nums text-gray-700">{r.done}</td>
+                <td className="px-3 py-2 tabular-nums text-gray-700">{r.total}</td>
                 <td className="px-3 py-2 tabular-nums font-semibold text-gray-800">{r.pct}%</td>
               </tr>
             ))}
@@ -355,25 +348,6 @@ export default function ProjetPilotageAgile({
     [tachesVisibles]
   );
 
-  const entiteProgressRows = useMemo(
-    () =>
-      buildProgressRows(tachesVisibles, (t) =>
-        (t.assignesEntites || []).map((e) => ({ key: e.id, label: e.nom || `Entité ${e.id}` }))
-      ),
-    [tachesVisibles]
-  );
-
-  const personneProgressRows = useMemo(
-    () =>
-      buildProgressRows(tachesVisibles, (t) =>
-        (t.assignesUtilisateurs || []).map((u) => ({
-          key: u.id,
-          label: `${u.prenom || ''} ${u.nom || ''}`.trim() || `Utilisateur ${u.id}`,
-        }))
-      ),
-    [tachesVisibles]
-  );
-
   const clientFournisseurProgressRows = useMemo(
     () =>
       buildProgressRows(tachesVisibles, (t) =>
@@ -483,18 +457,8 @@ export default function ProjetPilotageAgile({
           />
         </div>
 
-        <div className="mt-6 grid sm:grid-cols-2 gap-6">
-          <ProgressTable
-            title="Avancement global par Entité"
-            rows={entiteProgressRows}
-            emptyLabel="Aucune entité assignée sur les tâches visibles."
-          />
-          <ProgressTable
-            title="Avancement global par Personne"
-            rows={personneProgressRows}
-            emptyLabel="Aucune personne assignée sur les tâches visibles."
-          />
-          <div className="sm:col-span-2">
+        <div className="mt-6">
+          <div>
             <ProgressTable
               title="Avancement global par Client / Fournisseur"
               rows={clientFournisseurProgressRows}
