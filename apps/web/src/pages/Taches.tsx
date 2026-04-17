@@ -2395,6 +2395,7 @@ export function TacheCard({
   /** GET /taches/:id/acces pour fusionner l'aperçu « Personnes habilitées » avec les exclusions admin réelles. */
   const [accesApercuDetail, setAccesApercuDetail] = useState<any | null>(null);
   const [statutSaving, setStatutSaving] = useState(false);
+  const [draftStatut, setDraftStatut] = useState(tache.statut);
   const now = new Date();
   const isLate = tache.dateFinApprox && new Date(tache.dateFinApprox) < now && tache.statut !== 'termine' && tache.statut !== 'archive';
 
@@ -2417,11 +2418,15 @@ export function TacheCard({
     };
   }, [expanded, tache.id, assignesIdsKey]);
 
-  const handleStatutChange = async (newStatut: string) => {
-    if (!canEdit || newStatut === tache.statut) return;
+  useEffect(() => {
+    setDraftStatut(tache.statut);
+  }, [tache.id, tache.statut]);
+
+  const handleStatutSave = async () => {
+    if (!canEdit || draftStatut === tache.statut) return;
     setStatutSaving(true);
     try {
-      await api.put(`/taches/${tache.id}`, { statut: newStatut });
+      await api.put(`/taches/${tache.id}`, { statut: draftStatut });
       await onRefreshData?.();
     } catch (e: any) {
       alert(e?.response?.data?.error || e?.message || 'Impossible de mettre à jour le statut');
@@ -2542,36 +2547,10 @@ export function TacheCard({
     <>
     <div className={`bg-white border rounded-lg shadow overflow-hidden ${isLate ? 'border-red-300' : 'border-gray-200'}`}>
       <div className="flex w-full items-stretch">
-        <div
-          className="flex items-center shrink-0 px-2 sm:px-3 py-3 border-r border-gray-100 bg-gray-50/60"
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          {canEdit ? (
-            <div className="flex flex-col gap-0.5 min-w-0">
-              <span className="hidden sm:block text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
-                Statut
-              </span>
-              <select
-                value={tache.statut}
-                disabled={statutSaving}
-                onChange={(e) => void handleStatutChange(e.target.value)}
-                className="text-xs font-medium border border-gray-300 rounded-md px-2 py-1.5 max-w-[min(14rem,42vw)] sm:max-w-[15rem] bg-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-60"
-                title="Changer le statut de la tâche"
-                aria-label="Statut de la tâche"
-              >
-                {STATUT_OPTIONS.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <span className="shrink-0 px-1" title={tache.statut}>
-              <StatutBadge statut={tache.statut} />
-            </span>
-          )}
+        <div className="flex items-center shrink-0 px-2 sm:px-3 py-3 border-r border-gray-100 bg-gray-50/60">
+          <span className="shrink-0 px-1" title={tache.statut}>
+            <StatutBadge statut={tache.statut} />
+          </span>
         </div>
         <button
           type="button"
@@ -2754,6 +2733,33 @@ export function TacheCard({
                 >
                   👁 Lecture seule
                 </span>
+              )}
+              {canEdit && (
+                <div className="rounded-md border border-gray-200 bg-white p-2 space-y-2">
+                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Statut</p>
+                  <select
+                    value={draftStatut}
+                    disabled={statutSaving}
+                    onChange={(e) => setDraftStatut(e.target.value)}
+                    className="w-full text-xs font-medium border border-gray-300 rounded-md px-2 py-1.5 bg-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-60"
+                    title="Choisir un statut"
+                    aria-label="Nouveau statut de la tâche"
+                  >
+                    {STATUT_OPTIONS.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void handleStatutSave()}
+                    disabled={statutSaving || draftStatut === tache.statut}
+                    className="w-full px-2 py-1.5 text-xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {statutSaving ? 'Validation…' : 'Valider le statut'}
+                  </button>
+                </div>
               )}
               {canEdit && (
                 <button

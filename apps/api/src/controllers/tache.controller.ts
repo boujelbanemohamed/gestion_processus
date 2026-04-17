@@ -70,9 +70,21 @@ export const updateTache = async (req: AuthRequest, res: Response) => {
     const ok = await tacheService.canUserModifyTache(req.params.id, req.user.userId, req.user.role);
     if (!ok) return res.status(403).json({ error: 'Accès refusé' });
 
+    const before = await tacheService.findOne(req.params.id);
     const tache = await tacheService.update(req.params.id, req.body);
     if (!tache) return res.status(404).json({ error: 'Tâche non trouvée' });
-    await logAccess(req, res, 'modification', ResourceType.tache, tache.id, tache.nom);
+    const nouveauStatut = req.body?.statut;
+    const ancienStatut = before?.statut;
+    if (typeof nouveauStatut === 'string' && ancienStatut && ancienStatut !== nouveauStatut) {
+      await logAccess(req, res, 'modification', ResourceType.tache, tache.id, tache.nom, {
+        action: 'changement_statut',
+        champ: 'statut',
+        ancienStatut,
+        nouveauStatut,
+      });
+    } else {
+      await logAccess(req, res, 'modification', ResourceType.tache, tache.id, tache.nom);
+    }
     res.json(tache);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
