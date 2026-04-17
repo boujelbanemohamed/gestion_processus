@@ -8,6 +8,7 @@ import {
   TacheModal,
   TachesAvancementBlock,
   TachesDashboard,
+  TachesParEntitePersonneGrid,
   STATUT_OPTIONS,
   type ClientFournisseurOption,
   type EntiteOption,
@@ -424,24 +425,28 @@ export default function ProjetPilotageAgile({
           </div>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6">
-          <div>
-            <h4 className="text-sm font-semibold text-gray-700 mb-3">Répartition des statuts (tâches)</h4>
-            <StatutBarChart taches={tachesVisibles} />
+        <div className="space-y-6">
+          <div className="grid md:grid-cols-2 gap-6">
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 mb-3">Répartition des statuts (tâches)</h4>
+              <StatutBarChart taches={tachesVisibles} />
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 mb-3">Charge de travail (aperçu)</h4>
+              {tachesVisibles.length === 0 ? (
+                <p className="text-sm text-gray-400">Aucune tâche.</p>
+              ) : (
+                <TachesDashboard
+                  taches={tachesVisibles}
+                  showStatutBreakdown={false}
+                  showParPersonne={false}
+                  hideAvancement
+                  hideTables
+                />
+              )}
+            </div>
           </div>
-          <div>
-            <h4 className="text-sm font-semibold text-gray-700 mb-3">Charge de travail (aperçu)</h4>
-            {tachesVisibles.length === 0 ? (
-              <p className="text-sm text-gray-400">Aucune tâche.</p>
-            ) : (
-              <TachesDashboard
-                taches={tachesVisibles}
-                showStatutBreakdown={false}
-                showParPersonne
-                hideAvancement
-              />
-            )}
-          </div>
+          <TachesParEntitePersonneGrid taches={tachesVisibles} />
         </div>
 
         <div className="mt-6 grid md:grid-cols-2 gap-6">

@@ -7,6 +7,7 @@ export type KanbanTache = {
   dateFinApprox?: string;
   projet?: { id: string; nom: string };
   assignesUtilisateurs?: { id: string; nom: string; prenom: string }[];
+  assignesClientsFournisseurs?: { id: string; nom: string; type: string }[];
   /** Carte = tâche réelle : IDs user story / epic liés (si présents). */
   userStory?: { id: string; epic?: { id: string } | null } | null;
   /** Carte synthèse (liste US ou epics) : libellé de la ligne d’ID principale. */
@@ -194,8 +195,15 @@ export default function TachesKanbanView({
                         <p className="text-xs text-gray-500 mt-1">Fin : {new Date(t.dateFinApprox).toLocaleDateString('fr-FR')}</p>
                       )}
                       {t.assignesUtilisateurs && t.assignesUtilisateurs.length > 0 && (
-                        <p className="text-xs text-gray-600 mt-1.5 truncate">
+                        <p className="text-xs text-gray-600 mt-1.5 truncate" title="Personnes assignées">
                           {t.assignesUtilisateurs.map((u) => `${u.prenom} ${u.nom}`).join(', ')}
+                        </p>
+                      )}
+                      {t.assignesClientsFournisseurs && t.assignesClientsFournisseurs.length > 0 && (
+                        <p className="text-xs text-amber-900/90 mt-1 truncate" title="Clients / fournisseurs assignés">
+                          {t.assignesClientsFournisseurs
+                            .map((c) => `${c.nom} (${c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})`)
+                            .join(', ')}
                         </p>
                       )}
                       {!editable && !readOnly && (

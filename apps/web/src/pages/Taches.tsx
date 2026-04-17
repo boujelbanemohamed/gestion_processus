@@ -311,39 +311,24 @@ function accumulateTaskForAgg(
   }
 }
 
-export function TachesDashboard({
-  taches,
-  showStatutBreakdown,
-  showParPersonne,
-  hideAvancement,
-}: {
-  taches: Tache[];
-  showStatutBreakdown?: boolean;
-  /** Tableau KPI « par personne assignée » (ex. fiche projet) */
-  showParPersonne?: boolean;
-  /** Si true, ne pas afficher la barre d’avancement (déjà affichée au-dessus, ex. fiche projet) */
-  hideAvancement?: boolean;
-}) {
+function computeTachesAggByEntiteAndPerson(taches: Tache[]) {
   const now = new Date();
-
-  // Tâches par entité
   const byEntite: Record<string, AggRow> = {};
 
-  taches.forEach(t => {
+  taches.forEach((t) => {
     const entites = t.assignesEntites || [];
     if (entites.length === 0) {
       const key = '__aucune__';
       if (!byEntite[key]) byEntite[key] = { nom: 'Sans entité', total: 0, terminees: 0, retard: 0, retardDetails: [] };
       accumulateTaskForAgg(byEntite[key], t, now);
     } else {
-      entites.forEach(e => {
+      entites.forEach((e) => {
         if (!byEntite[e.id]) byEntite[e.id] = { nom: e.nom, total: 0, terminees: 0, retard: 0, retardDetails: [] };
         accumulateTaskForAgg(byEntite[e.id], t, now);
       });
     }
   });
 
-  // Tâches par personne assignée (même logique KPI que par entité)
   const byPerson: Record<string, AggRow> = {};
   taches.forEach((t) => {
     const assignes = t.assignesUtilisateurs || [];
@@ -367,16 +352,169 @@ export function TachesDashboard({
     }
   });
 
+  return { byEntite, byPerson };
+}
+
+function TachesParEntiteTableBlock({ byEntite }: { byEntite: Record<string, AggRow> }) {
+  return (
+    <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="p-4 border-b bg-gray-50">
+        <h2 className="text-base font-semibold text-gray-700">📊 Tâches par entité</h2>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entité</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Terminées</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">En retard</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Détail retard</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {Object.values(byEntite)
+              .sort((a, b) => b.total - a.total)
+              .map((e, i) => (
+                <tr key={i} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 font-medium text-gray-800">{e.nom}</td>
+                  <td className="px-4 py-3 text-center">{e.total}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="text-green-600 font-medium">{e.terminees}</span>
+                    <span className="text-gray-400 text-xs ml-1">({e.total > 0 ? Math.round((e.terminees / e.total) * 100) : 0}%)</span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {e.retard > 0 ? <span className="text-red-600 font-medium">{e.retard}</span> : <span className="text-gray-400">0</span>}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-600">
+                    {e.retardDetails.length > 0
+                      ? e.retardDetails.map((d, j) => (
+                          <div key={j}>
+                            <span className="font-medium">{d.nom}</span> — <span className="text-red-500">{d.jours}j de retard</span>
+                          </div>
+                        ))
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            {Object.keys(byEntite).length === 0 && (
+              <tr>
+                <td colSpan={5} className="text-center py-6 text-gray-400">
+                  Aucune donnée
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function TachesParPersonneTableBlock({ byPerson }: { byPerson: Record<string, AggRow> }) {
+  return (
+    <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="p-4 border-b bg-gray-50">
+        <h2 className="text-base font-semibold text-gray-700">👤 Tâches par personne (assignés)</h2>
+        <p className="text-xs text-gray-500 mt-1">
+          Une même tâche avec plusieurs assignés est comptée pour chacun, comme pour les entités.
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Personne</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Terminées</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">En retard</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Détail retard</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {Object.values(byPerson)
+              .sort((a, b) => b.total - a.total)
+              .map((row, i) => (
+                <tr key={i} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 font-medium text-gray-800">{row.nom}</td>
+                  <td className="px-4 py-3 text-center">{row.total}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="text-green-600 font-medium">{row.terminees}</span>
+                    <span className="text-gray-400 text-xs ml-1">
+                      ({row.total > 0 ? Math.round((row.terminees / row.total) * 100) : 0}%)
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {row.retard > 0 ? <span className="text-red-600 font-medium">{row.retard}</span> : <span className="text-gray-400">0</span>}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-600">
+                    {row.retardDetails.length > 0
+                      ? row.retardDetails.map((d, j) => (
+                          <div key={j}>
+                            <span className="font-medium">{d.nom}</span> — <span className="text-red-500">{d.jours}j de retard</span>
+                          </div>
+                        ))
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            {Object.keys(byPerson).length === 0 && (
+              <tr>
+                <td colSpan={5} className="text-center py-6 text-gray-400">
+                  Aucune donnée
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/** Deux tableaux côte à côte (entité | personne), ex. pilotage projet sous la charge de travail. */
+export function TachesParEntitePersonneGrid({ taches, className }: { taches: Tache[]; className?: string }) {
+  if (taches.length === 0) return null;
+  const { byEntite, byPerson } = computeTachesAggByEntiteAndPerson(taches);
+  return (
+    <div className={className}>
+      <div className="grid md:grid-cols-2 gap-6">
+        <TachesParEntiteTableBlock byEntite={byEntite} />
+        <TachesParPersonneTableBlock byPerson={byPerson} />
+      </div>
+    </div>
+  );
+}
+
+export function TachesDashboard({
+  taches,
+  showStatutBreakdown,
+  showParPersonne,
+  hideAvancement,
+  hideTables,
+}: {
+  taches: Tache[];
+  showStatutBreakdown?: boolean;
+  /** Tableau KPI « par personne assignée » (ex. fiche projet) */
+  showParPersonne?: boolean;
+  /** Si true, ne pas afficher la barre d’avancement (déjà affichée au-dessus, ex. fiche projet) */
+  hideAvancement?: boolean;
+  /** Si true, n’affiche pas les tableaux entité / personne (affichés ailleurs, ex. ligne pleine largeur pilotage) */
+  hideTables?: boolean;
+}) {
+  const now = new Date();
+  const aggregations = hideTables ? undefined : computeTachesAggByEntiteAndPerson(taches);
+
   const totalTaches = taches.length;
   const terminees = taches.filter(t => t.statut === 'termine').length;
   const enCours = taches.filter(t => t.statut === 'en_cours').length;
   const bloquees = taches.filter(t => t.statut === 'bloque' || (t.dateFinApprox && new Date(t.dateFinApprox) < now && t.statut !== 'termine' && t.statut !== 'archive')).length;
 
   return (
-    <div className="mb-6">
+    <div className={hideTables ? '' : 'mb-6'}>
       {!hideAvancement && <TachesAvancementBlock taches={taches} />}
       {/* KPIs globaux */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className={`grid grid-cols-2 md:grid-cols-4 gap-4 ${hideTables ? '' : 'mb-6'}`}>
         <div className="bg-white rounded-lg shadow p-4 text-center">
           <div className="text-3xl font-bold text-gray-800">{totalTaches}</div>
           <div className="text-sm text-gray-500 mt-1">Total tâches</div>
@@ -414,116 +552,12 @@ export function TachesDashboard({
         </div>
       )}
 
-      <div className={showParPersonne ? 'grid md:grid-cols-2 gap-6' : ''}>
-        {/* Tableau par entité */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="p-4 border-b bg-gray-50">
-            <h2 className="text-base font-semibold text-gray-700">📊 Tâches par entité</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entité</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Terminées</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">En retard</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Détail retard</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {Object.values(byEntite).sort((a, b) => b.total - a.total).map((e, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-gray-800">{e.nom}</td>
-                    <td className="px-4 py-3 text-center">{e.total}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className="text-green-600 font-medium">{e.terminees}</span>
-                      <span className="text-gray-400 text-xs ml-1">({e.total > 0 ? Math.round(e.terminees / e.total * 100) : 0}%)</span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {e.retard > 0 ? <span className="text-red-600 font-medium">{e.retard}</span> : <span className="text-gray-400">0</span>}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-600">
-                      {e.retardDetails.length > 0
-                        ? e.retardDetails.map((d, j) => (
-                            <div key={j}><span className="font-medium">{d.nom}</span> — <span className="text-red-500">{d.jours}j de retard</span></div>
-                          ))
-                        : '—'}
-                    </td>
-                  </tr>
-                ))}
-                {Object.keys(byEntite).length === 0 && (
-                  <tr><td colSpan={5} className="text-center py-6 text-gray-400">Aucune donnée</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+      {aggregations && (
+        <div className={showParPersonne ? 'grid md:grid-cols-2 gap-6' : ''}>
+          <TachesParEntiteTableBlock byEntite={aggregations.byEntite} />
+          {showParPersonne && <TachesParPersonneTableBlock byPerson={aggregations.byPerson} />}
         </div>
-
-        {showParPersonne && (
-          <div className={`bg-white rounded-lg shadow overflow-hidden ${showParPersonne ? '' : 'mt-6'}`}>
-            <div className="p-4 border-b bg-gray-50">
-              <h2 className="text-base font-semibold text-gray-700">👤 Tâches par personne (assignés)</h2>
-              <p className="text-xs text-gray-500 mt-1">
-                Une même tâche avec plusieurs assignés est comptée pour chacun, comme pour les entités.
-              </p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Personne</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Terminées</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">En retard</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Détail retard</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {Object.values(byPerson)
-                    .sort((a, b) => b.total - a.total)
-                    .map((row, i) => (
-                      <tr key={i} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-gray-800">{row.nom}</td>
-                        <td className="px-4 py-3 text-center">{row.total}</td>
-                        <td className="px-4 py-3 text-center">
-                          <span className="text-green-600 font-medium">{row.terminees}</span>
-                          <span className="text-gray-400 text-xs ml-1">
-                            ({row.total > 0 ? Math.round((row.terminees / row.total) * 100) : 0}%)
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {row.retard > 0 ? (
-                            <span className="text-red-600 font-medium">{row.retard}</span>
-                          ) : (
-                            <span className="text-gray-400">0</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-600">
-                          {row.retardDetails.length > 0
-                            ? row.retardDetails.map((d, j) => (
-                                <div key={j}>
-                                  <span className="font-medium">{d.nom}</span> —{' '}
-                                  <span className="text-red-500">{d.jours}j de retard</span>
-                                </div>
-                              ))
-                            : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  {Object.keys(byPerson).length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="text-center py-6 text-gray-400">
-                        Aucune donnée
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
@@ -1629,6 +1663,44 @@ function getClientsDepuisTaches(tasks: Tache[]) {
     .sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
 }
 
+/** Fusionne plusieurs listes clients/fournisseurs (sans doublon d’id). */
+function mergeClientsFournisseurRows(
+  groups: { id: string; nom: string; type: string }[][],
+): { id: string; nom: string; type: string }[] {
+  const seen = new Set<string>();
+  const out: { id: string; nom: string; type: string }[] = [];
+  for (const group of groups) {
+    for (const c of group) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      out.push(c);
+    }
+  }
+  return out.sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+}
+
+/** Clients / fournisseurs visibles sur une user story : assignations sur l’US + hérités des tâches liées. */
+function userStoryClientsEffectifs(us: UserStoryRow, tasksUs: Tache[]) {
+  const fromTasks = getClientsDepuisTaches(tasksUs);
+  const direct = (us.assignesClientsFournisseurs || []).map((row) => ({
+    id: row.clientFournisseur.id,
+    nom: row.clientFournisseur.nom,
+    type: row.clientFournisseur.type,
+  }));
+  return mergeClientsFournisseurRows([direct, fromTasks]);
+}
+
+/** Clients / fournisseurs sur un epic : assignations sur l’epic + hérités des tâches (via les US). */
+function epicClientsEffectifs(ep: EpicRow, tasksEp: Tache[]) {
+  const fromEpic = (ep.assignesClientsFournisseurs || []).map((row) => ({
+    id: row.clientFournisseur.id,
+    nom: row.clientFournisseur.nom,
+    type: row.clientFournisseur.type,
+  }));
+  const fromTasks = getClientsDepuisTaches(tasksEp);
+  return mergeClientsFournisseurRows([fromEpic, fromTasks]);
+}
+
 function AccesPersonnesBlock({ personnes }: { personnes: PersonneAcces[] }) {
   if (personnes.length === 0) {
     return <p className="text-xs text-gray-400">Aucune personne (agrégation depuis les tâches liées).</p>;
@@ -2637,6 +2709,9 @@ export function TacheCard({
   const assignesRow = tache.assignesUtilisateurs || [];
   const assignesRowShow = assignesRow.slice(0, 4);
   const assignesRowMore = assignesRow.length - assignesRowShow.length;
+  const clientsRow = tache.assignesClientsFournisseurs || [];
+  const clientsRowShow = clientsRow.slice(0, 4);
+  const clientsRowMore = clientsRow.length - clientsRowShow.length;
 
   return (
     <>
@@ -2684,6 +2759,22 @@ export function TacheCard({
             <span className="text-[11px] text-gray-400 italic">Non assignée</span>
           )}
         </div>
+        {clientsRow.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 min-w-0 basis-full sm:basis-auto sm:max-w-[14rem] md:max-w-xs">
+            {clientsRowShow.map((c) => (
+              <span
+                key={c.id}
+                className="px-2 py-0.5 bg-amber-50 text-amber-900 rounded-full text-[11px] font-medium truncate max-w-[9rem] border border-amber-200"
+                title={`${c.nom} (${c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})`}
+              >
+                🤝 {c.nom}
+              </span>
+            ))}
+            {clientsRowMore > 0 && (
+              <span className="text-[11px] text-gray-500 font-medium">+{clientsRowMore}</span>
+            )}
+          </div>
+        )}
         {isLate && (
           <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium shrink-0">⚠ Retard</span>
         )}
@@ -3591,6 +3682,7 @@ function userStoryToKanbanAndGantt(us: UserStoryRow, taches: Tache[]): { kanban:
       dateFinApprox,
       projet: us.epic?.projet,
       assignesUtilisateurs: collectAssignesFromTasks(tl),
+      assignesClientsFournisseurs: userStoryClientsEffectifs(us, tl),
     },
     gantt: {
       id: us.id,
@@ -3746,6 +3838,7 @@ function epicToKanbanAndGantt(
       dateFinApprox,
       projet: ep.projet,
       assignesUtilisateurs: collectAssignesFromTasks(tl),
+      assignesClientsFournisseurs: epicClientsEffectifs(ep, tl),
     },
     gantt: {
       id: ep.id,
@@ -4899,8 +4992,9 @@ export default function Taches() {
           <h1 className="text-2xl font-bold text-gray-800">Epics / User story / Tâches</h1>
           <p className="text-xs text-gray-500 mt-1 max-w-2xl">
             Les filtres ci-dessous s&apos;appliquent aux trois sections. Les vues Liste, Kanban et Gantt concernent uniquement les
-            tâches. En liste : chaque ligne affiche le titre, l&apos;identifiant et (pour les tâches) les assignés — cliquez sur la
-            ligne pour ouvrir le détail et les actions.
+            tâches. En liste : chaque ligne affiche le titre, l&apos;identifiant, les personnes assignées et les clients /
+            fournisseurs (sur les tâches directement ; sur les user stories et epics, y compris par héritage depuis les tâches
+            liées) — cliquez sur la ligne pour ouvrir le détail et les actions.
           </p>
         </div>
         <div className="flex flex-wrap gap-2 items-center justify-end">
@@ -5624,6 +5718,7 @@ export default function Taches() {
                 const usExpanded = expandedUsListId === us.id;
                 const tasksUs = getTachesLieesUserStory(us.id, taches);
                 const assignesUs = getAssignesDepuisTaches(tasksUs);
+                const clientsUsEffectifs = userStoryClientsEffectifs(us, tasksUs);
                 const entitesUsTaches = getEntitesDepuisTaches(tasksUs);
                 const nowUs = new Date();
                 const statutAggUs = deriveAggregatedStatutFromTasks(
@@ -5690,6 +5785,24 @@ export default function Taches() {
                           )}
                         </div>
                       )}
+                      {clientsUsEffectifs.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1 min-w-0 basis-full sm:basis-auto sm:max-w-md">
+                          {clientsUsEffectifs.slice(0, 4).map((c) => (
+                            <span
+                              key={c.id}
+                              className="px-2 py-0.5 bg-amber-50 text-amber-900 rounded-full text-[11px] font-medium truncate max-w-[9rem] border border-amber-200"
+                              title={`${c.nom} (${c.type === 'fournisseur' ? 'Fournisseur' : 'Client'}) — hérité des tâches liées ou assigné sur l’US`}
+                            >
+                              🤝 {c.nom}
+                            </span>
+                          ))}
+                          {clientsUsEffectifs.length > 4 && (
+                            <span className="text-[11px] text-gray-500 font-medium">
+                              +{clientsUsEffectifs.length - 4}
+                            </span>
+                          )}
+                        </div>
+                      )}
                       {usExpanded && (
                         <span className="text-gray-400 shrink-0 ml-auto sm:ml-0" aria-hidden>
                           ▼
@@ -5724,6 +5837,21 @@ export default function Taches() {
                                       className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs"
                                     >
                                       🏢 {e.nom}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {clientsUsEffectifs.length > 0 && (
+                                <div className="flex gap-1 flex-wrap">
+                                  {clientsUsEffectifs.map((c) => (
+                                    <span
+                                      key={c.id}
+                                      className="px-2 py-0.5 bg-amber-50 text-amber-900 rounded-full text-xs border border-amber-200"
+                                    >
+                                      🤝 {c.nom}
+                                      <span className="text-amber-800/90 ml-1">
+                                        ({c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})
+                                      </span>
                                     </span>
                                   ))}
                                 </div>
@@ -6008,19 +6136,7 @@ export default function Taches() {
                   seenEnt.add(e.id);
                   entitesEpMerged.push(e);
                 }
-                const cfEpicDirect = (ep.assignesClientsFournisseurs || []).map((row) => ({
-                  id: row.clientFournisseur.id,
-                  nom: row.clientFournisseur.nom,
-                  type: row.clientFournisseur.type,
-                }));
-                const cfEpTaches = getClientsDepuisTaches(tasksEp);
-                const seenCf = new Set<string>();
-                const cfEpMerged: { id: string; nom: string; type: string }[] = [];
-                for (const c of [...cfEpicDirect, ...cfEpTaches]) {
-                  if (seenCf.has(c.id)) continue;
-                  seenCf.add(c.id);
-                  cfEpMerged.push(c);
-                }
+                const cfEpMerged = epicClientsEffectifs(ep, tasksEp);
                 return (
                   <div
                     key={ep.id}
@@ -6072,6 +6188,22 @@ export default function Taches() {
                           ))}
                           {assignesEp.length > 4 && (
                             <span className="text-[11px] text-gray-500 font-medium">+{assignesEp.length - 4}</span>
+                          )}
+                        </div>
+                      )}
+                      {cfEpMerged.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1 min-w-0 basis-full sm:basis-auto sm:max-w-md">
+                          {cfEpMerged.slice(0, 4).map((c) => (
+                            <span
+                              key={c.id}
+                              className="px-2 py-0.5 bg-amber-50 text-amber-900 rounded-full text-[11px] font-medium truncate max-w-[9rem] border border-amber-200"
+                              title={`${c.nom} (${c.type === 'fournisseur' ? 'Fournisseur' : 'Client'}) — epic et/ou tâches liées`}
+                            >
+                              🤝 {c.nom}
+                            </span>
+                          ))}
+                          {cfEpMerged.length > 4 && (
+                            <span className="text-[11px] text-gray-500 font-medium">+{cfEpMerged.length - 4}</span>
                           )}
                         </div>
                       )}

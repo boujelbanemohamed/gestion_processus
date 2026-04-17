@@ -28,6 +28,8 @@ export type UserStoryRow = {
   epicId?: string | null;
   epic?: EpicRow | null;
   taches?: { id: string; nom: string; statut: string; projetId?: string | null }[];
+  /** Assignations directes sur l’US (héritage affiché aussi depuis les tâches liées). */
+  assignesClientsFournisseurs?: { clientFournisseur: { id: string; nom: string; type: string } }[];
   documentsNatifs?: DocTache[];
 };
 
