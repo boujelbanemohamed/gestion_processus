@@ -414,64 +414,17 @@ export function TachesDashboard({
         </div>
       )}
 
-      {/* Tableau par entité */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="p-4 border-b bg-gray-50">
-          <h2 className="text-base font-semibold text-gray-700">📊 Tâches par entité</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entité</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Terminées</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">En retard</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Détail retard</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {Object.values(byEntite).sort((a, b) => b.total - a.total).map((e, i) => (
-                <tr key={i} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-800">{e.nom}</td>
-                  <td className="px-4 py-3 text-center">{e.total}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className="text-green-600 font-medium">{e.terminees}</span>
-                    <span className="text-gray-400 text-xs ml-1">({e.total > 0 ? Math.round(e.terminees / e.total * 100) : 0}%)</span>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {e.retard > 0 ? <span className="text-red-600 font-medium">{e.retard}</span> : <span className="text-gray-400">0</span>}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-gray-600">
-                    {e.retardDetails.length > 0
-                      ? e.retardDetails.map((d, j) => (
-                          <div key={j}><span className="font-medium">{d.nom}</span> — <span className="text-red-500">{d.jours}j de retard</span></div>
-                        ))
-                      : '—'}
-                  </td>
-                </tr>
-              ))}
-              {Object.keys(byEntite).length === 0 && (
-                <tr><td colSpan={5} className="text-center py-6 text-gray-400">Aucune donnée</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {showParPersonne && (
-        <div className="bg-white rounded-lg shadow overflow-hidden mt-6">
+      <div className={showParPersonne ? 'grid md:grid-cols-2 gap-6' : ''}>
+        {/* Tableau par entité */}
+        <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="p-4 border-b bg-gray-50">
-            <h2 className="text-base font-semibold text-gray-700">👤 Tâches par personne (assignés)</h2>
-            <p className="text-xs text-gray-500 mt-1">
-              Une même tâche avec plusieurs assignés est comptée pour chacun, comme pour les entités.
-            </p>
+            <h2 className="text-base font-semibold text-gray-700">📊 Tâches par entité</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Personne</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Entité</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Terminées</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">En retard</th>
@@ -479,49 +432,98 @@ export function TachesDashboard({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {Object.values(byPerson)
-                  .sort((a, b) => b.total - a.total)
-                  .map((row, i) => (
-                    <tr key={i} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium text-gray-800">{row.nom}</td>
-                      <td className="px-4 py-3 text-center">{row.total}</td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="text-green-600 font-medium">{row.terminees}</span>
-                        <span className="text-gray-400 text-xs ml-1">
-                          ({row.total > 0 ? Math.round((row.terminees / row.total) * 100) : 0}%)
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {row.retard > 0 ? (
-                          <span className="text-red-600 font-medium">{row.retard}</span>
-                        ) : (
-                          <span className="text-gray-400">0</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-gray-600">
-                        {row.retardDetails.length > 0
-                          ? row.retardDetails.map((d, j) => (
-                              <div key={j}>
-                                <span className="font-medium">{d.nom}</span> —{' '}
-                                <span className="text-red-500">{d.jours}j de retard</span>
-                              </div>
-                            ))
-                          : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                {Object.keys(byPerson).length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="text-center py-6 text-gray-400">
-                      Aucune donnée
+                {Object.values(byEntite).sort((a, b) => b.total - a.total).map((e, i) => (
+                  <tr key={i} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium text-gray-800">{e.nom}</td>
+                    <td className="px-4 py-3 text-center">{e.total}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="text-green-600 font-medium">{e.terminees}</span>
+                      <span className="text-gray-400 text-xs ml-1">({e.total > 0 ? Math.round(e.terminees / e.total * 100) : 0}%)</span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {e.retard > 0 ? <span className="text-red-600 font-medium">{e.retard}</span> : <span className="text-gray-400">0</span>}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-600">
+                      {e.retardDetails.length > 0
+                        ? e.retardDetails.map((d, j) => (
+                            <div key={j}><span className="font-medium">{d.nom}</span> — <span className="text-red-500">{d.jours}j de retard</span></div>
+                          ))
+                        : '—'}
                     </td>
                   </tr>
+                ))}
+                {Object.keys(byEntite).length === 0 && (
+                  <tr><td colSpan={5} className="text-center py-6 text-gray-400">Aucune donnée</td></tr>
                 )}
               </tbody>
             </table>
           </div>
         </div>
-      )}
+
+        {showParPersonne && (
+          <div className={`bg-white rounded-lg shadow overflow-hidden ${showParPersonne ? '' : 'mt-6'}`}>
+            <div className="p-4 border-b bg-gray-50">
+              <h2 className="text-base font-semibold text-gray-700">👤 Tâches par personne (assignés)</h2>
+              <p className="text-xs text-gray-500 mt-1">
+                Une même tâche avec plusieurs assignés est comptée pour chacun, comme pour les entités.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Personne</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Terminées</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">En retard</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Détail retard</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {Object.values(byPerson)
+                    .sort((a, b) => b.total - a.total)
+                    .map((row, i) => (
+                      <tr key={i} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-800">{row.nom}</td>
+                        <td className="px-4 py-3 text-center">{row.total}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="text-green-600 font-medium">{row.terminees}</span>
+                          <span className="text-gray-400 text-xs ml-1">
+                            ({row.total > 0 ? Math.round((row.terminees / row.total) * 100) : 0}%)
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {row.retard > 0 ? (
+                            <span className="text-red-600 font-medium">{row.retard}</span>
+                          ) : (
+                            <span className="text-gray-400">0</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-600">
+                          {row.retardDetails.length > 0
+                            ? row.retardDetails.map((d, j) => (
+                                <div key={j}>
+                                  <span className="font-medium">{d.nom}</span> —{' '}
+                                  <span className="text-red-500">{d.jours}j de retard</span>
+                                </div>
+                              ))
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  {Object.keys(byPerson).length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="text-center py-6 text-gray-400">
+                        Aucune donnée
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
