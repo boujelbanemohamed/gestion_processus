@@ -293,7 +293,15 @@ export function TachesAvancementBlock({ taches }: { taches: Tache[] }) {
 }
 
 // ─── Dashboard Stats ──────────────────────────────────────────────────────────
-type AggRow = { nom: string; total: number; terminees: number; retard: number; retardDetails: { nom: string; jours: number }[] };
+type AggRow = {
+  nom: string;
+  total: number;
+  terminees: number;
+  retard: number;
+  /** Somme des jours de dépassement (échéance → aujourd’hui), min 0 par tâche, pour les tâches avec date de fin. */
+  joursRetardTotal: number;
+  retardDetails: { nom: string; jours: number }[];
+};
 
 function accumulateTaskForAgg(
   row: AggRow,
@@ -305,10 +313,30 @@ function accumulateTaskForAgg(
   if (t.statut === 'bloque' || (t.dateFinApprox && new Date(t.dateFinApprox) < now && t.statut !== 'termine' && t.statut !== 'archive')) {
     row.retard++;
     if (t.dateFinApprox) {
-      const jours = Math.floor((now.getTime() - new Date(t.dateFinApprox).getTime()) / (1000 * 3600 * 24));
+      const raw = Math.floor((now.getTime() - new Date(t.dateFinApprox).getTime()) / (1000 * 3600 * 24));
+      const jours = Math.max(0, raw);
       row.retardDetails.push({ nom: t.nom, jours });
+      row.joursRetardTotal += jours;
     }
   }
+}
+
+/** Total de jours de retard sur l’ensemble des tâches : chaque tâche en retard ne compte qu’une fois. */
+export function computeTotalJoursRetardTachesVisibles(taches: Tache[]): number {
+  const now = new Date();
+  let sum = 0;
+  for (const t of taches) {
+    const enRetard =
+      t.statut === 'bloque' ||
+      (t.dateFinApprox &&
+        new Date(t.dateFinApprox) < now &&
+        t.statut !== 'termine' &&
+        t.statut !== 'archive');
+    if (!enRetard || !t.dateFinApprox) continue;
+    const raw = Math.floor((now.getTime() - new Date(t.dateFinApprox).getTime()) / (1000 * 3600 * 24));
+    sum += Math.max(0, raw);
+  }
+  return sum;
 }
 
 function computeTachesAggByEntiteAndPerson(taches: Tache[]) {
@@ -319,11 +347,13 @@ function computeTachesAggByEntiteAndPerson(taches: Tache[]) {
     const entites = t.assignesEntites || [];
     if (entites.length === 0) {
       const key = '__aucune__';
-      if (!byEntite[key]) byEntite[key] = { nom: 'Sans entité', total: 0, terminees: 0, retard: 0, retardDetails: [] };
+      if (!byEntite[key])
+        byEntite[key] = { nom: 'Sans entité', total: 0, terminees: 0, retard: 0, joursRetardTotal: 0, retardDetails: [] };
       accumulateTaskForAgg(byEntite[key], t, now);
     } else {
       entites.forEach((e) => {
-        if (!byEntite[e.id]) byEntite[e.id] = { nom: e.nom, total: 0, terminees: 0, retard: 0, retardDetails: [] };
+        if (!byEntite[e.id])
+          byEntite[e.id] = { nom: e.nom, total: 0, terminees: 0, retard: 0, joursRetardTotal: 0, retardDetails: [] };
         accumulateTaskForAgg(byEntite[e.id], t, now);
       });
     }
@@ -334,7 +364,8 @@ function computeTachesAggByEntiteAndPerson(taches: Tache[]) {
     const assignes = t.assignesUtilisateurs || [];
     if (assignes.length === 0) {
       const key = '__aucun_assigne__';
-      if (!byPerson[key]) byPerson[key] = { nom: 'Sans assigné', total: 0, terminees: 0, retard: 0, retardDetails: [] };
+      if (!byPerson[key])
+        byPerson[key] = { nom: 'Sans assigné', total: 0, terminees: 0, retard: 0, joursRetardTotal: 0, retardDetails: [] };
       accumulateTaskForAgg(byPerson[key], t, now);
     } else {
       assignes.forEach((u) => {
@@ -344,6 +375,7 @@ function computeTachesAggByEntiteAndPerson(taches: Tache[]) {
             total: 0,
             terminees: 0,
             retard: 0,
+            joursRetardTotal: 0,
             retardDetails: [],
           };
         }
@@ -353,6 +385,42 @@ function computeTachesAggByEntiteAndPerson(taches: Tache[]) {
   });
 
   return { byEntite, byPerson };
+}
+
+function computeTachesAggByClientFournisseur(taches: Tache[]) {
+  const now = new Date();
+  const byCf: Record<string, AggRow> = {};
+  taches.forEach((t) => {
+    const cfs = t.assignesClientsFournisseurs || [];
+    if (cfs.length === 0) {
+      const key = '__aucun_cf__';
+      if (!byCf[key])
+        byCf[key] = {
+          nom: 'Sans client / fournisseur',
+          total: 0,
+          terminees: 0,
+          retard: 0,
+          joursRetardTotal: 0,
+          retardDetails: [],
+        };
+      accumulateTaskForAgg(byCf[key], t, now);
+    } else {
+      cfs.forEach((c) => {
+        if (!byCf[c.id]) {
+          byCf[c.id] = {
+            nom: `${c.nom} (${c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})`,
+            total: 0,
+            terminees: 0,
+            retard: 0,
+            joursRetardTotal: 0,
+            retardDetails: [],
+          };
+        }
+        accumulateTaskForAgg(byCf[c.id], t, now);
+      });
+    }
+  });
+  return { byClientFournisseur: byCf };
 }
 
 function TachesParEntiteTableBlock({ byEntite }: { byEntite: Record<string, AggRow> }) {
@@ -369,6 +437,9 @@ function TachesParEntiteTableBlock({ byEntite }: { byEntite: Record<string, AggR
               <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Terminées</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">En retard</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase" title="Somme des jours de dépassement (par tâche en retard avec échéance)">
+                Σ jours retard
+              </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Détail retard</th>
             </tr>
           </thead>
@@ -386,6 +457,13 @@ function TachesParEntiteTableBlock({ byEntite }: { byEntite: Record<string, AggR
                   <td className="px-4 py-3 text-center">
                     {e.retard > 0 ? <span className="text-red-600 font-medium">{e.retard}</span> : <span className="text-gray-400">0</span>}
                   </td>
+                  <td className="px-4 py-3 text-center tabular-nums">
+                    {e.joursRetardTotal > 0 ? (
+                      <span className="text-red-700 font-medium">{e.joursRetardTotal}</span>
+                    ) : (
+                      <span className="text-gray-400">0</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-xs text-gray-600">
                     {e.retardDetails.length > 0
                       ? e.retardDetails.map((d, j) => (
@@ -399,7 +477,7 @@ function TachesParEntiteTableBlock({ byEntite }: { byEntite: Record<string, AggR
               ))}
             {Object.keys(byEntite).length === 0 && (
               <tr>
-                <td colSpan={5} className="text-center py-6 text-gray-400">
+                <td colSpan={6} className="text-center py-6 text-gray-400">
                   Aucune donnée
                 </td>
               </tr>
@@ -428,6 +506,9 @@ function TachesParPersonneTableBlock({ byPerson }: { byPerson: Record<string, Ag
               <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Terminées</th>
               <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">En retard</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase" title="Somme des jours de dépassement (par tâche en retard avec échéance)">
+                Σ jours retard
+              </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Détail retard</th>
             </tr>
           </thead>
@@ -447,6 +528,13 @@ function TachesParPersonneTableBlock({ byPerson }: { byPerson: Record<string, Ag
                   <td className="px-4 py-3 text-center">
                     {row.retard > 0 ? <span className="text-red-600 font-medium">{row.retard}</span> : <span className="text-gray-400">0</span>}
                   </td>
+                  <td className="px-4 py-3 text-center tabular-nums">
+                    {row.joursRetardTotal > 0 ? (
+                      <span className="text-red-700 font-medium">{row.joursRetardTotal}</span>
+                    ) : (
+                      <span className="text-gray-400">0</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-xs text-gray-600">
                     {row.retardDetails.length > 0
                       ? row.retardDetails.map((d, j) => (
@@ -460,7 +548,7 @@ function TachesParPersonneTableBlock({ byPerson }: { byPerson: Record<string, Ag
               ))}
             {Object.keys(byPerson).length === 0 && (
               <tr>
-                <td colSpan={5} className="text-center py-6 text-gray-400">
+                <td colSpan={6} className="text-center py-6 text-gray-400">
                   Aucune donnée
                 </td>
               </tr>
@@ -468,6 +556,97 @@ function TachesParPersonneTableBlock({ byPerson }: { byPerson: Record<string, Ag
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function TachesParClientFournisseurTableBlock({ byClientFournisseur }: { byClientFournisseur: Record<string, AggRow> }) {
+  return (
+    <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="p-4 border-b bg-gray-50">
+        <h2 className="text-base font-semibold text-gray-700">🤝 Tâches par client / fournisseur (assignés)</h2>
+        <p className="text-xs text-gray-500 mt-1">
+          Une même tâche avec plusieurs clients ou fournisseurs assignés est comptée pour chacun, comme pour les entités et
+          les personnes.
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client / fournisseur</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Terminées</th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">En retard</th>
+              <th
+                className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase"
+                title="Somme des jours de dépassement (par tâche en retard avec échéance)"
+              >
+                Σ jours retard
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Détail retard</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {Object.values(byClientFournisseur)
+              .sort((a, b) => b.total - a.total)
+              .map((row, i) => (
+                <tr key={i} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 font-medium text-gray-800">{row.nom}</td>
+                  <td className="px-4 py-3 text-center">{row.total}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="text-green-600 font-medium">{row.terminees}</span>
+                    <span className="text-gray-400 text-xs ml-1">
+                      ({row.total > 0 ? Math.round((row.terminees / row.total) * 100) : 0}%)
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {row.retard > 0 ? (
+                      <span className="text-red-600 font-medium">{row.retard}</span>
+                    ) : (
+                      <span className="text-gray-400">0</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-center tabular-nums">
+                    {row.joursRetardTotal > 0 ? (
+                      <span className="text-red-700 font-medium">{row.joursRetardTotal}</span>
+                    ) : (
+                      <span className="text-gray-400">0</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-600">
+                    {row.retardDetails.length > 0
+                      ? row.retardDetails.map((d, j) => (
+                          <div key={j}>
+                            <span className="font-medium">{d.nom}</span> —{' '}
+                            <span className="text-red-500">{d.jours}j de retard</span>
+                          </div>
+                        ))
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            {Object.keys(byClientFournisseur).length === 0 && (
+              <tr>
+                <td colSpan={6} className="text-center py-6 text-gray-400">
+                  Aucune donnée
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/** Tableau pleine largeur client/fournisseur (même détail que par entité / personne). */
+export function TachesParClientFournisseurGrid({ taches, className }: { taches: Tache[]; className?: string }) {
+  if (taches.length === 0) return null;
+  const { byClientFournisseur } = computeTachesAggByClientFournisseur(taches);
+  return (
+    <div className={className}>
+      <TachesParClientFournisseurTableBlock byClientFournisseur={byClientFournisseur} />
     </div>
   );
 }

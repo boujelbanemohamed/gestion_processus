@@ -9,6 +9,8 @@ import {
   TachesAvancementBlock,
   TachesDashboard,
   TachesParEntitePersonneGrid,
+  TachesParClientFournisseurGrid,
+  computeTotalJoursRetardTachesVisibles,
   STATUT_OPTIONS,
   type ClientFournisseurOption,
   type EntiteOption,
@@ -349,15 +351,9 @@ export default function ProjetPilotageAgile({
     [tachesVisibles]
   );
 
-  const clientFournisseurProgressRows = useMemo(
-    () =>
-      buildProgressRows(tachesVisibles, (t) =>
-        (t.assignesClientsFournisseurs || []).map((c) => ({
-          key: c.id,
-          label: `${c.nom || c.id}${c.type ? ` (${c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})` : ''}`,
-        }))
-      ),
-    [tachesVisibles]
+  const totalJoursRetardProjet = useMemo(
+    () => computeTotalJoursRetardTachesVisibles(tachesVisibles),
+    [tachesVisibles],
   );
 
   const handleKanbanMove = async (tacheId: string, newStatut: string) => {
@@ -425,6 +421,25 @@ export default function ProjetPilotageAgile({
           </div>
         </div>
 
+        {tachesVisibles.length > 0 && (
+          <div className="rounded-lg border border-red-100 bg-red-50/50 px-4 py-3 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-red-900/75">Retard (tâches visibles)</p>
+              <p className="text-2xl font-bold text-red-700 tabular-nums mt-0.5">
+                {totalJoursRetardProjet}
+                <span className="text-base font-semibold text-red-800/90 ml-1.5">
+                  jour{totalJoursRetardProjet === 1 ? '' : 's'} cumulé{totalJoursRetardProjet === 1 ? '' : 's'}
+                </span>
+              </p>
+            </div>
+            <p className="text-xs text-gray-600 max-w-xl leading-relaxed">
+              Somme des jours de dépassement par rapport à la date de fin prévue : chaque tâche en retard ou bloquée avec échéance
+              dépassée est comptée une fois. Les tâches sans date de fin ne contribuent pas aux jours (même si elles apparaissent
+              comme « en retard » au niveau du nombre de tâches).
+            </p>
+          </div>
+        )}
+
         <div className="space-y-6">
           <div className="grid md:grid-cols-2 gap-6">
             <div>
@@ -447,6 +462,7 @@ export default function ProjetPilotageAgile({
             </div>
           </div>
           <TachesParEntitePersonneGrid taches={tachesVisibles} />
+          <TachesParClientFournisseurGrid taches={tachesVisibles} />
         </div>
 
         <div className="mt-6 grid md:grid-cols-2 gap-6">
@@ -460,16 +476,6 @@ export default function ProjetPilotageAgile({
             rows={userStoryProgressRows}
             emptyLabel="Aucune user story liée aux tâches visibles."
           />
-        </div>
-
-        <div className="mt-6">
-          <div>
-            <ProgressTable
-              title="Avancement global par Client / Fournisseur"
-              rows={clientFournisseurProgressRows}
-              emptyLabel="Aucun client/fournisseur assigné sur les tâches visibles."
-            />
-          </div>
         </div>
       </section>
 
@@ -643,7 +649,7 @@ export default function ProjetPilotageAgile({
                     <th className="px-3 py-2">Tâche</th>
                     <th className="px-3 py-2">Statut</th>
                     <th className="px-3 py-2">Priorité</th>
-                    <th className="px-3 py-2">Assignés</th>
+                    <th className="px-3 py-2">Assignés (pers. / clients-fournisseurs)</th>
                     <th className="px-3 py-2">Début</th>
                     <th className="px-3 py-2">Fin</th>
                     <th className="px-3 py-2">User story</th>
@@ -667,7 +673,29 @@ export default function ProjetPilotageAgile({
                       </td>
                       <td className="px-3 py-2 text-gray-400 text-xs">—</td>
                       <td className="px-3 py-2 text-gray-600">
-                        {(t.assignesUtilisateurs || []).map((u) => `${u.prenom} ${u.nom}`).join(', ') || '—'}
+                        <div className="space-y-1.5">
+                          <div>
+                            {(t.assignesUtilisateurs || []).length > 0
+                              ? (t.assignesUtilisateurs || []).map((u) => `${u.prenom} ${u.nom}`).join(', ')
+                              : '—'}
+                          </div>
+                          {(t.assignesClientsFournisseurs || []).length > 0 && (
+                            <div className="text-xs text-amber-900/95 leading-snug">
+                              {(t.assignesClientsFournisseurs || []).map((c) => (
+                                <span
+                                  key={c.id}
+                                  className="inline-block mr-1.5 mb-0.5 px-1.5 py-0.5 rounded border border-amber-200 bg-amber-50"
+                                >
+                                  🤝 {c.nom}
+                                  <span className="text-amber-800/85">
+                                    {' '}
+                                    ({c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})
+                                  </span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-2 text-gray-600">
                         {t.dateDebut ? new Date(t.dateDebut).toLocaleDateString('fr-FR') : '—'}
