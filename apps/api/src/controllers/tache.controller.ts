@@ -7,6 +7,7 @@ import { parseTacheAssignPermission, TacheService } from '../services/tache.serv
 import { pvReunionService } from '../services/pv-reunion.service';
 import { AuthRequest } from '../middleware/auth';
 import { logAccess } from '../middleware/logger';
+import { prisma } from '../utils/prisma';
 
 const tacheService = new TacheService();
 
@@ -44,8 +45,12 @@ export const getAllTaches = async (req: AuthRequest, res: Response) => {
 
 export const getTache = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
+    const ok = await tacheService.canUserViewTache(req.params.id, req.user.userId, req.user.role);
+    if (!ok) return res.status(403).json({ error: 'Accès refusé' });
     const tache = await tacheService.findOne(req.params.id);
     if (!tache) return res.status(404).json({ error: 'Tâche non trouvée' });
+    await logAccess(req, res, 'lecture', ResourceType.tache, tache.id, tache.nom, { action: 'consultation_tache' });
     res.json(tache);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -75,16 +80,56 @@ export const updateTache = async (req: AuthRequest, res: Response) => {
     if (!tache) return res.status(404).json({ error: 'Tâche non trouvée' });
     const nouveauStatut = req.body?.statut;
     const ancienStatut = before?.statut;
-    if (typeof nouveauStatut === 'string' && ancienStatut && ancienStatut !== nouveauStatut) {
-      await logAccess(req, res, 'modification', ResourceType.tache, tache.id, tache.nom, {
-        action: 'changement_statut',
-        champ: 'statut',
-        ancienStatut,
-        nouveauStatut,
-      });
-    } else {
-      await logAccess(req, res, 'modification', ResourceType.tache, tache.id, tache.nom);
+    const modifications: Array<{ champ: string; avant: any; apres: any }> = [];
+    const pushIfChanged = (champ: string, avant: any, apres: any) => {
+      const a = avant ?? null;
+      const b = apres ?? null;
+      if (JSON.stringify(a) !== JSON.stringify(b)) modifications.push({ champ, avant: a, apres: b });
+    };
+    if (before) {
+      if ('nom' in req.body) pushIfChanged('nom', before.nom, tache.nom);
+      if ('description' in req.body) pushIfChanged('description', before.description, tache.description);
+      if ('scenarioExecution' in req.body) pushIfChanged('scenarioExecution', before.scenarioExecution, tache.scenarioExecution);
+      if ('critereAcceptation' in req.body) pushIfChanged('critereAcceptation', before.critereAcceptation, tache.critereAcceptation);
+      if ('statut' in req.body) pushIfChanged('statut', before.statut, tache.statut);
+      if ('dateDebut' in req.body) pushIfChanged('dateDebut', before.dateDebut || null, tache.dateDebut || null);
+      if ('dateFinApprox' in req.body) pushIfChanged('dateFinApprox', before.dateFinApprox || null, tache.dateFinApprox || null);
+      if ('projetId' in req.body) pushIfChanged('projetId', before.projetId || null, tache.projetId || null);
+      if ('userStoryId' in req.body) pushIfChanged('userStoryId', before.userStory?.id || null, tache.userStory?.id || null);
+      if ('assignesUtilisateurIds' in req.body) {
+        const avantIds = (before.assignesUtilisateurs || []).map((u: any) => u.id).sort();
+        const apresIds = (tache.assignesUtilisateurs || []).map((u: any) => u.id).sort();
+        pushIfChanged('assignesUtilisateurIds', avantIds, apresIds);
+      }
+      if ('assignesEntiteIds' in req.body) {
+        const avantIds = (before.assignesEntites || []).map((e: any) => e.id).sort();
+        const apresIds = (tache.assignesEntites || []).map((e: any) => e.id).sort();
+        pushIfChanged('assignesEntiteIds', avantIds, apresIds);
+      }
+      if ('assignesClientFournisseurIds' in req.body) {
+        const avantIds = (before.assignesClientsFournisseurs || []).map((c: any) => c.id).sort();
+        const apresIds = (tache.assignesClientsFournisseurs || []).map((c: any) => c.id).sort();
+        pushIfChanged('assignesClientFournisseurIds', avantIds, apresIds);
+      }
+      if ('liaisons' in req.body) {
+        const avantL = (before.liaisons || [])
+          .map((l: any) => `${l.tacheLiee?.id || l.tacheLieeId}:${l.type || 'simple'}`)
+          .sort();
+        const apresL = (tache.liaisons || [])
+          .map((l: any) => `${l.tacheLiee?.id || l.tacheLieeId}:${l.type || 'simple'}`)
+          .sort();
+        pushIfChanged('liaisons', avantL, apresL);
+      }
     }
+    await logAccess(req, res, 'modification', ResourceType.tache, tache.id, tache.nom, {
+      action: typeof nouveauStatut === 'string' && ancienStatut && ancienStatut !== nouveauStatut
+        ? 'changement_statut'
+        : 'mise_a_jour_tache',
+      champ: typeof nouveauStatut === 'string' && ancienStatut && ancienStatut !== nouveauStatut ? 'statut' : undefined,
+      ancienStatut: typeof nouveauStatut === 'string' && ancienStatut && ancienStatut !== nouveauStatut ? ancienStatut : undefined,
+      nouveauStatut: typeof nouveauStatut === 'string' && ancienStatut && ancienStatut !== nouveauStatut ? nouveauStatut : undefined,
+      modifications,
+    });
     res.json(tache);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -317,6 +362,11 @@ export const uploadDocument = async (req: AuthRequest, res: Response) => {
       nom || req.file.originalname,
       description,
     );
+    await logAccess(req, res, 'modification', ResourceType.tache, req.params.id, undefined, {
+      action: 'document_ajoute_tache',
+      documentId: document.id,
+      documentNom: document.nom,
+    });
     res.status(201).json(document);
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -331,6 +381,15 @@ export const lierDocument = async (req: AuthRequest, res: Response) => {
     const { documentId } = req.body;
     if (!documentId) return res.status(400).json({ error: 'documentId requis' });
     await tacheService.lierDocument(req.params.id, documentId);
+    const doc = await prisma.document.findUnique({
+      where: { id: documentId },
+      select: { id: true, nom: true },
+    });
+    await logAccess(req, res, 'modification', ResourceType.tache, req.params.id, undefined, {
+      action: 'document_lie_tache',
+      documentId,
+      documentNom: doc?.nom,
+    });
     res.status(201).json({ success: true });
   } catch (error: any) {
     res.status(400).json({ error: error.message });
@@ -342,7 +401,16 @@ export const delierDocument = async (req: AuthRequest, res: Response) => {
     if (!req.user?.userId) return res.status(401).json({ error: 'Non authentifié' });
     const mod = await tacheService.canUserModifyTache(req.params.id, req.user.userId, req.user.role);
     if (!mod) return res.status(403).json({ error: 'Accès refusé' });
+    const doc = await prisma.document.findUnique({
+      where: { id: req.params.documentId },
+      select: { id: true, nom: true },
+    });
     await tacheService.delierDocument(req.params.id, req.params.documentId);
+    await logAccess(req, res, 'modification', ResourceType.tache, req.params.id, undefined, {
+      action: 'document_delie_tache',
+      documentId: req.params.documentId,
+      documentNom: doc?.nom,
+    });
     res.status(204).end();
   } catch (error: any) {
     res.status(400).json({ error: error.message });

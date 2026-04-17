@@ -91,6 +91,99 @@ const LABEL_RESSOURCE: Record<string, string> = {
   userStory: 'User story',
 };
 
+const HISTORY_TECHNICAL_KEYS = new Set([
+  'path',
+  'method',
+  'ip',
+  'query',
+  'params',
+  'body',
+  'userAgent',
+  'statusCode',
+]);
+
+function statutLabelFromValue(value?: string | null) {
+  if (!value) return '—';
+  return STATUT_OPTIONS.find((s) => s.value === value)?.label || value;
+}
+
+function normalizeHistoryDetails(details: any): Record<string, any> | null {
+  if (!details) return null;
+  if (typeof details === 'string') {
+    try {
+      const parsed = JSON.parse(details);
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, any>;
+      return { details };
+    } catch {
+      return { details };
+    }
+  }
+  if (typeof details === 'object') return details as Record<string, any>;
+  return { details };
+}
+
+function formatHistoryDetails(h: any): string[] {
+  const d = normalizeHistoryDetails(h?.details);
+  if (!d) return [];
+  const lines: string[] = [];
+  const action = String(d.action || '');
+
+  if (action === 'consultation_tache') lines.push('Consultation de la tâche');
+  if (action === 'changement_statut') {
+    lines.push(`Statut: ${statutLabelFromValue(d.ancienStatut)} -> ${statutLabelFromValue(d.nouveauStatut)}`);
+  }
+  if (action === 'document_ajoute_tache') {
+    lines.push(`Document ajouté: ${d.documentNom || d.documentId || 'document'}`);
+  }
+  if (action === 'document_lie_tache') {
+    lines.push(`Document rattaché: ${d.documentNom || d.documentId || 'document'}`);
+  }
+  if (action === 'document_delie_tache') {
+    lines.push(`Document retiré de la tâche: ${d.documentNom || d.documentId || 'document'}`);
+  }
+  if (action === 'restauration') lines.push('Tâche restaurée depuis la corbeille');
+  if (action === 'corbeille_tache') lines.push('Tâche déplacée vers la corbeille');
+
+  const mods = Array.isArray(d.modifications) ? d.modifications : [];
+  const fieldLabel: Record<string, string> = {
+    nom: 'Nom',
+    description: 'Description',
+    scenarioExecution: "Scénario d'exécution",
+    critereAcceptation: "Critère d'acceptation",
+    statut: 'Statut',
+    dateDebut: 'Date de début',
+    dateFinApprox: 'Date de fin prévisionnelle',
+    projetId: 'Projet',
+    userStoryId: 'User story',
+    assignesUtilisateurIds: 'Assignés',
+    assignesEntiteIds: 'Entités',
+    assignesClientFournisseurIds: 'Clients/Fournisseurs',
+    liaisons: 'Liaisons',
+  };
+  for (const m of mods) {
+    const champ = fieldLabel[m?.champ] || m?.champ || 'champ';
+    if (m?.champ === 'statut') {
+      lines.push(`${champ}: ${statutLabelFromValue(m?.avant)} -> ${statutLabelFromValue(m?.apres)}`);
+      continue;
+    }
+    const avant =
+      Array.isArray(m?.avant) || typeof m?.avant === 'object' ? JSON.stringify(m?.avant) : String(m?.avant ?? '—');
+    const apres =
+      Array.isArray(m?.apres) || typeof m?.apres === 'object' ? JSON.stringify(m?.apres) : String(m?.apres ?? '—');
+    lines.push(`${champ}: ${avant} -> ${apres}`);
+  }
+
+  if (lines.length === 0) {
+    for (const [k, v] of Object.entries(d)) {
+      if (HISTORY_TECHNICAL_KEYS.has(k)) continue;
+      if (k === 'action' || k === 'modifications') continue;
+      const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      lines.push(`${k}: ${val}`);
+    }
+  }
+  return lines;
+}
+
 export type Tache = {
   id: string;
   nom: string;
@@ -3092,10 +3185,14 @@ export function TacheCard({
                       )}
                     </p>
                     {h.ressourceNom && <p className="text-gray-600 text-xs mt-0.5">{h.ressourceNom}</p>}
-                    {h.details != null && (
-                      <pre className="text-xs bg-gray-50 rounded p-2 mt-1 overflow-x-auto max-h-32">
-                        {typeof h.details === 'string' ? h.details : JSON.stringify(h.details, null, 2)}
-                      </pre>
+                    {formatHistoryDetails(h).length > 0 && (
+                      <ul className="mt-1 space-y-1">
+                        {formatHistoryDetails(h).map((line, idx) => (
+                          <li key={`${h.id}-detail-${idx}`} className="text-xs text-gray-700">
+                            - {line}
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </li>
                 ))}
@@ -6192,10 +6289,14 @@ export default function Taches() {
                       )}
                     </p>
                     {h.ressourceNom && <p className="text-gray-600 text-xs mt-0.5">{h.ressourceNom}</p>}
-                    {h.details != null && (
-                      <pre className="text-xs bg-gray-50 rounded p-2 mt-1 overflow-x-auto max-h-32">
-                        {typeof h.details === 'string' ? h.details : JSON.stringify(h.details, null, 2)}
-                      </pre>
+                    {formatHistoryDetails(h).length > 0 && (
+                      <ul className="mt-1 space-y-1">
+                        {formatHistoryDetails(h).map((line, idx) => (
+                          <li key={`${h.id}-journal-detail-${idx}`} className="text-xs text-gray-700">
+                            - {line}
+                          </li>
+                        ))}
+                      </ul>
                     )}
                   </li>
                 ))}
