@@ -25,6 +25,7 @@ import {
   exportProjetListePdf,
   exportProjetEpicsUsPdf,
 } from '../utils/projetPdfExport';
+import { exportProjetTachesUsEpicsExcel, type EpicExcelRow, type UserStoryExcelRow } from '../utils/projetExcelExport';
 import {
   peutModifierTacheSelonApi,
   tacheVisiblePourUtilisateurSurProjetPage,
@@ -392,12 +393,30 @@ export default function ProjetPilotageAgile({
 
       {/* 1 Dashboard */}
       <section className="bg-white rounded-lg shadow border border-gray-100 p-6" aria-labelledby="dash-projet-title">
-        <h3 id="dash-projet-title" className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-          <span className="text-xl" aria-hidden>
-            📊
-          </span>
-          Tableau de bord projet
-        </h3>
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+          <h3 id="dash-projet-title" className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+            <span className="text-xl" aria-hidden>
+              📊
+            </span>
+            Tableau de bord projet
+          </h3>
+          <button
+            type="button"
+            onClick={() =>
+              exportProjetTachesUsEpicsExcel(
+                projetNom,
+                tachesBrutes,
+                epics as EpicExcelRow[],
+                userStories as UserStoryExcelRow[],
+              )
+            }
+            className="px-3 py-2 text-sm font-medium rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 shrink-0"
+            title="Liste des tâches, user stories et epics : génère un fichier Excel (.xlsx) sur une seule feuille (blocs Tâches, User stories, Epics)."
+            aria-label="Exporter la liste des tâches, user stories et epics au format Excel"
+          >
+            📥 Liste tâches, user stories & epics (Excel)
+          </button>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div className="rounded-lg bg-gradient-to-br from-indigo-50 to-white border border-indigo-100 p-4 text-center">
             <div className="text-3xl font-bold text-indigo-700 tabular-nums">{pctGlobal}%</div>
