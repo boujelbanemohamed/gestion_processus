@@ -4141,6 +4141,9 @@ export default function Taches() {
     nom: '',
     nomUserStory: '',
     nomEpic: '',
+    tacheId: '',
+    userStoryId: '',
+    epicId: '',
     idsRecherche: '',
     statut: '',
     projetId: '',
@@ -4521,6 +4524,59 @@ export default function Taches() {
     setTacheModalLockUserStoryId(undefined);
   };
 
+  const projectScopedEpics = useMemo(() => {
+    if (!filters.projetId) return [] as EpicRow[];
+    return epics
+      .filter((ep) => ep.projetId === filters.projetId)
+      .slice()
+      .sort((a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr'));
+  }, [epics, filters.projetId]);
+
+  const projectScopedUserStories = useMemo(() => {
+    if (!filters.projetId) return [] as UserStoryRow[];
+    const byId = new Map<string, UserStoryRow>();
+    for (const us of userStories) {
+      if (us.epic?.projetId === filters.projetId) byId.set(us.id, us);
+    }
+    for (const t of taches) {
+      if (t.projetId !== filters.projetId || !t.userStory?.id) continue;
+      if (!byId.has(t.userStory.id)) {
+        byId.set(t.userStory.id, {
+          id: t.userStory.id,
+          description: t.userStory.description || '',
+          epic: t.userStory.epic || null,
+          taches: [],
+        } as UserStoryRow);
+      }
+    }
+    return Array.from(byId.values()).sort((a, b) =>
+      (a.description || '').localeCompare(b.description || '', 'fr')
+    );
+  }, [filters.projetId, taches, userStories]);
+
+  const projectScopedTaches = useMemo(() => {
+    if (!filters.projetId) return [] as Tache[];
+    return taches
+      .filter((t) => t.projetId === filters.projetId)
+      .slice()
+      .sort((a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr'));
+  }, [filters.projetId, taches]);
+
+  const filteredUserStoryOptions = useMemo(() => {
+    if (!filters.projetId) return [] as UserStoryRow[];
+    if (!filters.epicId) return projectScopedUserStories;
+    return projectScopedUserStories.filter((us) => us.epic?.id === filters.epicId);
+  }, [filters.projetId, filters.epicId, projectScopedUserStories]);
+
+  const filteredTacheOptions = useMemo(() => {
+    if (!filters.projetId) return [] as Tache[];
+    return projectScopedTaches.filter((t) => {
+      if (filters.epicId && t.userStory?.epic?.id !== filters.epicId) return false;
+      if (filters.userStoryId && t.userStory?.id !== filters.userStoryId) return false;
+      return true;
+    });
+  }, [filters.projetId, filters.epicId, filters.userStoryId, projectScopedTaches]);
+
   // Filtrage selon rôle + filtres UI
   const visibleTaches = taches.filter(t => {
     if (!voirArchives && t.statut === 'archive' && !mesTachesFinaliseesOnly) return false;
@@ -4553,6 +4609,9 @@ export default function Taches() {
 
     // Filtres UI
     if (filters.projetId && t.projetId !== filters.projetId) return false;
+    if (filters.tacheId && t.id !== filters.tacheId) return false;
+    if (filters.userStoryId && t.userStory?.id !== filters.userStoryId) return false;
+    if (filters.epicId && t.userStory?.epic?.id !== filters.epicId) return false;
     if (filters.assigneIds.length > 0 && !filters.assigneIds.every(id => t.assignesUtilisateurs?.some(u => u.id === id))) return false;
     if (filters.entiteIds.length > 0 && !filters.entiteIds.every(id => t.assignesEntites?.some(e => e.id === id))) return false;
     if (filters.nom && !t.nom.toLowerCase().includes(filters.nom.toLowerCase())) return false;
@@ -4583,6 +4642,9 @@ export default function Taches() {
 
   const taskLevelFiltersActive =
     !!filters.nom.trim() ||
+    !!filters.tacheId ||
+    !!filters.userStoryId ||
+    !!filters.epicId ||
     !!filters.idsRecherche.trim() ||
     !!filters.statut ||
     !!filters.dateDebutFrom ||
@@ -4612,6 +4674,8 @@ export default function Taches() {
         if (!hasTask) return false;
       }
     }
+    if (filters.userStoryId && us.id !== filters.userStoryId) return false;
+    if (filters.epicId && us.epic?.id !== filters.epicId) return false;
     if (filters.nomUserStory.trim()) {
       if (!us.description.toLowerCase().includes(filters.nomUserStory.trim().toLowerCase())) return false;
     }
@@ -4638,6 +4702,11 @@ export default function Taches() {
     }
 
     if (filters.projetId && ep.projetId !== filters.projetId) return false;
+    if (filters.epicId && ep.id !== filters.epicId) return false;
+    if (filters.userStoryId) {
+      const hasUs = (ep.userStories || []).some((u) => u.id === filters.userStoryId);
+      if (!hasUs) return false;
+    }
     if (filters.nomEpic.trim() && !ep.nom.toLowerCase().includes(filters.nomEpic.trim().toLowerCase())) return false;
     if (filters.nomUserStory.trim()) {
       const ok = (ep.userStories || []).some((us) =>
@@ -4866,6 +4935,9 @@ export default function Taches() {
             {(filters.nom.trim() ||
               filters.nomUserStory.trim() ||
               filters.nomEpic.trim() ||
+              filters.tacheId ||
+              filters.userStoryId ||
+              filters.epicId ||
               filters.idsRecherche.trim() ||
               filters.statut ||
               filters.projetId ||
@@ -4888,7 +4960,15 @@ export default function Taches() {
                 <label className="block text-xs font-medium text-gray-600 mb-1">Projet</label>
                 <select
                   value={filters.projetId}
-                  onChange={(e) => setFilters({ ...filters, projetId: e.target.value })}
+                  onChange={(e) =>
+                    setFilters({
+                      ...filters,
+                      projetId: e.target.value,
+                      tacheId: '',
+                      userStoryId: '',
+                      epicId: '',
+                    })
+                  }
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
                 >
               <option value="">Tous les projets</option>
@@ -4988,38 +5068,113 @@ export default function Taches() {
             </div>
           </div>
 
-          <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Nom de la tâche</label>
-                <input
-                  type="text"
-                  value={filters.nom}
-                  onChange={(e) => setFilters({ ...filters, nom: e.target.value })}
-                  placeholder="Rechercher…"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                />
-          </div>
-
-          <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Nom de la User story</label>
-                <input
-                  type="text"
-                  value={filters.nomUserStory}
-                  onChange={(e) => setFilters({ ...filters, nomUserStory: e.target.value })}
-                  placeholder="Rechercher dans la description…"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                />
-            </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Nom de l&apos;Epic</label>
-                <input
-                  type="text"
-                  value={filters.nomEpic}
-                  onChange={(e) => setFilters({ ...filters, nomEpic: e.target.value })}
-                  placeholder="Rechercher…"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-                />
-          </div>
+              {filters.projetId ? (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Epic (liste)</label>
+                    <select
+                      value={filters.epicId}
+                      onChange={(e) =>
+                        setFilters({
+                          ...filters,
+                          epicId: e.target.value,
+                          userStoryId: '',
+                          tacheId: '',
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    >
+                      <option value="">Tous les epics du projet</option>
+                      {projectScopedEpics.map((ep) => (
+                        <option key={ep.id} value={ep.id}>
+                          {ep.nom}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">User story (liste)</label>
+                    <select
+                      value={filters.userStoryId}
+                      onChange={(e) => {
+                        const usId = e.target.value;
+                        const selectedUs = filteredUserStoryOptions.find((u) => u.id === usId);
+                        setFilters({
+                          ...filters,
+                          userStoryId: usId,
+                          epicId: usId ? selectedUs?.epic?.id || filters.epicId : filters.epicId,
+                          tacheId: '',
+                        });
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    >
+                      <option value="">Toutes les user stories du projet</option>
+                      {filteredUserStoryOptions.map((us) => (
+                        <option key={us.id} value={us.id}>
+                          {truncateUi(us.description || '', 90)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Tâche (liste)</label>
+                    <select
+                      value={filters.tacheId}
+                      onChange={(e) => {
+                        const tid = e.target.value;
+                        const selectedTache = filteredTacheOptions.find((t) => t.id === tid);
+                        setFilters({
+                          ...filters,
+                          tacheId: tid,
+                          userStoryId: tid ? selectedTache?.userStory?.id || filters.userStoryId : filters.userStoryId,
+                          epicId: tid ? selectedTache?.userStory?.epic?.id || filters.epicId : filters.epicId,
+                        });
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    >
+                      <option value="">Toutes les tâches du projet</option>
+                      {filteredTacheOptions.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.nom}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Nom de la tâche</label>
+                    <input
+                      type="text"
+                      value={filters.nom}
+                      onChange={(e) => setFilters({ ...filters, nom: e.target.value })}
+                      placeholder="Rechercher…"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Nom de la User story</label>
+                    <input
+                      type="text"
+                      value={filters.nomUserStory}
+                      onChange={(e) => setFilters({ ...filters, nomUserStory: e.target.value })}
+                      placeholder="Rechercher dans la description…"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Nom de l&apos;Epic</label>
+                    <input
+                      type="text"
+                      value={filters.nomEpic}
+                      onChange={(e) => setFilters({ ...filters, nomEpic: e.target.value })}
+                      placeholder="Rechercher…"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    />
+                  </div>
+                </>
+              )}
 
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">ID (tâche, user story ou epic)</label>
@@ -5093,6 +5248,9 @@ export default function Taches() {
                     nom: '',
                     nomUserStory: '',
                     nomEpic: '',
+                    tacheId: '',
+                    userStoryId: '',
+                    epicId: '',
                     idsRecherche: '',
                     statut: '',
                     projetId: '',
