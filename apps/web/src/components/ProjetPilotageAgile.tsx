@@ -481,6 +481,9 @@ export default function ProjetPilotageAgile({
             rows={userStoryProgressRows}
             emptyLabel="Aucune user story liée aux tâches visibles."
           />
+        </div>
+
+        <div className="mt-6 grid sm:grid-cols-2 gap-6">
           <ProgressTable
             title="Avancement global par Entité"
             rows={entiteProgressRows}
@@ -491,7 +494,7 @@ export default function ProjetPilotageAgile({
             rows={personneProgressRows}
             emptyLabel="Aucune personne assignée sur les tâches visibles."
           />
-          <div className="md:col-span-2">
+          <div className="sm:col-span-2">
             <ProgressTable
               title="Avancement global par Client / Fournisseur"
               rows={clientFournisseurProgressRows}
