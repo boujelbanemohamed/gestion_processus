@@ -6922,7 +6922,21 @@ export default function Taches() {
                                       <span className="shrink-0">
                                         <StatutBadge statut={statutUs} />
                                       </span>
-                                      <span className="font-medium text-gray-900">📘 {truncateUi(u.description, 140)}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (canEditUsEpic) setEditUserStoryId(u.id);
+                                          else setDetailUserStoryId(u.id);
+                                        }}
+                                        className="font-medium text-gray-900 text-left hover:text-violet-700 hover:underline underline-offset-2"
+                                        title={
+                                          canEditUsEpic
+                                            ? 'Ouvrir la user story pour modification'
+                                            : 'Ouvrir le détail de la user story'
+                                        }
+                                      >
+                                        📘 {truncateUi(u.description, 140)}
+                                      </button>
                                       {canEditUsEpic && (
                                         <button
                                           type="button"
