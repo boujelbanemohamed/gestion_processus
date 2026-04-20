@@ -6933,6 +6933,21 @@ export default function Taches() {
                                                   ))}
                                                 </div>
                                               )}
+                                              {(t.assignesClientsFournisseurs || []).length > 0 && (
+                                                <div className="mt-1.5 flex flex-wrap gap-1">
+                                                  {(t.assignesClientsFournisseurs || []).map((c) => (
+                                                    <span
+                                                      key={`${t.id}-cf-${c.id}`}
+                                                      className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 text-[11px] border border-amber-200"
+                                                    >
+                                                      🤝 {c.nom}
+                                                      <span className="text-amber-800/90 ml-1">
+                                                        ({c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})
+                                                      </span>
+                                                    </span>
+                                                  ))}
+                                                </div>
+                                              )}
                                                   </>
                                                 );
                                               })()}
