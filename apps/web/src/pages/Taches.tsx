@@ -2298,12 +2298,14 @@ function DocumentsTache({
 function DocumentsEpic({
   epicId,
   documents,
+  linkedTaskDocs,
   canEdit,
   onDocumentsChange,
   users,
 }: {
   epicId: string;
   documents: DocTache[];
+  linkedTaskDocs?: Array<{ taskId: string; taskNom: string; doc: DocTache }>;
   canEdit: boolean;
   onDocumentsChange?: () => void;
   users: UserOption[];
@@ -2437,6 +2439,8 @@ function DocumentsEpic({
     (doc.permissionsUtilisateurs || []).forEach((p) => membres.push(`${p.user.prenom} ${p.user.nom}`));
     return membres;
   };
+
+  const linkedTaskDocsSafe = linkedTaskDocs || [];
 
   return (
     <div className="border-t border-gray-100 pt-3">
@@ -2701,6 +2705,73 @@ function DocumentsEpic({
             </div>
           );
         })}
+      </div>
+      <div className="mt-4 border-t border-gray-100 pt-3">
+        <h5 className="text-xs font-semibold text-gray-500 uppercase mb-2">
+          📎 Documents des tâches liées ({linkedTaskDocsSafe.length})
+        </h5>
+        {linkedTaskDocsSafe.length === 0 ? (
+          <p className="text-sm text-gray-400">Aucun document rattaché aux tâches de cet epic</p>
+        ) : (
+          <div className="space-y-2">
+            {linkedTaskDocsSafe.map((row) => {
+              const doc = normalizeDocumentAclFields(row.doc);
+              const natif = isNativeAuthorControlledUploadDoc(doc);
+              const accesPersonnes = getAccesDocument(doc);
+              return (
+                <div key={`${row.taskId}-${doc.id}`} className="bg-white border border-gray-200 rounded-lg p-3">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex items-start gap-2 flex-1 min-w-0">
+                      <span className="text-lg">{getFileIcon(doc.fichierType)}</span>
+                      <div className="min-w-0">
+                        <a
+                          href={`${API_BASE_URL}/documents/${doc.id}/view?token=${localStorage.getItem('token')}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm font-medium text-blue-600 hover:underline truncate block"
+                        >
+                          {doc.nom}
+                        </a>
+                        <p className="text-[11px] text-gray-600 mt-0.5">
+                          Lié à la tâche : <span className="font-medium">{row.taskNom}</span>
+                          <span className="font-mono text-gray-400 ml-1">{row.taskId}</span>
+                        </p>
+                        <div className="flex gap-2 flex-wrap mt-0.5">
+                          <span className="text-xs text-gray-500 capitalize">{doc.typeDocument}</span>
+                          <span className="text-xs bg-green-100 text-green-700 px-1.5 rounded">{doc.statut}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="border-t border-gray-100 pt-2 mt-2">
+                    <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Accès :</p>
+                    {natif ? (
+                      <div className="text-xs text-gray-700 space-y-1.5">
+                        <p className="text-red-700 font-medium">🔒 Accès restreint (natif)</p>
+                        {(getAccesDoc(doc) || []).map((m, i) => (
+                          <p key={i}>• {m}</p>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-start gap-3 flex-wrap">
+                        {doc.estConfidentiel ? (
+                          <span className="text-xs text-red-700 font-medium">🔒 Accès restreint</span>
+                        ) : (
+                          <span className="text-xs text-green-700 font-medium">🌐 Accès libre</span>
+                        )}
+                        {accesPersonnes.map((p, i) => (
+                          <span key={i} className="text-xs text-gray-700">
+                            {p.nom} <span className="text-gray-500 italic">({p.droit})</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
       <DocumentAccesNatifModal
         open={!!natifAccesDoc}
@@ -6965,6 +7036,13 @@ export default function Taches() {
                         <DocumentsEpic
                           epicId={ep.id}
                           documents={(ep.documents || []).map((ed) => ed.document)}
+                          linkedTaskDocs={tasksEp.flatMap((task) =>
+                            (task.documents || []).map((doc) => ({
+                              taskId: task.id,
+                              taskNom: task.nom,
+                              doc,
+                            }))
+                          )}
                           canEdit={!!canEditUsEpic}
                           onDocumentsChange={loadAll}
                           users={users}

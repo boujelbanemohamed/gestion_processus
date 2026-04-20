@@ -77,6 +77,87 @@ export class EpicService {
   private notificationService = new NotificationService();
   private projetService = new ProjetService();
 
+  /**
+   * Synchronise les accès des documents liés aux tâches d'un epic avec les règles d'accès de l'epic.
+   * - Permissions explicites documents = permissions explicites epic + uploadeur du document.
+   * - Admin sans accès document = admin sans accès epic.
+   */
+  private async syncEpicAccessToTaskDocuments(epicId: string): Promise<void> {
+    const [epicPerms, epicAdminSansAcces, taskDocs] = await Promise.all([
+      prisma.epicPermission.findMany({
+        where: { epicId },
+        select: { userId: true },
+      }),
+      prisma.epicAdminSansAcces.findMany({
+        where: { epicId },
+        select: { userId: true },
+      }),
+      prisma.tacheDocument.findMany({
+        where: {
+          tache: {
+            deletedAt: null,
+            userStory: {
+              is: {
+                deletedAt: null,
+                epicId,
+              },
+            },
+          },
+          document: { deletedAt: null },
+        },
+        select: {
+          documentId: true,
+          document: {
+            select: {
+              uploadedById: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const adminExcludedIds = [...new Set(epicAdminSansAcces.map((x) => x.userId).filter(Boolean))];
+    const explicitEpicUserIds = [...new Set(epicPerms.map((x) => x.userId).filter(Boolean))];
+    const byDoc = new Map<string, { uploadedById?: string | null }>();
+    for (const row of taskDocs) {
+      if (!byDoc.has(row.documentId)) byDoc.set(row.documentId, { uploadedById: row.document?.uploadedById });
+    }
+
+    for (const [documentId, info] of byDoc.entries()) {
+      const desiredUsers = new Set<string>(explicitEpicUserIds);
+      if (info.uploadedById) desiredUsers.add(info.uploadedById);
+      const desiredUserIds = [...desiredUsers];
+
+      await prisma.documentPermission.deleteMany({
+        where: {
+          documentId,
+          ...(desiredUserIds.length > 0 ? { userId: { notIn: desiredUserIds } } : {}),
+        },
+      });
+      for (const userId of desiredUserIds) {
+        await prisma.documentPermission.upsert({
+          where: { documentId_userId: { documentId, userId } },
+          create: { documentId, userId },
+          update: {},
+        });
+      }
+
+      await prisma.documentAdminSansAcces.deleteMany({
+        where: {
+          documentId,
+          ...(adminExcludedIds.length > 0 ? { userId: { notIn: adminExcludedIds } } : {}),
+        },
+      });
+      for (const userId of adminExcludedIds) {
+        await prisma.documentAdminSansAcces.upsert({
+          where: { documentId_userId: { documentId, userId } },
+          create: { documentId, userId },
+          update: {},
+        });
+      }
+    }
+  }
+
   /** Utilisateur encore présent comme assigné sur au moins une tâche (non supprimée) rattachée à l'epic. */
   private async isUserAssignedToTaskUnderEpic(epicId: string, userId: string): Promise<boolean> {
     const t = await prisma.tache.findFirst({
@@ -687,6 +768,7 @@ export class EpicService {
       create: { epicId, userId: targetUserId, permission },
       update: { permission },
     });
+    await this.syncEpicAccessToTaskDocuments(epicId);
   }
 
   async updateEpicPermission(epicId: string, permissionId: string, permission: PermissionType, actorId: string) {
@@ -699,6 +781,7 @@ export class EpicService {
     const row = await prisma.epicPermission.findFirst({ where: { id: permissionId, epicId } });
     if (!row) throw new Error('Permission introuvable');
     await prisma.epicPermission.update({ where: { id: permissionId }, data: { permission } });
+    await this.syncEpicAccessToTaskDocuments(epicId);
   }
 
   async removeEpicPermission(epicId: string, permissionId: string, actorId: string) {
@@ -724,6 +807,7 @@ export class EpicService {
         update: {},
       });
     }
+    await this.syncEpicAccessToTaskDocuments(epicId);
   }
 
   async blockEpicAdminImplicit(epicId: string, targetUserId: string, actorId: string) {
@@ -745,6 +829,7 @@ export class EpicService {
       create: { epicId, userId: targetUserId },
       update: {},
     });
+    await this.syncEpicAccessToTaskDocuments(epicId);
   }
 
   async restoreEpicAdminImplicit(epicId: string, targetUserId: string, actorId: string) {
@@ -755,6 +840,7 @@ export class EpicService {
     if (!epic) throw new Error('Epic introuvable');
     if (epic.createdById !== actorId) throw new Error('Accès refusé');
     await prisma.epicAdminSansAcces.deleteMany({ where: { epicId, userId: targetUserId } });
+    await this.syncEpicAccessToTaskDocuments(epicId);
   }
 
   async getUserStoryAccesDetail(userStoryId: string, requesterId: string, requesterRole: string) {
