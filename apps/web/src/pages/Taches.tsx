@@ -4439,6 +4439,12 @@ export default function Taches() {
   const [epicPage, setEpicPage] = useState(1);
   const [usRetardPage, setUsRetardPage] = useState(1);
   const [epicRetardPage, setEpicRetardPage] = useState(1);
+  const [selectedTacheIdsBulk, setSelectedTacheIdsBulk] = useState<string[]>([]);
+  const [selectedUsIdsBulk, setSelectedUsIdsBulk] = useState<string[]>([]);
+  const [selectedEpicIdsBulk, setSelectedEpicIdsBulk] = useState<string[]>([]);
+  const [bulkStatutTaches, setBulkStatutTaches] = useState('en_cours');
+  const [bulkStatutUs, setBulkStatutUs] = useState('en_cours');
+  const [bulkStatutEpics, setBulkStatutEpics] = useState('en_cours');
   const pageSize = LIST_SECTION_PAGE_SIZE;
 
   const isAdmin = currentUser?.role === 'admin';
@@ -4567,6 +4573,24 @@ export default function Taches() {
     } catch (e: any) {
       alert(e?.response?.data?.error || 'Erreur');
     }
+  };
+
+  const bulkUpdateTachesStatut = async (ids: string[], statut: string) => {
+    if (ids.length === 0) return;
+    const results = await Promise.allSettled(ids.map((id) => api.put(`/taches/${id}`, { statut })));
+    const ok = results.filter((r) => r.status === 'fulfilled').length;
+    const ko = results.length - ok;
+    await loadAll();
+    alert(`Mise à jour du statut terminée: ${ok} succès${ko > 0 ? `, ${ko} échec(s)` : ''}.`);
+  };
+
+  const bulkSoftDeleteByPath = async (entityPath: '/taches' | '/user-stories' | '/epics', ids: string[], label: string) => {
+    if (ids.length === 0) return;
+    const results = await Promise.allSettled(ids.map((id) => api.delete(`${entityPath}/${id}`)));
+    const ok = results.filter((r) => r.status === 'fulfilled').length;
+    const ko = results.length - ok;
+    await loadAll();
+    alert(`Mise en corbeille (${label}) terminée: ${ok} succès${ko > 0 ? `, ${ko} échec(s)` : ''}.`);
   };
 
   const restoreTacheCorbeille = async (id: string) => {
@@ -5142,6 +5166,9 @@ export default function Taches() {
 
   const pageEpicEff = clampListPage(epicPage, sortedVisibleEpics.length, pageSize);
   const pagedEpics = sortedVisibleEpics.slice((pageEpicEff - 1) * pageSize, pageEpicEff * pageSize);
+  const selectedTachesSet = new Set(selectedTacheIdsBulk);
+  const selectedUsSet = new Set(selectedUsIdsBulk);
+  const selectedEpicsSet = new Set(selectedEpicIdsBulk);
 
   const pageUsRetardEff = clampListPage(usRetardPage, userStoriesEnRetardList.length, pageSize);
   const pagedUserStoriesEnRetard = userStoriesEnRetardList.slice(
@@ -5160,6 +5187,16 @@ export default function Taches() {
   const showTachesSection = sectionViewSelectedCount > 0 && sectionViews.taches;
   const showUserStoriesSection = sectionViewSelectedCount > 0 && sectionViews.userStories;
   const showEpicsSection = sectionViewSelectedCount > 0 && sectionViews.epics;
+
+  useEffect(() => {
+    if (viewMode !== 'list') setSelectedTacheIdsBulk([]);
+  }, [viewMode]);
+  useEffect(() => {
+    if (usViewMode !== 'list') setSelectedUsIdsBulk([]);
+  }, [usViewMode]);
+  useEffect(() => {
+    if (epicViewMode !== 'list') setSelectedEpicIdsBulk([]);
+  }, [epicViewMode]);
 
   if (loading) return <div className="p-6 text-gray-500">Chargement…</div>;
 
@@ -5753,12 +5790,97 @@ export default function Taches() {
         <div className="flex items-center justify-between">
           <p className="text-sm text-gray-500">{visibleTaches.length} tâche(s) trouvée(s)</p>
         </div>
+        <div className="bg-white border border-gray-200 rounded-lg p-3 flex flex-wrap gap-2 items-center">
+          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              className="rounded border-gray-300"
+              checked={pagedTaches.length > 0 && pagedTaches.every((t) => selectedTachesSet.has(t.id))}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  setSelectedTacheIdsBulk((prev) => [...new Set([...prev, ...pagedTaches.map((t) => t.id)])]);
+                } else {
+                  const pageSet = new Set(pagedTaches.map((t) => t.id));
+                  setSelectedTacheIdsBulk((prev) => prev.filter((id) => !pageSet.has(id)));
+                }
+              }}
+            />
+            Sélectionner la page ({pagedTaches.length})
+          </label>
+          <span className="text-xs text-gray-500">{selectedTacheIdsBulk.length} sélectionnée(s)</span>
+          <select
+            value={bulkStatutTaches}
+            onChange={(e) => setBulkStatutTaches(e.target.value)}
+            className="text-sm border border-gray-300 rounded px-2 py-1 bg-white"
+          >
+            {STATUT_OPTIONS.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={selectedTacheIdsBulk.length === 0}
+            onClick={async () => {
+              const allowed = selectedTacheIdsBulk.filter((id) => {
+                const t = taches.find((x) => x.id === id);
+                return t ? canEdit(t) : false;
+              });
+              if (allowed.length === 0) {
+                alert('Aucune tâche sélectionnée modifiable.');
+                return;
+              }
+              await bulkUpdateTachesStatut(allowed, bulkStatutTaches);
+              setSelectedTacheIdsBulk([]);
+            }}
+            className="px-3 py-1.5 rounded bg-indigo-600 text-white text-sm disabled:opacity-50"
+          >
+            Changer statut (masse)
+          </button>
+          <button
+            type="button"
+            disabled={selectedTacheIdsBulk.length === 0}
+            onClick={async () => {
+              const allowed = selectedTacheIdsBulk.filter((id) => {
+                const t = taches.find((x) => x.id === id);
+                return t ? canSoftDeleteTache(t) : false;
+              });
+              if (allowed.length === 0) {
+                alert('Aucune tâche sélectionnée supprimable.');
+                return;
+              }
+              if (!window.confirm(`Mettre ${allowed.length} tâche(s) en corbeille ?`)) return;
+              await bulkSoftDeleteByPath('/taches', allowed, 'tâches');
+              setSelectedTacheIdsBulk([]);
+            }}
+            className="px-3 py-1.5 rounded bg-red-600 text-white text-sm disabled:opacity-50"
+          >
+            Corbeille (masse)
+          </button>
+        </div>
         {pagedTaches.length === 0 && (
                 <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">Aucune tâche trouvée</div>
         )}
               {pagedTaches.map((t) => (
+          <div key={t.id} className="relative">
+            <label
+              className="absolute left-3 top-3 z-20 bg-white/90 border border-gray-300 rounded px-1.5 py-1 shadow-sm"
+              onClick={(e) => e.stopPropagation()}
+              title="Sélectionner pour action de masse"
+            >
+              <input
+                type="checkbox"
+                className="rounded border-gray-300"
+                checked={selectedTachesSet.has(t.id)}
+                onChange={(e) =>
+                  setSelectedTacheIdsBulk((prev) =>
+                    e.target.checked ? [...new Set([...prev, t.id])] : prev.filter((id) => id !== t.id)
+                  )
+                }
+              />
+            </label>
           <TacheCard
-            key={t.id}
             tache={t}
                   onEdit={() => {
                     openEditTacheModal(t);
@@ -5772,6 +5894,7 @@ export default function Taches() {
                   onSoftDelete={canSoftDeleteTache(t) ? handleSoftDeleteTache : undefined}
                   onRefreshData={loadAll}
           />
+          </div>
         ))}
       </div>
 
@@ -5888,6 +6011,71 @@ export default function Taches() {
           />
         ) : (
           <>
+            <div className="bg-white border border-gray-200 rounded-lg p-3 flex flex-wrap gap-2 items-center mb-2">
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  className="rounded border-gray-300"
+                  checked={pagedUserStories.length > 0 && pagedUserStories.every((us) => selectedUsSet.has(us.id))}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedUsIdsBulk((prev) => [...new Set([...prev, ...pagedUserStories.map((us) => us.id)])]);
+                    } else {
+                      const pageSet = new Set(pagedUserStories.map((us) => us.id));
+                      setSelectedUsIdsBulk((prev) => prev.filter((id) => !pageSet.has(id)));
+                    }
+                  }}
+                />
+                Sélectionner la page ({pagedUserStories.length})
+              </label>
+              <span className="text-xs text-gray-500">{selectedUsIdsBulk.length} sélectionnée(s)</span>
+              <select
+                value={bulkStatutUs}
+                onChange={(e) => setBulkStatutUs(e.target.value)}
+                className="text-sm border border-gray-300 rounded px-2 py-1 bg-white"
+              >
+                {STATUT_OPTIONS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={selectedUsIdsBulk.length === 0 || !canEditUsEpic}
+                onClick={async () => {
+                  const taskIds = [
+                    ...new Set(
+                      taches
+                        .filter((t) => t.userStory?.id && selectedUsSet.has(t.userStory.id))
+                        .filter((t) => canEdit(t))
+                        .map((t) => t.id)
+                    ),
+                  ];
+                  if (taskIds.length === 0) {
+                    alert('Aucune tâche modifiable trouvée sous les user stories sélectionnées.');
+                    return;
+                  }
+                  await bulkUpdateTachesStatut(taskIds, bulkStatutUs);
+                  setSelectedUsIdsBulk([]);
+                }}
+                className="px-3 py-1.5 rounded bg-indigo-600 text-white text-sm disabled:opacity-50"
+              >
+                Changer statut (masse)
+              </button>
+              <button
+                type="button"
+                disabled={selectedUsIdsBulk.length === 0 || !canEditUsEpic}
+                onClick={async () => {
+                  if (!window.confirm(`Mettre ${selectedUsIdsBulk.length} user story(s) en corbeille ?`)) return;
+                  await bulkSoftDeleteByPath('/user-stories', selectedUsIdsBulk, 'user stories');
+                  setSelectedUsIdsBulk([]);
+                }}
+                className="px-3 py-1.5 rounded bg-red-600 text-white text-sm disabled:opacity-50"
+              >
+                Corbeille (masse)
+              </button>
+            </div>
             <p className="text-sm text-gray-500 mb-2">{visibleUserStories.length} user story(s)</p>
             <div className="space-y-4">
               {visibleUserStories.length === 0 && (
@@ -5913,8 +6101,24 @@ export default function Taches() {
                 return (
                   <div
                     key={us.id}
-                    className={`bg-white border rounded-lg shadow overflow-hidden ${isUsLate ? 'border-red-300' : 'border-gray-200'}`}
+                    className={`bg-white border rounded-lg shadow overflow-hidden relative ${isUsLate ? 'border-red-300' : 'border-gray-200'}`}
                   >
+                    <label
+                      className="absolute left-3 top-3 z-20 bg-white/90 border border-gray-300 rounded px-1.5 py-1 shadow-sm"
+                      onClick={(e) => e.stopPropagation()}
+                      title="Sélectionner pour action de masse"
+                    >
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300"
+                        checked={selectedUsSet.has(us.id)}
+                        onChange={(e) =>
+                          setSelectedUsIdsBulk((prev) =>
+                            e.target.checked ? [...new Set([...prev, us.id])] : prev.filter((id) => id !== us.id)
+                          )
+                        }
+                      />
+                    </label>
                     <button
                       type="button"
                       onClick={() => setExpandedUsListId(usExpanded ? null : us.id)}
@@ -6287,6 +6491,72 @@ export default function Taches() {
           />
         ) : (
           <>
+            <div className="bg-white border border-gray-200 rounded-lg p-3 flex flex-wrap gap-2 items-center mb-2">
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  className="rounded border-gray-300"
+                  checked={pagedEpics.length > 0 && pagedEpics.every((ep) => selectedEpicsSet.has(ep.id))}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedEpicIdsBulk((prev) => [...new Set([...prev, ...pagedEpics.map((ep) => ep.id)])]);
+                    } else {
+                      const pageSet = new Set(pagedEpics.map((ep) => ep.id));
+                      setSelectedEpicIdsBulk((prev) => prev.filter((id) => !pageSet.has(id)));
+                    }
+                  }}
+                />
+                Sélectionner la page ({pagedEpics.length})
+              </label>
+              <span className="text-xs text-gray-500">{selectedEpicIdsBulk.length} sélectionné(s)</span>
+              <select
+                value={bulkStatutEpics}
+                onChange={(e) => setBulkStatutEpics(e.target.value)}
+                className="text-sm border border-gray-300 rounded px-2 py-1 bg-white"
+              >
+                {STATUT_OPTIONS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={selectedEpicIdsBulk.length === 0 || !canEditUsEpic}
+                onClick={async () => {
+                  const selectedEpicRows = epics.filter((ep) => selectedEpicsSet.has(ep.id));
+                  const taskIds = [
+                    ...new Set(
+                      selectedEpicRows
+                        .flatMap((ep) => getTachesLieesEpic(ep, taches))
+                        .filter((t) => canEdit(t))
+                        .map((t) => t.id)
+                    ),
+                  ];
+                  if (taskIds.length === 0) {
+                    alert('Aucune tâche modifiable trouvée sous les epics sélectionnés.');
+                    return;
+                  }
+                  await bulkUpdateTachesStatut(taskIds, bulkStatutEpics);
+                  setSelectedEpicIdsBulk([]);
+                }}
+                className="px-3 py-1.5 rounded bg-indigo-600 text-white text-sm disabled:opacity-50"
+              >
+                Changer statut (masse)
+              </button>
+              <button
+                type="button"
+                disabled={selectedEpicIdsBulk.length === 0 || !canEditUsEpic}
+                onClick={async () => {
+                  if (!window.confirm(`Mettre ${selectedEpicIdsBulk.length} epic(s) en corbeille ?`)) return;
+                  await bulkSoftDeleteByPath('/epics', selectedEpicIdsBulk, 'epics');
+                  setSelectedEpicIdsBulk([]);
+                }}
+                className="px-3 py-1.5 rounded bg-red-600 text-white text-sm disabled:opacity-50"
+              >
+                Corbeille (masse)
+              </button>
+            </div>
             <p className="text-sm text-gray-500 mb-2">{visibleEpics.length} epic(s)</p>
             <div className="space-y-4">
               {visibleEpics.length === 0 && (
@@ -6319,8 +6589,24 @@ export default function Taches() {
                 return (
                   <div
                     key={ep.id}
-                    className={`bg-white border rounded-lg shadow overflow-hidden ${isEpLate ? 'border-red-300' : 'border-gray-200'}`}
+                    className={`bg-white border rounded-lg shadow overflow-hidden relative ${isEpLate ? 'border-red-300' : 'border-gray-200'}`}
                   >
+                    <label
+                      className="absolute left-3 top-3 z-20 bg-white/90 border border-gray-300 rounded px-1.5 py-1 shadow-sm"
+                      onClick={(e) => e.stopPropagation()}
+                      title="Sélectionner pour action de masse"
+                    >
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300"
+                        checked={selectedEpicsSet.has(ep.id)}
+                        onChange={(e) =>
+                          setSelectedEpicIdsBulk((prev) =>
+                            e.target.checked ? [...new Set([...prev, ep.id])] : prev.filter((id) => id !== ep.id)
+                          )
+                        }
+                      />
+                    </label>
                     <button
                       type="button"
                       onClick={() => setExpandedEpicListId(epExpanded ? null : ep.id)}
