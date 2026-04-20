@@ -1120,15 +1120,17 @@ function UserStoryCreateModalInner({
   projets,
   taches,
   epics,
+  lockEpicId,
 }: {
   onClose: () => void;
   onSaved: () => void | Promise<void>;
   projets: ProjetOption[];
   taches: Tache[];
   epics: EpicRow[];
+  lockEpicId?: string;
 }) {
   const [description, setDescription] = useState('');
-  const [epicId, setEpicId] = useState('');
+  const [epicId, setEpicId] = useState(lockEpicId || '');
   const [projetFilter, setProjetFilter] = useState('');
   const [selectedTacheIds, setSelectedTacheIds] = useState<string[]>([]);
   const [showTacheModal, setShowTacheModal] = useState(false);
@@ -1141,6 +1143,13 @@ function UserStoryCreateModalInner({
 
   const epic = epics.find((e) => e.id === epicId);
   const lockProjetId = epic?.projetId || '';
+
+  useEffect(() => {
+    if (!lockEpicId) return;
+    setEpicId(lockEpicId);
+    const epLock = epics.find((e) => e.id === lockEpicId);
+    if (epLock?.projetId) setProjetFilter(epLock.projetId);
+  }, [lockEpicId, epics]);
 
   useEffect(() => {
     (async () => {
@@ -1261,6 +1270,7 @@ function UserStoryCreateModalInner({
                   setEpicId('');
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                disabled={!!lockEpicId}
               >
                 <option value="">Tous les projets</option>
                 {projets.map((p) => (
@@ -1280,6 +1290,7 @@ function UserStoryCreateModalInner({
                   setSelectedTacheIds([]);
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                disabled={!!lockEpicId}
                 required
               >
                 <option value="">— Choisir un epic —</option>
@@ -4379,6 +4390,7 @@ export default function Taches() {
   const [showEpicDashboard, setShowEpicDashboard] = useState(false);
   const [showEpicCreateModal, setShowEpicCreateModal] = useState(false);
   const [showUsCreateModal, setShowUsCreateModal] = useState(false);
+  const [usCreateLockEpicId, setUsCreateLockEpicId] = useState<string | undefined>(undefined);
   const [detailEpicId, setDetailEpicId] = useState<string | null>(null);
   const [detailUserStoryId, setDetailUserStoryId] = useState<string | null>(null);
   const [editUserStoryId, setEditUserStoryId] = useState<string | null>(null);
@@ -4825,6 +4837,10 @@ export default function Taches() {
     setTacheModalLockUserStoryId(opts?.lockUserStoryId);
     setShowModal(true);
   };
+  const openNewUserStoryModal = (opts?: { lockEpicId?: string }) => {
+    setUsCreateLockEpicId(opts?.lockEpicId);
+    setShowUsCreateModal(true);
+  };
 
   const openEditTacheModal = (t: Tache) => {
     setTacheModalLockProjetId(undefined);
@@ -5237,7 +5253,7 @@ export default function Taches() {
               </button>
               <button
                 type="button"
-                onClick={() => setShowUsCreateModal(true)}
+                onClick={() => openNewUserStoryModal()}
                 className="px-3 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
               >
                 + Nouvelle User Storie
@@ -5947,7 +5963,7 @@ export default function Taches() {
           {canCreate && (
             <button
               type="button"
-              onClick={() => setShowUsCreateModal(true)}
+              onClick={() => openNewUserStoryModal()}
               className="px-3 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
             >
               + Nouvelle User Storie
@@ -6803,11 +6819,25 @@ export default function Taches() {
                             <p className="text-gray-800 whitespace-pre-wrap">{ep.description}</p>
                           </div>
                         )}
-                        {(ep.userStories?.length ?? 0) > 0 && (
-                          <div>
-                            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">
-                              Hiérarchie user stories et tâches
-                            </h4>
+                        <div>
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                              <h4 className="text-xs font-semibold text-gray-500 uppercase">
+                                Hiérarchie user stories et tâches
+                              </h4>
+                              {canEditUsEpic && (
+                                <button
+                                  type="button"
+                                  onClick={() => openNewUserStoryModal({ lockEpicId: ep.id })}
+                                  className="text-xs px-2.5 py-1 rounded border border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100"
+                                  title="Ajouter une user story liée automatiquement à cet epic"
+                                >
+                                  + Ajouter User Storie
+                                </button>
+                              )}
+                            </div>
+                            {(ep.userStories?.length ?? 0) === 0 ? (
+                              <p className="text-xs text-gray-400 italic">Aucune user story liée à cet epic.</p>
+                            ) : (
                             <ul className="space-y-3 text-gray-700">
                               {(ep.userStories || []).map((u) => {
                                 const tasksUs = getTachesLieesUserStory(u.id, taches);
@@ -6822,6 +6852,18 @@ export default function Taches() {
                                         <StatutBadge statut={statutUs} />
                                       </span>
                                       <span className="font-medium text-gray-900">📘 {truncateUi(u.description, 140)}</span>
+                                      {canEditUsEpic && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            openNewTacheModal({ lockProjetId: ep.projetId, lockUserStoryId: u.id })
+                                          }
+                                          className="ml-auto text-xs px-2 py-1 rounded border border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100"
+                                          title="Ajouter une tâche liée automatiquement à cette user story"
+                                        >
+                                          + Ajouter tâche
+                                        </button>
+                                      )}
                                     </div>
                                     <div className="text-[10px] font-mono text-gray-400 mt-0.5 break-all">{u.id}</div>
                                     <div className="mt-2 pl-3 border-l-2 border-indigo-100">
@@ -6831,8 +6873,30 @@ export default function Taches() {
                                         <ul className="space-y-1.5">
                                           {tasksUs.map((t) => (
                                             <li key={t.id} className="text-xs rounded border border-gray-200 bg-gray-50 px-2 py-1.5">
+                                              {(() => {
+                                                const nowTask = new Date();
+                                                const isLate = isTacheEnRetardKpi(t, nowTask);
+                                                const joursRetard =
+                                                  t.dateFinApprox && new Date(t.dateFinApprox) < nowTask
+                                                    ? Math.max(
+                                                        0,
+                                                        Math.floor(
+                                                          (nowTask.getTime() - new Date(t.dateFinApprox).getTime()) /
+                                                            (1000 * 3600 * 24)
+                                                        )
+                                                      )
+                                                    : 0;
+                                                const dateTerminee = (t as any).dateFinReelle as string | undefined;
+                                                const isDone = t.statut === 'termine' || t.statut === 'archive';
+                                                return (
+                                                  <>
                                               <div className="flex flex-wrap items-center gap-2">
                                                 <StatutBadge statut={t.statut} />
+                                                {isLate && (
+                                                  <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-[11px] font-medium">
+                                                    ⚠ Retard{joursRetard > 0 ? ` (${joursRetard} j)` : ''}
+                                                  </span>
+                                                )}
                                                 <button
                                                   type="button"
                                                   onClick={() => openEditTacheModal(t)}
@@ -6852,6 +6916,11 @@ export default function Taches() {
                                                 </button>
                                                 <span className="font-mono text-[10px] text-gray-400 break-all">{t.id}</span>
                                               </div>
+                                              {isDone && dateTerminee && (
+                                                <div className="mt-1 text-[11px] text-emerald-700">
+                                                  ✅ Terminée le {new Date(dateTerminee).toLocaleDateString('fr-FR')}
+                                                </div>
+                                              )}
                                               {(t.assignesEntites || []).length > 0 && (
                                                 <div className="mt-1.5 flex flex-wrap gap-1">
                                                   {(t.assignesEntites || []).map((e) => (
@@ -6864,6 +6933,9 @@ export default function Taches() {
                                                   ))}
                                                 </div>
                                               )}
+                                                  </>
+                                                );
+                                              })()}
                                             </li>
                                           ))}
                                         </ul>
@@ -6873,8 +6945,8 @@ export default function Taches() {
                                 );
                               })}
                             </ul>
+                            )}
                           </div>
-                        )}
                         <DocumentsEpic
                           epicId={ep.id}
                           documents={(ep.documents || []).map((ed) => ed.document)}
@@ -7048,11 +7120,15 @@ export default function Taches() {
 
       {showUsCreateModal && (
         <UserStoryCreateModalInner
-          onClose={() => setShowUsCreateModal(false)}
+          onClose={() => {
+            setShowUsCreateModal(false);
+            setUsCreateLockEpicId(undefined);
+          }}
           onSaved={() => loadAll({ silent: true })}
           projets={projets}
           taches={taches}
           epics={epics}
+          lockEpicId={usCreateLockEpicId}
         />
       )}
 
