@@ -10,6 +10,7 @@ export type TacheEnRetardItem = {
   projet: { id: string; nom: string; codeProjet: string } | null;
   assignesUtilisateurs: Array<{ id: string; nom: string; prenom: string }>;
   assignesEntites: Array<{ id: string; nom: string; code: string | null }>;
+  assignesClientsFournisseurs?: Array<{ id: string; nom: string; type?: string | null }>;
 };
 
 type Props = {
@@ -49,6 +50,7 @@ export default function TachesEnRetardBloc({ items, hideFooterLink, onTacheClick
               <th className="py-2 pr-4 whitespace-nowrap">Fin prévue</th>
               <th className="py-2 pr-4">Assignés</th>
               <th className="py-2">Entités</th>
+              <th className="py-2">Clients / fournisseurs</th>
             </tr>
           </thead>
           <tbody>
@@ -97,6 +99,15 @@ export default function TachesEnRetardBloc({ items, hideFooterLink, onTacheClick
                   <td className="py-3 align-top text-gray-700">
                     {t.assignesEntites.length > 0
                       ? t.assignesEntites.map((e) => (e.code ? `${e.nom} (${e.code})` : e.nom)).join(', ')
+                      : '—'}
+                  </td>
+                  <td className="py-3 align-top text-gray-700">
+                    {(t.assignesClientsFournisseurs || []).length > 0
+                      ? (t.assignesClientsFournisseurs || [])
+                          .map((c) =>
+                            c.type ? `${c.nom} (${c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})` : c.nom
+                          )
+                          .join(', ')
                       : '—'}
                   </td>
                 </tr>
