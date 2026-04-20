@@ -74,6 +74,18 @@ export const getProjet = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const getProjetScoring = async (req: AuthRequest, res: Response) => {
+  try {
+    const auth = authFromReq(req);
+    if (!auth) return res.status(401).json({ error: 'Non authentifié' });
+    const scoring = await projetService.getProjetScoring(req.params.id, auth);
+    res.json(scoring);
+  } catch (e: any) {
+    const code = e.message === 'NOT_FOUND' ? 404 : e.message === 'FORBIDDEN' ? 403 : 400;
+    res.status(code).json({ error: e.message });
+  }
+};
+
 export const getProjetAcces = async (req: AuthRequest, res: Response) => {
   try {
     const auth = authFromReq(req);

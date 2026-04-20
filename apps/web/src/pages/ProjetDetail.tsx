@@ -39,6 +39,56 @@ const TACHE_STATUT_LABELS: Record<string, string> = {
   archive: 'Archivée',
 };
 
+type ProjetScoringResponse = {
+  meta: {
+    projetId: string;
+    generatedAt: string;
+    totalTaches: number;
+    totalUtilisateurs: number;
+    totalEntites: number;
+  };
+  settings: {
+    weights: { delais: number; workflow: number; stabilite: number; rework: number; flux: number };
+    productivityWindowDays: number;
+  };
+  taskScores: Array<{
+    id: string;
+    nom: string;
+    statut: string;
+    assignes: Array<{ id: string; nom: string; prenom: string }>;
+    entites: Array<{ id: string; nom: string; code?: string | null }>;
+    scoring: {
+      delais: number;
+      workflow: number;
+      stabilite: number;
+      rework: number;
+      flux: number;
+      final: number;
+      transitions: number;
+      reouvertures: number;
+      completedAt?: string | null;
+    };
+  }>;
+  userScores: Array<{
+    user: { id: string; nom: string; prenom: string };
+    scores: { moyenneTaches: number; productivite: number; final: number };
+    metrics: { tachesAssignees: number; tachesTermineesPeriode: number; periodeJours: number };
+  }>;
+  entityScores: Array<{
+    entite: { id: string; nom: string; code?: string | null };
+    scores: { final: number };
+    metrics: { utilisateursPrisEnCompte: number };
+  }>;
+};
+
+function scoringBadgeClass(score: number): string {
+  if (score >= 4.5) return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+  if (score >= 3.5) return 'bg-green-100 text-green-800 border-green-200';
+  if (score >= 2.5) return 'bg-amber-100 text-amber-800 border-amber-200';
+  if (score >= 1.5) return 'bg-orange-100 text-orange-800 border-orange-200';
+  return 'bg-red-100 text-red-800 border-red-200';
+}
+
 const LABEL_PERM_ROW: Record<string, string> = {
   lecture: 'lecture',
   modification: 'modification',
@@ -681,6 +731,9 @@ export default function ProjetDetail() {
   // Documents
   const [documents, setDocuments] = useState<any[]>([]);
   const [tachesProjet, setTachesProjet] = useState<any[]>([]);
+  const [projetScoring, setProjetScoring] = useState<ProjetScoringResponse | null>(null);
+  const [loadingScoring, setLoadingScoring] = useState(false);
+  const [scoringError, setScoringError] = useState<string | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showLierModal, setShowLierModal] = useState(false);
   const [allDocuments, setAllDocuments] = useState<any[]>([]);
@@ -708,6 +761,7 @@ export default function ProjetDetail() {
   const [secDocuments, setSecDocuments] = useState(false);
   const [secPvReunion, setSecPvReunion] = useState(false);
   const [secPilotage, setSecPilotage] = useState(false);
+  const [secScoring, setSecScoring] = useState(false);
   const [secRecap, setSecRecap] = useState(false);
 
   useEffect(() => {
@@ -736,9 +790,28 @@ export default function ProjetDetail() {
     }
   }, [id]);
 
+  const loadProjetScoring = useCallback(async () => {
+    if (!id) return;
+    setLoadingScoring(true);
+    setScoringError(null);
+    try {
+      const r = await api.get(`/projets/${id}/scoring`);
+      setProjetScoring(r.data || null);
+    } catch (e: any) {
+      setProjetScoring(null);
+      setScoringError(e?.response?.data?.error || 'Impossible de charger le scoring.');
+    } finally {
+      setLoadingScoring(false);
+    }
+  }, [id]);
+
   useEffect(() => {
     void refreshTachesProjet();
   }, [refreshTachesProjet]);
+
+  useEffect(() => {
+    void loadProjetScoring();
+  }, [loadProjetScoring]);
 
   useEffect(() => {
     const st = location.state as { openEdit?: boolean } | null;
@@ -2325,9 +2398,133 @@ export default function ProjetDetail() {
                   role: u.role,
                 }))}
                 tachesBrutes={tachesProjet}
-                onTachesRefresh={refreshTachesProjet}
+                onTachesRefresh={async () => {
+                  await refreshTachesProjet();
+                  await loadProjetScoring();
+                }}
                 hideIntro
               />
+            </ProjetCollapsibleSection>
+            <ProjetCollapsibleSection
+              open={secScoring}
+              onToggle={() => setSecScoring((v) => !v)}
+              title={<span className="text-gray-900">⭐ Scoring automatisé</span>}
+            >
+              <p className="text-xs text-gray-600 mb-4">
+                Scoring 100% automatique (1 à 5) calculé sur les tâches, puis agrégé par utilisateur et par entité.
+              </p>
+
+              {loadingScoring ? (
+                <p className="text-sm text-gray-500">Chargement du scoring…</p>
+              ) : scoringError ? (
+                <p className="text-sm text-red-600">{scoringError}</p>
+              ) : !projetScoring ? (
+                <p className="text-sm text-gray-500">Aucune donnée de scoring disponible.</p>
+              ) : (
+                <div className="space-y-5">
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+                      <div className="text-xs text-gray-500 uppercase">Tâches scorées</div>
+                      <div className="text-2xl font-semibold text-gray-900 mt-1">{projetScoring.meta.totalTaches}</div>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+                      <div className="text-xs text-gray-500 uppercase">Utilisateurs scorés</div>
+                      <div className="text-2xl font-semibold text-gray-900 mt-1">{projetScoring.meta.totalUtilisateurs}</div>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+                      <div className="text-xs text-gray-500 uppercase">Entités scorées</div>
+                      <div className="text-2xl font-semibold text-gray-900 mt-1">{projetScoring.meta.totalEntites}</div>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Utilisateur</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Score final</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Moy. tâches</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Productivité</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Terminées ({projetScoring.settings.productivityWindowDays}j)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 bg-white">
+                        {projetScoring.userScores.map((u) => (
+                          <tr key={u.user.id}>
+                            <td className="px-3 py-2 font-medium text-gray-900">{u.user.prenom} {u.user.nom}</td>
+                            <td className="px-3 py-2">
+                              <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold ${scoringBadgeClass(u.scores.final)}`}>
+                                {u.scores.final.toFixed(2)}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-gray-700">{u.scores.moyenneTaches.toFixed(2)}</td>
+                            <td className="px-3 py-2 text-gray-700">{u.scores.productivite.toFixed(2)}</td>
+                            <td className="px-3 py-2 text-gray-700">{u.metrics.tachesTermineesPeriode}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Entité</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Score final</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Contributions utilisateurs</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 bg-white">
+                        {projetScoring.entityScores.map((e) => (
+                          <tr key={e.entite.id}>
+                            <td className="px-3 py-2 font-medium text-gray-900">{e.entite.nom}</td>
+                            <td className="px-3 py-2">
+                              <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold ${scoringBadgeClass(e.scores.final)}`}>
+                                {e.scores.final.toFixed(2)}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-gray-700">{e.metrics.utilisateursPrisEnCompte}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                    <table className="min-w-full text-xs">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Tâche</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Final</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Délais</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Workflow</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Stabilité</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Rework</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Flux</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 bg-white">
+                        {projetScoring.taskScores.map((t) => (
+                          <tr key={t.id}>
+                            <td className="px-3 py-2 text-gray-900">{t.nom}</td>
+                            <td className="px-3 py-2">
+                              <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold ${scoringBadgeClass(t.scoring.final)}`}>
+                                {t.scoring.final.toFixed(2)}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-gray-700">{t.scoring.delais.toFixed(2)}</td>
+                            <td className="px-3 py-2 text-gray-700">{t.scoring.workflow.toFixed(2)}</td>
+                            <td className="px-3 py-2 text-gray-700">{t.scoring.stabilite.toFixed(2)}</td>
+                            <td className="px-3 py-2 text-gray-700">{t.scoring.rework.toFixed(2)}</td>
+                            <td className="px-3 py-2 text-gray-700">{t.scoring.flux.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </ProjetCollapsibleSection>
             {projet && (
               <ProjetCollapsibleSection

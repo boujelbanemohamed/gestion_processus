@@ -3,8 +3,36 @@ import { prisma } from '../utils/prisma';
 import { Prisma } from '../generated/prisma/client';
 import { PermissionType } from '../generated/prisma/enums';
 import { fetchProjetAdminExcludedByProjetIds, fetchProjetAdminExcludedForUser } from '../utils/resourceAdminSansAcces';
+import { TacheService } from './tache.service';
 
 const TACHE_TERMINEES = ['termine', 'archive'] as const;
+const SCORING_PRODUCTIVITE_WINDOW_DAYS = 30;
+const SCORING_WEIGHTS = {
+  delais: 0.3,
+  workflow: 0.2,
+  stabilite: 0.15,
+  rework: 0.15,
+  flux: 0.1,
+} as const;
+const SCORING_WEIGHT_TOTAL =
+  SCORING_WEIGHTS.delais +
+  SCORING_WEIGHTS.workflow +
+  SCORING_WEIGHTS.stabilite +
+  SCORING_WEIGHTS.rework +
+  SCORING_WEIGHTS.flux;
+
+type TaskStatusTransition = { at: Date; from: string; to: string };
+type TaskScoringBreakdown = {
+  delais: number;
+  workflow: number;
+  stabilite: number;
+  rework: number;
+  flux: number;
+  final: number;
+  transitions: number;
+  reouvertures: number;
+  completedAt?: string | null;
+};
 
 /** Champs scalaires autorisés pour `projet.update` (ignore tout le reste du body client). */
 const PROJET_UPDATABLE_SCALAR_KEYS = new Set([
@@ -426,6 +454,117 @@ function mapProjetListItem(
   };
 }
 
+function clampScore(v: number): number {
+  if (!Number.isFinite(v)) return 1;
+  if (v < 1) return 1;
+  if (v > 5) return 5;
+  return Number(v.toFixed(2));
+}
+
+function scoreDelais(task: any, completedAt: Date | null): number {
+  if (!task?.dateFinApprox) return 3;
+  const due = new Date(task.dateFinApprox);
+  const ref = completedAt || new Date();
+  const deltaDays = Math.floor((ref.getTime() - due.getTime()) / (1000 * 3600 * 24));
+  if (deltaDays <= 0) return 5;
+  if (deltaDays <= 2) return 4;
+  if (deltaDays <= 7) return 3;
+  if (deltaDays <= 14) return 2;
+  return 1;
+}
+
+function scoreWorkflow(task: any, transitions: TaskStatusTransition[], now: Date): number {
+  const startedAt = task?.dateDebut ? new Date(task.dateDebut) : new Date(task?.createdAt || now);
+  let total = Math.max(1, now.getTime() - startedAt.getTime());
+  let blockedOrWaiting = 0;
+  let currentStatus = task?.statut || 'cree';
+  let cursor = startedAt;
+
+  for (const tr of transitions) {
+    if (tr.at < cursor) continue;
+    const dt = tr.at.getTime() - cursor.getTime();
+    if (currentStatus === 'bloque' || currentStatus === 'en_attente') blockedOrWaiting += Math.max(0, dt);
+    total += Math.max(0, dt);
+    currentStatus = tr.to;
+    cursor = tr.at;
+  }
+  const tail = Math.max(0, now.getTime() - cursor.getTime());
+  if (currentStatus === 'bloque' || currentStatus === 'en_attente') blockedOrWaiting += tail;
+  total += tail;
+
+  const ratio = blockedOrWaiting / Math.max(1, total);
+  if (ratio <= 0.05) return 5;
+  if (ratio <= 0.15) return 4;
+  if (ratio <= 0.3) return 3;
+  if (ratio <= 0.5) return 2;
+  return 1;
+}
+
+function scoreStabilite(transitionsCount: number): number {
+  if (transitionsCount <= 1) return 5;
+  if (transitionsCount === 2) return 4;
+  if (transitionsCount <= 4) return 3;
+  if (transitionsCount <= 6) return 2;
+  return 1;
+}
+
+function scoreRework(reopenCount: number): number {
+  if (reopenCount === 0) return 5;
+  if (reopenCount === 1) return 3;
+  if (reopenCount === 2) return 2;
+  return 1;
+}
+
+const ALLOWED_FLOW: Record<string, Set<string>> = {
+  cree: new Set(['a_faire', 'en_cours', 'en_attente', 'bloque', 'archive']),
+  a_faire: new Set(['en_cours', 'en_attente', 'bloque', 'termine', 'archive']),
+  en_cours: new Set(['en_attente', 'bloque', 'termine', 'archive']),
+  en_attente: new Set(['en_cours', 'bloque', 'archive']),
+  bloque: new Set(['en_cours', 'en_attente', 'archive']),
+  termine: new Set(['archive', 'en_cours']),
+  archive: new Set([]),
+};
+
+function scoreFlux(transitions: TaskStatusTransition[]): number {
+  if (transitions.length === 0) return 4;
+  let invalid = 0;
+  for (const tr of transitions) {
+    const allowed = ALLOWED_FLOW[tr.from] || new Set<string>();
+    if (!allowed.has(tr.to)) invalid++;
+  }
+  const ratio = invalid / transitions.length;
+  if (ratio === 0) return 5;
+  if (ratio <= 0.15) return 4;
+  if (ratio <= 0.3) return 3;
+  if (ratio <= 0.5) return 2;
+  return 1;
+}
+
+function extractStatusTransitions(historyRows: any[]): TaskStatusTransition[] {
+  const out: TaskStatusTransition[] = [];
+  for (const row of historyRows) {
+    const details = (row?.details || {}) as any;
+    const ts = row?.timestamp ? new Date(row.timestamp) : null;
+    if (!ts) continue;
+
+    const directFrom = typeof details?.ancienStatut === 'string' ? details.ancienStatut : null;
+    const directTo = typeof details?.nouveauStatut === 'string' ? details.nouveauStatut : null;
+    if (directFrom && directTo) {
+      out.push({ at: ts, from: directFrom, to: directTo });
+      continue;
+    }
+
+    const mods = Array.isArray(details?.modifications) ? details.modifications : [];
+    for (const m of mods) {
+      if (m?.champ !== 'statut') continue;
+      if (typeof m?.avant !== 'string' || typeof m?.apres !== 'string') continue;
+      out.push({ at: ts, from: m.avant, to: m.apres });
+    }
+  }
+  out.sort((a, b) => a.at.getTime() - b.at.getTime());
+  return out;
+}
+
 export class ProjetService {
   private async collectDerivedProjetIntervenantUserIds(
     tx: Prisma.TransactionClient,
@@ -693,6 +832,166 @@ export class ProjetService {
       adminExclAll.get(id) ?? [],
       enrich
     );
+  }
+
+  async getProjetScoring(id: string, auth: ProjetAuth) {
+    const access = await this.canAccess(id, auth.userId, auth.role);
+    if (!access.canAccess) throw new Error(access.reason === 'Projet non trouvé' ? 'NOT_FOUND' : 'FORBIDDEN');
+
+    const tacheService = new TacheService();
+    const tasks = await tacheService.findAll({ projetId: id, requesterId: auth.userId, requesterRole: auth.role as any });
+    const taskIds = tasks.map((t: any) => t.id).filter(Boolean);
+    const historyRows = taskIds.length
+      ? await prisma.journalAcces.findMany({
+          where: {
+            ressourceType: 'tache',
+            ressourceId: { in: taskIds },
+          },
+          select: { ressourceId: true, timestamp: true, details: true, action: true },
+          orderBy: { timestamp: 'asc' },
+        })
+      : [];
+    const historyByTask = new Map<string, any[]>();
+    for (const h of historyRows) {
+      const k = h.ressourceId || '';
+      if (!k) continue;
+      if (!historyByTask.has(k)) historyByTask.set(k, []);
+      historyByTask.get(k)!.push(h);
+    }
+
+    const now = new Date();
+    const taskScores: Array<{
+      id: string;
+      nom: string;
+      statut: string;
+      assignes: Array<{ id: string; nom: string; prenom: string }>;
+      entites: Array<{ id: string; nom: string; code?: string | null }>;
+      scoring: TaskScoringBreakdown;
+    }> = [];
+
+    const userAgg = new Map<string, {
+      user: { id: string; nom: string; prenom: string };
+      scores: number[];
+      completedInWindow: number;
+      assignedCount: number;
+    }>();
+
+    for (const task of tasks as any[]) {
+      const transitions = extractStatusTransitions(historyByTask.get(task.id) || []);
+      const completedTransition = transitions.find((tr) => tr.to === 'termine');
+      const completedAt = completedTransition?.at || (task.statut === 'termine' || task.statut === 'archive' ? new Date(task.updatedAt || task.createdAt || now) : null);
+      const reouvertures = transitions.filter((tr) => tr.from === 'termine' && tr.to !== 'termine' && tr.to !== 'archive').length;
+      const sDelais = scoreDelais(task, completedAt);
+      const sWorkflow = scoreWorkflow(task, transitions, now);
+      const sStabilite = scoreStabilite(transitions.length);
+      const sRework = scoreRework(reouvertures);
+      const sFlux = scoreFlux(transitions);
+      const finalScore = clampScore(
+        (sDelais * SCORING_WEIGHTS.delais +
+          sWorkflow * SCORING_WEIGHTS.workflow +
+          sStabilite * SCORING_WEIGHTS.stabilite +
+          sRework * SCORING_WEIGHTS.rework +
+          sFlux * SCORING_WEIGHTS.flux) / SCORING_WEIGHT_TOTAL
+      );
+
+      const scoring: TaskScoringBreakdown = {
+        delais: sDelais,
+        workflow: sWorkflow,
+        stabilite: sStabilite,
+        rework: sRework,
+        flux: sFlux,
+        final: finalScore,
+        transitions: transitions.length,
+        reouvertures,
+        completedAt: completedAt ? completedAt.toISOString() : null,
+      };
+      const assignes = (task.assignesUtilisateurs || []).map((u: any) => ({ id: u.id, nom: u.nom, prenom: u.prenom }));
+      const entites = (task.assignesEntites || []).map((e: any) => ({ id: e.id, nom: e.nom, code: e.code ?? null }));
+      taskScores.push({
+        id: task.id,
+        nom: task.nom,
+        statut: task.statut,
+        assignes,
+        entites,
+        scoring,
+      });
+
+      for (const u of assignes) {
+        if (!userAgg.has(u.id)) {
+          userAgg.set(u.id, { user: u, scores: [], completedInWindow: 0, assignedCount: 0 });
+        }
+        const row = userAgg.get(u.id)!;
+        row.scores.push(finalScore);
+        row.assignedCount += 1;
+        if (completedAt) {
+          const ageDays = Math.floor((now.getTime() - completedAt.getTime()) / (1000 * 3600 * 24));
+          if (ageDays <= SCORING_PRODUCTIVITE_WINDOW_DAYS) row.completedInWindow += 1;
+        }
+      }
+    }
+
+    const userScores = Array.from(userAgg.values()).map((entry) => {
+      const avgTasks = entry.scores.length > 0
+        ? entry.scores.reduce((a, b) => a + b, 0) / entry.scores.length
+        : 1;
+      const completed = entry.completedInWindow;
+      const productivityScore =
+        completed >= 10 ? 5 : completed >= 6 ? 4 : completed >= 3 ? 3 : completed >= 1 ? 2 : 1;
+      const final = clampScore(avgTasks * 0.9 + productivityScore * 0.1);
+      return {
+        user: entry.user,
+        scores: {
+          moyenneTaches: clampScore(avgTasks),
+          productivite: productivityScore,
+          final,
+        },
+        metrics: {
+          tachesAssignees: entry.assignedCount,
+          tachesTermineesPeriode: completed,
+          periodeJours: SCORING_PRODUCTIVITE_WINDOW_DAYS,
+        },
+      };
+    });
+
+    const entityAgg = new Map<string, { entite: { id: string; nom: string; code?: string | null }; userScores: number[] }>();
+    for (const task of taskScores) {
+      for (const ent of task.entites) {
+        if (!entityAgg.has(ent.id)) entityAgg.set(ent.id, { entite: ent, userScores: [] });
+      }
+      for (const asg of task.assignes) {
+        const us = userScores.find((u) => u.user.id === asg.id);
+        if (!us) continue;
+        for (const ent of task.entites) {
+          entityAgg.get(ent.id)?.userScores.push(us.scores.final);
+        }
+      }
+    }
+    const entityScores = Array.from(entityAgg.values()).map((e) => ({
+      entite: e.entite,
+      scores: {
+        final: clampScore(
+          e.userScores.length > 0 ? e.userScores.reduce((a, b) => a + b, 0) / e.userScores.length : 1
+        ),
+      },
+      metrics: { utilisateursPrisEnCompte: e.userScores.length },
+    }));
+
+    return {
+      meta: {
+        projetId: id,
+        generatedAt: now.toISOString(),
+        totalTaches: taskScores.length,
+        totalUtilisateurs: userScores.length,
+        totalEntites: entityScores.length,
+      },
+      settings: {
+        weights: SCORING_WEIGHTS,
+        productivityWindowDays: SCORING_PRODUCTIVITE_WINDOW_DAYS,
+      },
+      taskScores: taskScores.sort((a, b) => b.scoring.final - a.scoring.final),
+      userScores: userScores.sort((a, b) => b.scores.final - a.scores.final),
+      entityScores: entityScores.sort((a, b) => b.scores.final - a.scores.final),
+    };
   }
 
   async getAccesDetail(projetId: string, auth: ProjetAuth) {

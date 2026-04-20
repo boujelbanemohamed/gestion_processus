@@ -144,6 +144,7 @@ app.delete("/api/v1/projets/:id/admin-sans-acces/:userId", projetController.dele
 app.get("/api/v1/projets/:id/history", projetController.getProjetHistory);
 app.post("/api/v1/projets/:id/permissions", projetController.addProjetPermission);
 app.delete("/api/v1/projets/:id/permissions/:permissionId", projetController.removeProjetPermission);
+app.get("/api/v1/projets/:id/scoring", projetController.getProjetScoring);
 app.get("/api/v1/projets/:id/pv-reunions", projetController.getProjetPvReunions);
 app.get("/api/v1/projets/:id", projetController.getProjet);
 app.post("/api/v1/projets", projetController.createProjet);
