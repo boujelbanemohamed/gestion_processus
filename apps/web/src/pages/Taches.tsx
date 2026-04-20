@@ -6805,14 +6805,43 @@ export default function Taches() {
                         )}
                         {(ep.userStories?.length ?? 0) > 0 && (
                           <div>
-                            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">User stories</h4>
-                            <ul className="space-y-2 text-gray-700">
-                              {(ep.userStories || []).map((u) => (
-                                <li key={u.id} className="text-sm">
-                                  <div>{truncateUi(u.description, 160)}</div>
-                                  <div className="text-[10px] font-mono text-gray-400 mt-0.5 break-all">{u.id}</div>
-                                </li>
-                              ))}
+                            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-1">
+                              Hiérarchie user stories et tâches
+                            </h4>
+                            <ul className="space-y-3 text-gray-700">
+                              {(ep.userStories || []).map((u) => {
+                                const tasksUs = getTachesLieesUserStory(u.id, taches);
+                                const statutUs = deriveAggregatedStatutFromTasks(
+                                  tasksUs.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
+                                  new Date()
+                                );
+                                return (
+                                  <li key={u.id} className="text-sm rounded-md border border-gray-200 bg-white p-2.5">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="shrink-0">
+                                        <StatutBadge statut={statutUs} />
+                                      </span>
+                                      <span className="font-medium text-gray-900">📘 {truncateUi(u.description, 140)}</span>
+                                    </div>
+                                    <div className="text-[10px] font-mono text-gray-400 mt-0.5 break-all">{u.id}</div>
+                                    <div className="mt-2 pl-3 border-l-2 border-indigo-100">
+                                      {tasksUs.length === 0 ? (
+                                        <p className="text-xs text-gray-400 italic">Aucune tâche liée à cette user story.</p>
+                                      ) : (
+                                        <ul className="space-y-1.5">
+                                          {tasksUs.map((t) => (
+                                            <li key={t.id} className="flex flex-wrap items-center gap-2 text-xs">
+                                              <StatutBadge statut={t.statut} />
+                                              <span className="text-gray-800">🧩 {truncateUi(t.nom, 120)}</span>
+                                              <span className="font-mono text-[10px] text-gray-400 break-all">{t.id}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  </li>
+                                );
+                              })}
                             </ul>
                           </div>
                         )}
