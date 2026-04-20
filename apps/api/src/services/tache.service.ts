@@ -30,7 +30,26 @@ const TACHE_INCLUDE = {
     }
   },
   assignesUtilisateurs: {
-    include: { user: { select: { id: true, nom: true, prenom: true } } },
+    include: {
+      user: {
+        select: {
+          id: true,
+          nom: true,
+          prenom: true,
+          entitesMembres: {
+            select: {
+              entite: {
+                select: {
+                  id: true,
+                  nom: true,
+                  code: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   },
   assignesEntites: {
     include: {
@@ -91,6 +110,34 @@ const TACHE_INCLUDE = {
 };
 
 function formatTache(t: any) {
+  const entitesDirectes =
+    t.assignesEntites?.map((te: any) => ({
+      ...te.entite,
+      membres: te.entite?.membres || [],
+    })) || [];
+
+  // Si aucune entité n'est explicitement assignée à la tâche,
+  // on hérite des entités des utilisateurs assignés pour l'affichage.
+  const entitesHeritees = (() => {
+    if (entitesDirectes.length > 0) return entitesDirectes;
+    const byId = new Map<string, { id: string; nom: string; code?: string | null; membres: any[] }>();
+    for (const tu of t.assignesUtilisateurs || []) {
+      for (const ue of tu.user?.entitesMembres || []) {
+        const ent = ue.entite;
+        if (!ent?.id) continue;
+        if (!byId.has(ent.id)) {
+          byId.set(ent.id, {
+            id: ent.id,
+            nom: ent.nom,
+            code: ent.code ?? null,
+            membres: [],
+          });
+        }
+      }
+    }
+    return [...byId.values()];
+  })();
+
   return {
     ...t,
     assignesUtilisateurs:
@@ -101,10 +148,7 @@ function formatTache(t: any) {
         tacheUserId: tu.id,
         permission: tu.permission ?? PermissionType.lecture,
       })) || [],
-    assignesEntites: t.assignesEntites?.map((te: any) => ({
-      ...te.entite,
-      membres: te.entite?.membres || [],
-    })) || [],
+    assignesEntites: entitesHeritees,
     assignesClientsFournisseurs:
       t.assignesClientsFournisseurs?.map((tc: any) => ({
         id: tc.clientFournisseur.id,
