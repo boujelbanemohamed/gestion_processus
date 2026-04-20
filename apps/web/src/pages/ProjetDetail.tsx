@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, type ReactNode } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import ProjetPilotageAgile from '../components/ProjetPilotageAgile';
 import { PvReunionsLieesBlock } from '../components/PvReunionsLieesBlock';
@@ -734,6 +734,8 @@ export default function ProjetDetail() {
   const [projetScoring, setProjetScoring] = useState<ProjetScoringResponse | null>(null);
   const [loadingScoring, setLoadingScoring] = useState(false);
   const [scoringError, setScoringError] = useState<string | null>(null);
+  const [selectedScoringUserId, setSelectedScoringUserId] = useState<string | null>(null);
+  const [selectedScoringEntiteId, setSelectedScoringEntiteId] = useState<string | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showLierModal, setShowLierModal] = useState(false);
   const [allDocuments, setAllDocuments] = useState<any[]>([]);
@@ -1384,6 +1386,23 @@ export default function ProjetDetail() {
   const recapTachesRows = projet
     ? buildProjetTachesRecapRows(projet, users, tachesProjet)
     : [];
+  const scoringEntityUserScores = useMemo(() => {
+    if (!projetScoring) return new Map<string, number[]>();
+    const userScoreById = new Map(projetScoring.userScores.map((u) => [u.user.id, u.scores.final]));
+    const map = new Map<string, number[]>();
+    for (const task of projetScoring.taskScores) {
+      for (const ent of task.entites || []) {
+        if (!map.has(ent.id)) map.set(ent.id, []);
+        for (const u of task.assignes || []) {
+          const us = userScoreById.get(u.id);
+          if (typeof us === 'number') map.get(ent.id)?.push(us);
+        }
+      }
+    }
+    return map;
+  }, [projetScoring]);
+  const selectedScoringUser = projetScoring?.userScores.find((u) => u.user.id === selectedScoringUserId) || null;
+  const selectedScoringEntite = projetScoring?.entityScores.find((e) => e.entite.id === selectedScoringEntiteId) || null;
 
   if (loading) return <div className="p-6">Chargement...</div>;
   if (!projet) return <div className="p-6 text-red-600">Projet introuvable</div>;
@@ -2413,6 +2432,15 @@ export default function ProjetDetail() {
               <p className="text-xs text-gray-600 mb-4">
                 Scoring 100% automatique (1 à 5) calculé sur les tâches, puis agrégé par utilisateur et par entité.
               </p>
+              <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-xs text-indigo-900">
+                <p className="font-semibold mb-1">Méthodes de calcul</p>
+                <p className="mb-1">
+                  Utilisateur = (Moyenne score tâches × 90%) + (Score productivité × 10%)
+                </p>
+                <p>
+                  Entité = Moyenne des scores utilisateurs rattachés à l&apos;entité via les tâches du projet
+                </p>
+              </div>
 
               {loadingScoring ? (
                 <p className="text-sm text-gray-500">Chargement du scoring…</p>
@@ -2446,6 +2474,7 @@ export default function ProjetDetail() {
                           <th className="px-3 py-2 text-left font-medium text-gray-600">Moy. tâches</th>
                           <th className="px-3 py-2 text-left font-medium text-gray-600">Productivité</th>
                           <th className="px-3 py-2 text-left font-medium text-gray-600">Terminées ({projetScoring.settings.productivityWindowDays}j)</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 bg-white">
@@ -2460,11 +2489,36 @@ export default function ProjetDetail() {
                             <td className="px-3 py-2 text-gray-700">{u.scores.moyenneTaches.toFixed(2)}</td>
                             <td className="px-3 py-2 text-gray-700">{u.scores.productivite.toFixed(2)}</td>
                             <td className="px-3 py-2 text-gray-700">{u.metrics.tachesTermineesPeriode}</td>
+                            <td className="px-3 py-2">
+                              <button
+                                type="button"
+                                className="px-2 py-1 rounded border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs hover:bg-indigo-100"
+                                onClick={() =>
+                                  setSelectedScoringUserId((prev) => (prev === u.user.id ? null : u.user.id))
+                                }
+                              >
+                                {selectedScoringUserId === u.user.id ? 'Fermer' : 'Détail'}
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
+                  {selectedScoringUser && (
+                    <div className="rounded-lg border border-indigo-200 bg-white px-4 py-3 text-sm">
+                      <div className="font-semibold text-gray-900 mb-1">
+                        Détail calcul utilisateur : {selectedScoringUser.user.prenom} {selectedScoringUser.user.nom}
+                      </div>
+                      <p className="text-gray-700">
+                        Score final = ({selectedScoringUser.scores.moyenneTaches.toFixed(2)} × 0.90) + ({selectedScoringUser.scores.productivite.toFixed(2)} × 0.10) ={' '}
+                        <span className="font-semibold">{selectedScoringUser.scores.final.toFixed(2)}</span>
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Base productivité : {selectedScoringUser.metrics.tachesTermineesPeriode} tâche(s) terminée(s) sur {selectedScoringUser.metrics.periodeJours} jours.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="overflow-x-auto border border-gray-200 rounded-lg">
                     <table className="min-w-full text-sm">
@@ -2473,6 +2527,7 @@ export default function ProjetDetail() {
                           <th className="px-3 py-2 text-left font-medium text-gray-600">Entité</th>
                           <th className="px-3 py-2 text-left font-medium text-gray-600">Score final</th>
                           <th className="px-3 py-2 text-left font-medium text-gray-600">Contributions utilisateurs</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 bg-white">
@@ -2485,11 +2540,38 @@ export default function ProjetDetail() {
                               </span>
                             </td>
                             <td className="px-3 py-2 text-gray-700">{e.metrics.utilisateursPrisEnCompte}</td>
+                            <td className="px-3 py-2">
+                              <button
+                                type="button"
+                                className="px-2 py-1 rounded border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs hover:bg-indigo-100"
+                                onClick={() =>
+                                  setSelectedScoringEntiteId((prev) => (prev === e.entite.id ? null : e.entite.id))
+                                }
+                              >
+                                {selectedScoringEntiteId === e.entite.id ? 'Fermer' : 'Détail'}
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
+                  {selectedScoringEntite && (
+                    <div className="rounded-lg border border-indigo-200 bg-white px-4 py-3 text-sm">
+                      <div className="font-semibold text-gray-900 mb-1">
+                        Détail calcul entité : {selectedScoringEntite.entite.nom}
+                      </div>
+                      <p className="text-gray-700">
+                        Score entité = moyenne des scores utilisateurs rattachés ={' '}
+                        <span className="font-semibold">{selectedScoringEntite.scores.final.toFixed(2)}</span>
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Valeurs utilisées : {(scoringEntityUserScores.get(selectedScoringEntite.entite.id) || [])
+                          .map((v) => v.toFixed(2))
+                          .join(', ') || 'aucune'}.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="overflow-x-auto border border-gray-200 rounded-lg">
                     <table className="min-w-full text-xs">
