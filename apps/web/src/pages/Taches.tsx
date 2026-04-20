@@ -6830,10 +6830,40 @@ export default function Taches() {
                                       ) : (
                                         <ul className="space-y-1.5">
                                           {tasksUs.map((t) => (
-                                            <li key={t.id} className="flex flex-wrap items-center gap-2 text-xs">
-                                              <StatutBadge statut={t.statut} />
-                                              <span className="text-gray-800">🧩 {truncateUi(t.nom, 120)}</span>
-                                              <span className="font-mono text-[10px] text-gray-400 break-all">{t.id}</span>
+                                            <li key={t.id} className="text-xs rounded border border-gray-200 bg-gray-50 px-2 py-1.5">
+                                              <div className="flex flex-wrap items-center gap-2">
+                                                <StatutBadge statut={t.statut} />
+                                                <button
+                                                  type="button"
+                                                  onClick={() => openEditTacheModal(t)}
+                                                  disabled={!canEdit(t)}
+                                                  className={`text-left underline-offset-2 ${
+                                                    canEdit(t)
+                                                      ? 'text-blue-700 hover:text-blue-900 hover:underline'
+                                                      : 'text-gray-500 cursor-not-allowed'
+                                                  }`}
+                                                  title={
+                                                    canEdit(t)
+                                                      ? 'Ouvrir la tâche pour modification'
+                                                      : 'Vous n’avez pas le droit de modifier cette tâche'
+                                                  }
+                                                >
+                                                  🧩 {truncateUi(t.nom, 120)}
+                                                </button>
+                                                <span className="font-mono text-[10px] text-gray-400 break-all">{t.id}</span>
+                                              </div>
+                                              {(t.assignesEntites || []).length > 0 && (
+                                                <div className="mt-1.5 flex flex-wrap gap-1">
+                                                  {(t.assignesEntites || []).map((e) => (
+                                                    <span
+                                                      key={`${t.id}-${e.id}`}
+                                                      className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 text-[11px]"
+                                                    >
+                                                      🏢 {e.nom}
+                                                    </span>
+                                                  ))}
+                                                </div>
+                                              )}
                                             </li>
                                           ))}
                                         </ul>
