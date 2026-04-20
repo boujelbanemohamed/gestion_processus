@@ -15,6 +15,7 @@ const STATUS_COLORS: Record<string, string> = {
   en_cours: 'bg-blue-100 text-blue-800',
   termine: 'bg-green-100 text-green-800',
   en_pause: 'bg-gray-100 text-gray-800',
+  archive: 'bg-purple-100 text-purple-800',
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -22,6 +23,7 @@ const STATUS_LABELS: Record<string, string> = {
   en_cours: 'En cours',
   termine: 'Terminé',
   en_pause: 'En pause',
+  archive: 'Archivé',
 };
 
 const STATUS_SORT_ORDER: Record<string, number> = {
@@ -29,6 +31,7 @@ const STATUS_SORT_ORDER: Record<string, number> = {
   en_cours: 2,
   en_pause: 3,
   termine: 4,
+  archive: 5,
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -157,6 +160,7 @@ export default function Projets() {
   const [fichesClient, setFichesClient] = useState<{ id: string; nom: string }[]>([]);
   const [devisesCreate, setDevisesCreate] = useState<{ id: string; code: string; libelle?: string | null }[]>([]);
   const [selectedClientId, setSelectedClientId] = useState('');
+  const [showArchives, setShowArchives] = useState(false);
 
   const [accesModalProjet, setAccesModalProjet] = useState<any | null>(null);
   const [histModalProjet, setHistModalProjet] = useState<any | null>(null);
@@ -390,13 +394,19 @@ export default function Projets() {
     }
   };
 
+  const projetsVisibles = useMemo(
+    () =>
+      projets.filter((p) => (showArchives ? p.statut === 'archive' : p.statut !== 'archive')),
+    [projets, showArchives]
+  );
+
   const sortedProjets = useMemo(() => {
     const toTs = (d?: string | null) => {
       if (!d) return Number.POSITIVE_INFINITY;
       const t = new Date(d).getTime();
       return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
     };
-    return [...projets].sort((a, b) => {
+    return [...projetsVisibles].sort((a, b) => {
       const sa = STATUS_SORT_ORDER[a.statut] ?? 999;
       const sb = STATUS_SORT_ORDER[b.statut] ?? 999;
       if (sa !== sb) return sa - sb;
@@ -407,7 +417,7 @@ export default function Projets() {
 
       return String(a.nom || '').localeCompare(String(b.nom || ''), 'fr');
     });
-  }, [projets]);
+  }, [projetsVisibles]);
 
   const totalPages = Math.max(1, Math.ceil(sortedProjets.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -415,7 +425,7 @@ export default function Projets() {
   const pageSlice = sortedProjets.slice(startIdx, startIdx + PAGE_SIZE);
 
   const dashboard = useMemo(() => {
-    const list = projets;
+    const list = projetsVisibles;
     const plusActifs = [...list].sort((a, b) => activityScore(b) - activityScore(a)).slice(0, 15);
 
     const parStatut = new Map<string, number>();
@@ -475,7 +485,7 @@ export default function Projets() {
       enRetard,
       total: list.length,
     };
-  }, [projets]);
+  }, [projetsVisibles]);
 
   const sortMapEntriesDesc = (m: Map<string, number>) =>
     [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'fr'));
@@ -501,6 +511,20 @@ export default function Projets() {
             className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
           >
             📊 Dashboard
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowArchives((v) => !v);
+              setPage(1);
+            }}
+            className={`px-4 py-2 border rounded-lg text-sm font-medium ${
+              showArchives
+                ? 'border-purple-300 bg-purple-50 text-purple-800 hover:bg-purple-100'
+                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            {showArchives ? 'Voir projets actifs' : 'Voir archives'}
           </button>
           {canCreateProjet && (
             <button
@@ -551,6 +575,7 @@ export default function Projets() {
                   <option value="en_cours">En cours</option>
                   <option value="termine">Terminé</option>
                   <option value="en_pause">En pause</option>
+                  <option value="archive">Archivé</option>
                 </select>
               </div>
               <div>
@@ -620,7 +645,11 @@ export default function Projets() {
       ) : (
         <>
           <div className="space-y-4">
-            {projets.length === 0 && <div className="text-center py-10 text-gray-400">Aucun projet</div>}
+            {projetsVisibles.length === 0 && (
+              <div className="text-center py-10 text-gray-400">
+                {showArchives ? 'Aucun projet archivé' : 'Aucun projet actif'}
+              </div>
+            )}
             {pageSlice.map((p) => {
               const c = cap(p);
               const tr = p.tachesResume || { total: 0, parStatut: {}, enRetard: 0, avancementPct: null };
@@ -850,10 +879,10 @@ export default function Projets() {
             })}
           </div>
 
-          {projets.length > PAGE_SIZE && (
+          {projetsVisibles.length > PAGE_SIZE && (
             <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4 flex-wrap gap-3">
               <div className="text-sm text-gray-700">
-                Affichage {startIdx + 1}-{Math.min(startIdx + PAGE_SIZE, projets.length)} sur {projets.length}
+                Affichage {startIdx + 1}-{Math.min(startIdx + PAGE_SIZE, projetsVisibles.length)} sur {projetsVisibles.length}
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -1002,6 +1031,7 @@ export default function Projets() {
                       <option value="en_cours">En cours</option>
                       <option value="termine">Terminé</option>
                       <option value="en_pause">En pause</option>
+                      <option value="archive">Archivé</option>
                     </select>
                   </div>
                   <div>

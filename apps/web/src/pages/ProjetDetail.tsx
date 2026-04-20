@@ -14,12 +14,14 @@ const STATUS_COLORS: Record<string, string> = {
   'en_cours': 'bg-blue-100 text-blue-800',
   'termine': 'bg-green-100 text-green-800',
   'en_pause': 'bg-gray-100 text-gray-800',
+  'archive': 'bg-purple-100 text-purple-800',
 };
 const STATUS_LABELS: Record<string, string> = {
   'en_preparation': 'En préparation',
   'en_cours': 'En cours',
   'termine': 'Terminé',
   'en_pause': 'En pause',
+  'archive': 'Archivé',
 };
 const PRIORITY_COLORS: Record<string, string> = {
   'haute': 'bg-red-100 text-red-800',
@@ -1639,6 +1641,7 @@ export default function ProjetDetail() {
                     <option value="en_cours">En cours</option>
                     <option value="termine">Terminé</option>
                     <option value="en_pause">En pause</option>
+                    <option value="archive">Archivé</option>
                   </select>
                 }
               />
