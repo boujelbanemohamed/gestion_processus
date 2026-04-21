@@ -171,6 +171,12 @@ app.get(
   "/api/v1/pv-reunions/:id/commentaires/:commentId/piece",
   pvReunionController.downloadPvCommentairePiece
 );
+app.patch("/api/v1/pv-reunions/:id/contenu", pvReunionController.patchPvReunionContenu);
+app.get("/api/v1/pv-reunions/:id/contenu-versions", pvReunionController.getPvReunionContenuVersions);
+app.get(
+  "/api/v1/pv-reunions/:id/contenu-versions/:versionId",
+  pvReunionController.getPvReunionContenuVersion
+);
 app.get("/api/v1/pv-reunions/:id", pvReunionController.getPvReunion);
 app.post(
   "/api/v1/pv-reunions",

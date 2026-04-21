@@ -163,6 +163,14 @@ function buildDocumentLinkClause(linkType: string, linkId: string): Record<strin
               { epicDocuments: { some: { epic: { projetId: linkId, deletedAt: null } } } },
             ],
           },
+          {
+            pvReunionsPrincipal: {
+              some: {
+                deletedAt: null,
+                projets: { some: { projetId: linkId } },
+              },
+            },
+          },
         ],
       };
     case 'uploadedBy':

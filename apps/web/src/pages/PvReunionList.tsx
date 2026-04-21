@@ -7,8 +7,13 @@ import { canModifyModule } from '../utils/uiModuleRoute';
 import { getPaginationPageNumbers } from '../utils/pagination';
 import { PvReunionAccesModal } from '../components/PvReunionAccesModal';
 import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
+import { PvReunionTiptapEditor } from '../components/PvReunionTiptapEditor';
+import { buildStructuredPvHtml } from '../utils/pv-reunion-html-template';
+import { htmlElementToPdfBlob } from '../utils/pv-reunion-pdf-preview';
 
 const PAGE_SIZE = 15;
+
+const PV_NOUVEAU_DRAFT_LS = 'pmo-hub-pv-reunion-nouveau-draft-v1';
 
 const PV_STATUTS = [
   { value: 'brouillon', label: 'Brouillon', color: 'bg-gray-100 text-gray-800' },
@@ -180,6 +185,12 @@ export default function PvReunionList() {
   const [contratIds, setContratIds] = useState<string[]>([]);
   const [processusIds, setProcessusIds] = useState<string[]>([]);
   const [modificationDelegueIds, setModificationDelegueIds] = useState<string[]>([]);
+
+  const [sourceMode, setSourceMode] = useState<'fichier' | 'redaction'>('fichier');
+  const [contenuHtml, setContenuHtml] = useState('');
+  const [editorMountKey, setEditorMountKey] = useState(0);
+  const previewPdfRootRef = useRef<HTMLDivElement | null>(null);
+  const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
 
   const [page, setPage] = useState(1);
   const [showCorbeilleModal, setShowCorbeilleModal] = useState(false);
@@ -362,17 +373,183 @@ export default function PvReunionList() {
     setContratIds([]);
     setProcessusIds([]);
     setModificationDelegueIds([]);
+    setSourceMode('fichier');
+    setContenuHtml('');
   };
 
   const openForm = () => {
     resetForm();
+    try {
+      const raw = localStorage.getItem(PV_NOUVEAU_DRAFT_LS);
+      if (raw) {
+        const d = JSON.parse(raw) as Record<string, unknown>;
+        if (d && typeof d === 'object') {
+          if (typeof d.titre === 'string') setTitre(d.titre);
+          if (typeof d.statutForm === 'string') setStatutForm(d.statutForm);
+          if (typeof d.dateReunion === 'string') setDateReunion(d.dateReunion);
+          if (Array.isArray(d.presentUserIds)) setPresentUserIds(d.presentUserIds.filter((x) => typeof x === 'string'));
+          if (Array.isArray(d.presentCfIds)) setPresentCfIds(d.presentCfIds.filter((x) => typeof x === 'string'));
+          if (Array.isArray(d.projetIds)) setProjetIds(d.projetIds.filter((x) => typeof x === 'string'));
+          if (Array.isArray(d.tacheIds)) setTacheIds(d.tacheIds.filter((x) => typeof x === 'string'));
+          if (Array.isArray(d.userStoryIds)) setUserStoryIds(d.userStoryIds.filter((x) => typeof x === 'string'));
+          if (Array.isArray(d.epicIds)) setEpicIds(d.epicIds.filter((x) => typeof x === 'string'));
+          if (Array.isArray(d.contratIds)) setContratIds(d.contratIds.filter((x) => typeof x === 'string'));
+          if (Array.isArray(d.processusIds)) setProcessusIds(d.processusIds.filter((x) => typeof x === 'string'));
+          if (Array.isArray(d.modificationDelegueIds))
+            setModificationDelegueIds(d.modificationDelegueIds.filter((x) => typeof x === 'string'));
+          if (d.sourceMode === 'redaction' || d.sourceMode === 'fichier') setSourceMode(d.sourceMode);
+          if (typeof d.contenuHtml === 'string') setContenuHtml(d.contenuHtml);
+        }
+      }
+    } catch {
+      /* brouillon illisible */
+    }
+    setEditorMountKey((k) => k + 1);
     setShowForm(true);
+  };
+
+  useEffect(() => {
+    if (!showForm) return;
+    const t = window.setTimeout(() => {
+      try {
+        localStorage.setItem(
+          PV_NOUVEAU_DRAFT_LS,
+          JSON.stringify({
+            titre,
+            statutForm,
+            dateReunion,
+            presentUserIds,
+            presentCfIds,
+            projetIds,
+            tacheIds,
+            userStoryIds,
+            epicIds,
+            contratIds,
+            processusIds,
+            modificationDelegueIds,
+            sourceMode,
+            contenuHtml,
+            savedAt: new Date().toISOString(),
+          })
+        );
+      } catch {
+        /* quota */
+      }
+    }, 600);
+    return () => window.clearTimeout(t);
+  }, [
+    showForm,
+    titre,
+    statutForm,
+    dateReunion,
+    presentUserIds,
+    presentCfIds,
+    projetIds,
+    tacheIds,
+    userStoryIds,
+    epicIds,
+    contratIds,
+    processusIds,
+    modificationDelegueIds,
+    sourceMode,
+    contenuHtml,
+  ]);
+
+  const contenuHtmlHasText = useMemo(() => {
+    const t = contenuHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return t.length > 0;
+  }, [contenuHtml]);
+
+  const handleGeneratePvTemplate = () => {
+    const st = PV_STATUTS.find((s) => s.value === statutForm)?.label || statutForm;
+    const dateLabel = dateReunion
+      ? new Date(dateReunion).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+      : '—';
+    const uLines = presentUserIds
+      .map((id) => {
+        const u = users.find((x: any) => x.id === id);
+        return u ? `${u.prenom} ${u.nom}` : id;
+      })
+      .filter(Boolean);
+    const cfLines = presentCfIds
+      .map((id) => {
+        const c = clientsFournisseurs.find((x: any) => x.id === id);
+        return c ? clientFournisseurLabel(c) : id;
+      })
+      .filter(Boolean);
+    const projLines = projetIds
+      .map((id) => {
+        const p = projets.find((x: any) => x.id === id);
+        return p ? String(p.nom || p.codeProjet || id) : id;
+      })
+      .filter(Boolean);
+    const tacheLines = tacheIds
+      .map((id) => {
+        const t = taches.find((x: any) => x.id === id);
+        return t ? String(t.nom || id) : id;
+      })
+      .filter(Boolean);
+    const usLines = userStoryIds
+      .map((id) => {
+        const us = userStories.find((x: any) => x.id === id);
+        const d = String(us?.description || '').trim();
+        return d ? (d.length > 120 ? `${d.slice(0, 120)}…` : d) : id;
+      })
+      .filter(Boolean);
+    const epicLines = epicIds
+      .map((id) => {
+        const ep = epics.find((x: any) => x.id === id);
+        return ep ? String(ep.nom || id) : id;
+      })
+      .filter(Boolean);
+
+    setContenuHtml(
+      buildStructuredPvHtml({
+        titre: titre.trim() || 'Réunion',
+        statutLabel: st,
+        dateReunionLabel: dateLabel,
+        usersLines: uLines,
+        cfLines: cfLines,
+        projetsLines: projLines,
+        tachesLines: tacheLines,
+        userStoriesLines: usLines,
+        epicsLines: epicLines,
+      })
+    );
+    setSourceMode('redaction');
+    setEditorMountKey((k) => k + 1);
+  };
+
+  const handlePreviewPdf = async () => {
+    if (!previewPdfRootRef.current || !contenuHtmlHasText) {
+      alert('Rédigez d’abord le contenu du PV pour générer un aperçu.');
+      return;
+    }
+    setPdfPreviewLoading(true);
+    try {
+      const blob = await htmlElementToPdfBlob(previewPdfRootRef.current);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    } catch {
+      alert('Impossible de générer l’aperçu PDF.');
+    } finally {
+      setPdfPreviewLoading(false);
+    }
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fichier || !titre.trim()) {
-      alert('Titre et fichier du PV sont requis.');
+    if (!titre.trim()) {
+      alert('Le titre est requis.');
+      return;
+    }
+    if (sourceMode === 'fichier' && !fichier) {
+      alert('Choisissez un fichier pour le PV ou passez en mode « Rédaction dans l’application ».');
+      return;
+    }
+    if (sourceMode === 'redaction' && !contenuHtmlHasText) {
+      alert('Saisissez le contenu du PV (ou générez le modèle automatique).');
       return;
     }
     setSaving(true);
@@ -381,7 +558,8 @@ export default function PvReunionList() {
       fd.append('titre', titre.trim());
       fd.append('statut', statutForm);
       if (dateReunion) fd.append('dateReunion', new Date(dateReunion).toISOString());
-      fd.append('fichier', fichier);
+      if (sourceMode === 'fichier' && fichier) fd.append('fichier', fichier);
+      if (sourceMode === 'redaction') fd.append('contenuHtml', contenuHtml);
       fd.append('presentUserIds', JSON.stringify(presentUserIds));
       fd.append('presentClientFournisseurIds', JSON.stringify(presentCfIds));
       fd.append('projetIds', JSON.stringify(projetIds));
@@ -394,6 +572,11 @@ export default function PvReunionList() {
       const res = await uploadApi.post('/pv-reunions', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
+      try {
+        localStorage.removeItem(PV_NOUVEAU_DRAFT_LS);
+      } catch {
+        /* */
+      }
       setShowForm(false);
       resetForm();
       await load();
@@ -1269,14 +1452,106 @@ export default function PvReunionList() {
                   onChange={(e) => setDateReunion(e.target.value)}
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Pièce jointe principale *</label>
-                <input
-                  type="file"
-                  className="text-sm"
-                  onChange={(e) => setFichier(e.target.files?.[0] || null)}
-                  required
+              <div className="rounded-lg border border-gray-200 bg-slate-50/80 p-3 space-y-3">
+                <p className="text-xs font-semibold text-gray-700">Document principal</p>
+                <div className="flex flex-wrap gap-4 text-sm">
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="pv-source"
+                      checked={sourceMode === 'fichier'}
+                      onChange={() => {
+                        setSourceMode('fichier');
+                        setEditorMountKey((k) => k + 1);
+                      }}
+                    />
+                    Importer un fichier
+                  </label>
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="pv-source"
+                      checked={sourceMode === 'redaction'}
+                      onChange={() => {
+                        setSourceMode('redaction');
+                        setEditorMountKey((k) => k + 1);
+                      }}
+                    />
+                    Rédiger dans l’application
+                  </label>
+                </div>
+                {sourceMode === 'fichier' ? (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Fichier *</label>
+                    <input
+                      type="file"
+                      className="text-sm"
+                      onChange={(e) => setFichier(e.target.files?.[0] || null)}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={handleGeneratePvTemplate}
+                        className="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+                      >
+                        Générer automatiquement le contenu du PV
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handlePreviewPdf}
+                        disabled={pdfPreviewLoading || !contenuHtmlHasText}
+                        className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        {pdfPreviewLoading ? 'Aperçu…' : 'Aperçu PDF'}
+                      </button>
+                    </div>
+                    <label className="block text-xs font-medium text-gray-600">Contenu du PV *</label>
+                    <PvReunionTiptapEditor
+                      key={editorMountKey}
+                      initialHtml={contenuHtml}
+                      onChange={setContenuHtml}
+                    />
+                    <p className="text-[11px] text-gray-500">
+                      Titres, listes, tableau des actions, gras / italique. Le PDF serveur reprend aussi les
+                      métadonnées (participants, rattachements) ; l’aperçu local reflète davantage la mise en forme
+                      du navigateur.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div
+                ref={previewPdfRootRef}
+                className="fixed left-[-10000px] top-0 w-[794px] bg-white p-10 text-[13px] leading-relaxed text-gray-900 shadow-sm"
+                aria-hidden
+              >
+                <header className="border-b border-gray-200 pb-3 mb-4">
+                  <p className="text-xs uppercase tracking-wide text-gray-500">Procès-verbal de réunion</p>
+                  <h1 className="text-xl font-bold text-gray-900 mt-1">{titre.trim() || '—'}</h1>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Aperçu généré le {new Date().toLocaleString('fr-FR')} — statut :{' '}
+                    {PV_STATUTS.find((s) => s.value === statutForm)?.label || statutForm}
+                    {dateReunion
+                      ? ` — date réunion : ${new Date(dateReunion).toLocaleDateString('fr-FR')}`
+                      : ''}
+                  </p>
+                </header>
+                <div
+                  className="prose-pv-preview"
+                  dangerouslySetInnerHTML={{ __html: contenuHtml || '<p></p>' }}
                 />
+                <style>{`
+                  .prose-pv-preview h2 { font-size: 1.05rem; font-weight: 700; margin: 0.65rem 0 0.3rem; }
+                  .prose-pv-preview h3 { font-size: 0.95rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
+                  .prose-pv-preview p { margin: 0.3rem 0; }
+                  .prose-pv-preview ul, .prose-pv-preview ol { margin: 0.3rem 0 0.3rem 1.1rem; }
+                  .prose-pv-preview table { border-collapse: collapse; width: 100%; margin: 0.4rem 0; font-size: 12px; }
+                  .prose-pv-preview th, .prose-pv-preview td { border: 1px solid #ccc; padding: 4px 6px; }
+                  .prose-pv-preview th { background: #f3f4f6; font-weight: 600; }
+                `}</style>
               </div>
 
               <div className="grid md:grid-cols-2 gap-3">

@@ -219,6 +219,7 @@ model User {
   pvReunionModificationDelegues PvReunionModificationDelegue[]
   pvReunionCommentairesAuteur   PvReunionCommentaire[]   @relation("PvReunionCommentaireAuteur")
   pvReunionCommentairesAssignes PvReunionCommentaire[]   @relation("PvReunionCommentaireAssigne")
+  pvReunionContenuVersions      PvReunionContenuVersion[] @relation("PvReunionContenuVersionAuteur")
 }
 
 model UserUiModuleAccess {
@@ -1452,6 +1453,9 @@ model PvReunion {
   createdBy        User      @relation("PvReunionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   /// Sélection utilisateur (formulaire) : epicIds, userStoryIds, tacheIds, projetIds, contratIds, processusIds
   liensExplicites  Json      @default("{}")
+  /// Contenu rédigé dans l’application (HTML), conservé pour édition / traçabilité
+  contenuHtml      String?   @db.Text
+  contenuUpdatedAt DateTime?
   deletedAt        DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
@@ -1468,10 +1472,25 @@ model PvReunion {
   permissions              PvReunionPermission[]
   adminSansAcces           PvReunionAdminSansAcces[]
   commentaires             PvReunionCommentaire[]
+  contenuVersions          PvReunionContenuVersion[]
 
   @@index([createdById])
   @@index([documentId])
   @@index([deletedAt])
+}
+
+/// Historique des versions du contenu HTML du PV (brouillons / sauvegardes).
+model PvReunionContenuVersion {
+  id            String    @id @default(uuid())
+  pvReunionId   String
+  pvReunion     PvReunion @relation(fields: [pvReunionId], references: [id], onDelete: Cascade)
+  contenuHtml   String    @db.Text
+  createdById   String
+  createdBy     User      @relation("PvReunionContenuVersionAuteur", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt     DateTime  @default(now())
+
+  @@index([pvReunionId])
+  @@index([createdById])
 }
 
 model PvReunionPresentUser {

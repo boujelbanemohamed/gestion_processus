@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { api, API_BASE_URL } from '../services/api';
 import axios from 'axios';
@@ -6,6 +6,9 @@ import { useAuth } from '../store/auth';
 import { canModifyModule } from '../utils/uiModuleRoute';
 import { PvReunionAccesModal, type PvReunionAccesDetail } from '../components/PvReunionAccesModal';
 import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
+import { PvReunionTiptapEditor } from '../components/PvReunionTiptapEditor';
+import { buildStructuredPvHtml } from '../utils/pv-reunion-html-template';
+import { htmlElementToPdfBlob } from '../utils/pv-reunion-pdf-preview';
 
 const PV_DETAIL_DROITS_ADMIN =
   'consultation, modification, mise en corbeille, gestion des accès';
@@ -133,6 +136,17 @@ export default function PvReunionDetail() {
   const [histoList, setHistoList] = useState<any[]>([]);
   const [histoLoading, setHistoLoading] = useState(false);
 
+  const [contenuHtml, setContenuHtml] = useState('');
+  const [editorContentKey, setEditorContentKey] = useState(0);
+  const previewPvRef = useRef<HTMLDivElement | null>(null);
+  const [pdfPreviewDetailLoading, setPdfPreviewDetailLoading] = useState(false);
+  const [contenuVersionsOpen, setContenuVersionsOpen] = useState(false);
+  const [contenuVersions, setContenuVersions] = useState<
+    { id: string; createdAt: string; preview: string; createdBy?: { prenom?: string; nom?: string } }[]
+  >([]);
+  const [contenuVersionsLoading, setContenuVersionsLoading] = useState(false);
+  const [versionRestoreId, setVersionRestoreId] = useState<string | null>(null);
+
   const canModule = canModifyModule(user?.uiModules, 'pv_reunion');
   const canEdit = !!(pv?.capabilities?.canModify && canModule);
 
@@ -213,6 +227,7 @@ export default function PvReunionDetail() {
     setContratIds(le.contratIds || []);
     setProcessusIds(le.processusIds || []);
     setModificationDelegueIds(pv.modificationDelegues?.map((x: any) => x.userId || x.user?.id) || []);
+    setContenuHtml(pv.contenuHtml || '');
   }, [pv]);
 
   useEffect(() => {
@@ -242,6 +257,7 @@ export default function PvReunionDetail() {
         contratIds,
         processusIds,
         modificationDelegueIds,
+        contenuHtml,
       });
       setEditMode(false);
       await load();
@@ -322,6 +338,129 @@ export default function PvReunionDetail() {
       alert("Impossible de charger l'historique.");
     } finally {
       setHistoLoading(false);
+    }
+  };
+
+  const contenuHtmlHasText = (html: string) =>
+    html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length > 0;
+
+  const handleGeneratePvTemplateDetail = () => {
+    const st = PV_STATUTS.find((s) => s.value === statutPv)?.label || statutPv;
+    const dateLabel = dateReunion
+      ? new Date(dateReunion).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+      : '—';
+    const uLines = presentUserIds
+      .map((uid) => {
+        const u = users.find((x: any) => x.id === uid);
+        return u ? `${u.prenom} ${u.nom}` : uid;
+      })
+      .filter(Boolean);
+    const cfLines = presentCfIds
+      .map((cid) => {
+        const c = clientsFournisseurs.find((x: any) => x.id === cid);
+        return c ? clientFournisseurLabel(c) : cid;
+      })
+      .filter(Boolean);
+    const projLines = projetIds
+      .map((pid) => {
+        const p = projets.find((x: any) => x.id === pid);
+        return p ? String(p.nom || p.codeProjet || pid) : pid;
+      })
+      .filter(Boolean);
+    const tacheLines = tacheIds
+      .map((tid) => {
+        const t = taches.find((x: any) => x.id === tid);
+        return t ? String(t.nom || tid) : tid;
+      })
+      .filter(Boolean);
+    const usLines = userStoryIds
+      .map((sid) => {
+        const us = userStories.find((x: any) => x.id === sid);
+        const d = String(us?.description || '').trim();
+        return d ? (d.length > 120 ? `${d.slice(0, 120)}…` : d) : sid;
+      })
+      .filter(Boolean);
+    const epicLines = epicIds
+      .map((eid) => {
+        const ep = epics.find((x: any) => x.id === eid);
+        return ep ? String(ep.nom || eid) : eid;
+      })
+      .filter(Boolean);
+
+    setContenuHtml(
+      buildStructuredPvHtml({
+        titre: titre.trim() || pv?.titre || 'Réunion',
+        statutLabel: st,
+        dateReunionLabel: dateLabel,
+        usersLines: uLines,
+        cfLines,
+        projetsLines: projLines,
+        tachesLines: tacheLines,
+        userStoriesLines: usLines,
+        epicsLines: epicLines,
+      })
+    );
+    setEditorContentKey((k) => k + 1);
+  };
+
+  const openContenuVersions = async () => {
+    if (!id) return;
+    setContenuVersionsOpen(true);
+    setContenuVersionsLoading(true);
+    try {
+      const { data } = await api.get(`/pv-reunions/${id}/contenu-versions`);
+      setContenuVersions(Array.isArray(data) ? data : []);
+    } catch {
+      setContenuVersions([]);
+    } finally {
+      setContenuVersionsLoading(false);
+    }
+  };
+
+  const restoreContenuVersion = async (versionId: string) => {
+    if (!id) return;
+    setVersionRestoreId(versionId);
+    try {
+      const { data } = await api.get(`/pv-reunions/${id}/contenu-versions/${versionId}`);
+      setContenuHtml(data.contenuHtml || '');
+      setEditorContentKey((k) => k + 1);
+      setContenuVersionsOpen(false);
+    } catch {
+      alert('Impossible de charger cette version.');
+    } finally {
+      setVersionRestoreId(null);
+    }
+  };
+
+  const saveContenuVersionSnapshot = async () => {
+    if (!id) return;
+    if (!contenuHtmlHasText(contenuHtml)) {
+      alert('Le contenu est vide.');
+      return;
+    }
+    try {
+      await api.patch(`/pv-reunions/${id}/contenu`, { contenuHtml });
+      await load();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || err?.message || 'Erreur');
+    }
+  };
+
+  const handlePreviewPdfDetail = async () => {
+    if (!previewPvRef.current || !contenuHtmlHasText(contenuHtml)) {
+      alert('Rédigez d’abord le contenu du PV.');
+      return;
+    }
+    setPdfPreviewDetailLoading(true);
+    try {
+      const blob = await htmlElementToPdfBlob(previewPvRef.current);
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    } catch {
+      alert('Impossible de générer l’aperçu PDF.');
+    } finally {
+      setPdfPreviewDetailLoading(false);
     }
   };
 
@@ -520,6 +659,50 @@ export default function PvReunionDetail() {
               onChange={setModificationDelegueIds}
               renderLabel={(x) => `${x.prenom} ${x.nom}`}
             />
+
+            <div className="border-t border-gray-100 pt-4 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-800">Contenu du PV</h3>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleGeneratePvTemplateDetail}
+                  className="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+                >
+                  Générer le modèle structuré
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveContenuVersionSnapshot()}
+                  className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 bg-white hover:bg-gray-50"
+                >
+                  Sauvegarder une version (historique)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void openContenuVersions()}
+                  className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 bg-white hover:bg-gray-50"
+                >
+                  Versions enregistrées
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handlePreviewPdfDetail()}
+                  disabled={pdfPreviewDetailLoading}
+                  className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {pdfPreviewDetailLoading ? 'Aperçu…' : 'Aperçu PDF'}
+                </button>
+              </div>
+              <PvReunionTiptapEditor
+                key={editorContentKey}
+                initialHtml={contenuHtml}
+                onChange={setContenuHtml}
+              />
+              <p className="text-[11px] text-gray-500">
+                « Enregistrer » ci-dessus enregistre aussi le contenu courant. « Sauvegarder une version » crée une
+                entrée dans l’historique des contenus.
+              </p>
+            </div>
           </div>
         )}
           </div>
@@ -556,7 +739,11 @@ export default function PvReunionDetail() {
             {canEdit && !editMode && (
               <button
                 type="button"
-                onClick={() => setEditMode(true)}
+                onClick={() => {
+                  setContenuHtml(pv.contenuHtml || '');
+                  setEditorContentKey((k) => k + 1);
+                  setEditMode(true);
+                }}
                 className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
               >
                 ✏️ Modifier
@@ -792,6 +979,31 @@ export default function PvReunionDetail() {
             </div>
           </section>
 
+          {(pv.contenuHtml || '').replace(/<[^>]+>/g, '').trim().length > 0 && (
+            <section className="bg-white rounded-lg shadow border border-gray-100 p-6 mb-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Contenu rédigé</h2>
+              {pv.contenuUpdatedAt && (
+                <p className="text-xs text-gray-500 mb-3">
+                  Dernière mise à jour du texte :{' '}
+                  {new Date(pv.contenuUpdatedAt).toLocaleString('fr-FR')}
+                </p>
+              )}
+              <div
+                className="prose-pv-read text-sm text-gray-800 border border-gray-100 rounded-lg p-4 bg-gray-50/50 max-h-[480px] overflow-y-auto"
+                dangerouslySetInnerHTML={{ __html: pv.contenuHtml }}
+              />
+              <style>{`
+                .prose-pv-read h2 { font-size: 1.05rem; font-weight: 700; margin: 0.6rem 0 0.25rem; }
+                .prose-pv-read h3 { font-size: 0.95rem; font-weight: 600; margin: 0.45rem 0 0.2rem; }
+                .prose-pv-read p { margin: 0.3rem 0; line-height: 1.5; }
+                .prose-pv-read ul, .prose-pv-read ol { margin: 0.3rem 0 0.3rem 1.1rem; }
+                .prose-pv-read table { border-collapse: collapse; width: 100%; margin: 0.4rem 0; font-size: 12px; }
+                .prose-pv-read th, .prose-pv-read td { border: 1px solid #d1d5db; padding: 4px 6px; }
+                .prose-pv-read th { background: #f3f4f6; font-weight: 600; }
+              `}</style>
+            </section>
+          )}
+
           <section className="bg-white rounded-lg shadow border border-gray-100 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Commentaires</h2>
             <div className="space-y-4 mb-6">
@@ -891,6 +1103,88 @@ export default function PvReunionDetail() {
           }
         }}
       />
+
+      <div
+        ref={previewPvRef}
+        className="fixed left-[-10000px] top-0 w-[794px] bg-white p-10 text-[13px] leading-relaxed text-gray-900"
+        aria-hidden
+      >
+        <header className="border-b border-gray-200 pb-3 mb-4">
+          <p className="text-xs uppercase tracking-wide text-gray-500">Procès-verbal de réunion</p>
+          <h1 className="text-xl font-bold text-gray-900 mt-1">{titre.trim() || pv.titre}</h1>
+          <p className="text-xs text-gray-500 mt-2">
+            Aperçu — {new Date().toLocaleString('fr-FR')} —{' '}
+            {PV_STATUTS.find((s) => s.value === statutPv)?.label || statutPv}
+            {dateReunion
+              ? ` — date réunion : ${new Date(dateReunion).toLocaleDateString('fr-FR')}`
+              : ''}
+          </p>
+        </header>
+        <div className="prose-pv-preview" dangerouslySetInnerHTML={{ __html: contenuHtml || '<p></p>' }} />
+        <style>{`
+          .prose-pv-preview h2 { font-size: 1.05rem; font-weight: 700; margin: 0.65rem 0 0.3rem; }
+          .prose-pv-preview h3 { font-size: 0.95rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
+          .prose-pv-preview p { margin: 0.3rem 0; }
+          .prose-pv-preview ul, .prose-pv-preview ol { margin: 0.3rem 0 0.3rem 1.1rem; }
+          .prose-pv-preview table { border-collapse: collapse; width: 100%; margin: 0.4rem 0; font-size: 12px; }
+          .prose-pv-preview th, .prose-pv-preview td { border: 1px solid #ccc; padding: 4px 6px; }
+          .prose-pv-preview th { background: #f3f4f6; font-weight: 600; }
+        `}</style>
+      </div>
+
+      {contenuVersionsOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[85vh] overflow-y-auto p-5">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-lg font-semibold">Historique du contenu</h3>
+              <button
+                type="button"
+                className="text-gray-500 hover:text-gray-800"
+                onClick={() => setContenuVersionsOpen(false)}
+                aria-label="Fermer"
+              >
+                ✕
+              </button>
+            </div>
+            {contenuVersionsLoading ? (
+              <p className="text-sm text-gray-500">Chargement…</p>
+            ) : contenuVersions.length === 0 ? (
+              <p className="text-sm text-gray-500">Aucune version enregistrée.</p>
+            ) : (
+              <ul className="space-y-3 text-sm">
+                {contenuVersions.map((v) => (
+                  <li key={v.id} className="border border-gray-100 rounded-md p-3">
+                    <div className="text-xs text-gray-500 flex flex-wrap justify-between gap-1">
+                      <span>{v.createdAt ? new Date(v.createdAt).toLocaleString('fr-FR') : ''}</span>
+                      <span>
+                        {v.createdBy?.prenom} {v.createdBy?.nom}
+                      </span>
+                    </div>
+                    <p className="text-gray-700 mt-1 line-clamp-3">{v.preview || '—'}</p>
+                    <button
+                      type="button"
+                      disabled={versionRestoreId === v.id}
+                      onClick={() => void restoreContenuVersion(v.id)}
+                      className="mt-2 text-xs text-blue-600 hover:underline disabled:opacity-50"
+                    >
+                      {versionRestoreId === v.id ? 'Chargement…' : 'Restaurer dans l’éditeur'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex justify-end mt-4">
+              <button
+                type="button"
+                onClick={() => setContenuVersionsOpen(false)}
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {histOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">

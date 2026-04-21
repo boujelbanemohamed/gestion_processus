@@ -1,6 +1,83 @@
 import { prisma } from '../utils/prisma';
 import { DocType, LogAction, RefType, ResourceType, Role, UserStatus } from '../generated/prisma/enums';
 import { NotificationService } from './notification.service';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { Readable } from 'stream';
+import { v4 as uuidv4 } from 'uuid';
+import { generatePvPdfBuffer, type PvPdfMeta } from '../utils/pv-pdf-from-html';
+
+const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
+
+function multerFileLike(opts: {
+  diskPath: string;
+  diskFilename: string;
+  originalname: string;
+  mimetype: string;
+  size: number;
+}): Express.Multer.File {
+  const empty = new Readable();
+  empty.push(null);
+  return {
+    fieldname: 'fichier',
+    originalname: opts.originalname,
+    encoding: '7bit',
+    mimetype: opts.mimetype,
+    size: opts.size,
+    destination: path.dirname(opts.diskPath),
+    filename: opts.diskFilename,
+    path: opts.diskPath,
+    buffer: Buffer.alloc(0),
+    stream: empty as any,
+  } as Express.Multer.File;
+}
+
+function pvStatutLabelFr(st: string): string {
+  const m: Record<string, string> = {
+    brouillon: 'Brouillon',
+    en_revision: 'En révision',
+    valide: 'Validé',
+    archive: 'Archivé',
+  };
+  return m[st] || st;
+}
+
+function slugifyTitre(titre: string): string {
+  const s = titre
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9-_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60);
+  return s || 'PV';
+}
+
+export function buildPvPrincipalFileBaseName(titre: string, dateReunion?: Date | null): string {
+  const d =
+    dateReunion && !Number.isNaN(dateReunion.getTime())
+      ? dateReunion.toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+  return `PV_Reunion_${d}_${slugifyTitre(titre)}`;
+}
+
+async function syncPvPrincipalDocumentLinks(documentId: string, expanded: LiensExplicites) {
+  await prisma.$transaction([
+    prisma.tacheDocument.deleteMany({ where: { documentId } }),
+    prisma.epicDocument.deleteMany({ where: { documentId } }),
+  ]);
+  if (expanded.tacheIds.length) {
+    await prisma.tacheDocument.createMany({
+      data: expanded.tacheIds.map((tacheId) => ({ tacheId, documentId })),
+      skipDuplicates: true,
+    });
+  }
+  if (expanded.epicIds.length) {
+    await prisma.epicDocument.createMany({
+      data: expanded.epicIds.map((epicId) => ({ epicId, documentId })),
+      skipDuplicates: true,
+    });
+  }
+}
 
 export const PV_REUNION_STATUTS = ['brouillon', 'en_revision', 'valide', 'archive'] as const;
 export type PvReunionStatut = (typeof PV_REUNION_STATUTS)[number];
@@ -31,6 +108,13 @@ const emptyLiens: LiensExplicites = {
 
 function uniq(ids: string[]): string[] {
   return [...new Set(ids.filter(Boolean))];
+}
+
+function stripHtmlTags(html: string): string {
+  return String(html || '')
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ');
 }
 
 function parseLiensExplicites(raw: unknown): LiensExplicites {
@@ -433,6 +517,74 @@ export class PvReunionService {
     return mapPvWithCaps({ ...pv, nombreCommentaires, nombreVues }, userId, role);
   }
 
+  private async buildPdfMetaForCreate(
+    data: {
+      titre: string;
+      statut?: string | null;
+      dateReunion?: Date | null;
+      presentUserIds: string[];
+      presentClientFournisseurIds: string[];
+    },
+    expanded: LiensExplicites,
+    bodyHtml: string
+  ): Promise<PvPdfMeta> {
+    const st = normalizePvStatut(data.statut) ?? 'brouillon';
+    const users = data.presentUserIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: uniq(data.presentUserIds) } },
+          select: { prenom: true, nom: true },
+        })
+      : [];
+    const cfs = data.presentClientFournisseurIds.length
+      ? await prisma.clientFournisseur.findMany({
+          where: { id: { in: uniq(data.presentClientFournisseurIds) } },
+          select: { nom: true, type: true },
+        })
+      : [];
+    const projets = expanded.projetIds.length
+      ? await prisma.projet.findMany({
+          where: { id: { in: expanded.projetIds }, deletedAt: null },
+          select: { nom: true, codeProjet: true },
+        })
+      : [];
+    const taches = expanded.tacheIds.length
+      ? await prisma.tache.findMany({
+          where: { id: { in: expanded.tacheIds }, deletedAt: null },
+          select: { nom: true },
+        })
+      : [];
+    const uss = expanded.userStoryIds.length
+      ? await prisma.userStory.findMany({
+          where: { id: { in: expanded.userStoryIds }, deletedAt: null },
+          select: { description: true },
+        })
+      : [];
+    const eps = expanded.epicIds.length
+      ? await prisma.epic.findMany({
+          where: { id: { in: expanded.epicIds }, deletedAt: null },
+          select: { nom: true },
+        })
+      : [];
+
+    return {
+      titre: data.titre.trim(),
+      statutLabel: pvStatutLabelFr(st),
+      dateReunionLabel: data.dateReunion
+        ? data.dateReunion.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+        : '—',
+      participantsUsers: users.map((u) => `${u.prenom} ${u.nom}`).join(', ') || '—',
+      participantsClients:
+        cfs.map((c) => `${c.nom} (${c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})`).join(', ') || '—',
+      liensProjets: projets.map((p) => `${p.nom}${p.codeProjet ? ` (${p.codeProjet})` : ''}`).join(' ; ') || '—',
+      liensTaches: taches.map((t) => t.nom).join(' ; ') || '—',
+      liensUserStories:
+        uss.map((u) => (u.description || '').replace(/\s+/g, ' ').slice(0, 120)).join(' ; ') || '—',
+      liensEpics: eps.map((e) => e.nom).join(' ; ') || '—',
+      bodyHtml,
+      generatedAt: new Date(),
+    };
+  }
+
   async create(
     userId: string,
     role: string,
@@ -444,20 +596,41 @@ export class PvReunionService {
       presentClientFournisseurIds: string[];
       liens: LiensExplicites;
       modificationDelegueIds: string[];
-      fichier: Express.Multer.File;
+      fichier?: Express.Multer.File;
+      contenuHtml?: string | null;
     }
   ) {
     const expanded = await expandLiens(data.liens);
     const liensExplicitesStored = data.liens as object;
+    const htmlTrim = data.contenuHtml?.trim() || '';
+
+    let fichier = data.fichier;
+    if (!fichier) {
+      if (!htmlTrim) throw new Error('Fichier du PV ou contenu HTML requis');
+      const meta = await this.buildPdfMetaForCreate(data, expanded, htmlTrim);
+      const buf = await generatePvPdfBuffer(meta);
+      const base = buildPvPrincipalFileBaseName(data.titre, data.dateReunion ?? null);
+      const storedName = `${Date.now()}-${uuidv4()}.pdf`;
+      await fs.mkdir(UPLOAD_DIR, { recursive: true });
+      const diskPath = path.join(UPLOAD_DIR, storedName);
+      await fs.writeFile(diskPath, buf);
+      fichier = multerFileLike({
+        diskPath,
+        diskFilename: storedName,
+        originalname: `${base}.pdf`,
+        mimetype: 'application/pdf',
+        size: buf.length,
+      });
+    }
 
     const doc = await prisma.document.create({
       data: {
-        nom: data.fichier.originalname,
+        nom: fichier!.originalname,
         typeDocument: DocType.pv_reunion,
-        fichierUrl: data.fichier.filename,
-        fichierNomOriginal: data.fichier.originalname,
-        fichierTaille: data.fichier.size,
-        fichierType: data.fichier.mimetype,
+        fichierUrl: fichier!.filename,
+        fichierNomOriginal: fichier!.originalname,
+        fichierTaille: fichier!.size,
+        fichierType: fichier!.mimetype,
         uploadedById: userId,
         estConfidentiel: false,
       },
@@ -476,6 +649,8 @@ export class PvReunionService {
         dateReunion: data.dateReunion ?? null,
         createdById: userId,
         liensExplicites: liensExplicitesStored as any,
+        contenuHtml: htmlTrim || null,
+        contenuUpdatedAt: htmlTrim ? new Date() : null,
         presentsUser: {
           create: uniq(data.presentUserIds).map((uid) => ({ userId: uid })),
         },
@@ -499,6 +674,7 @@ export class PvReunionService {
     });
 
     await replaceLiens(pv.id, expanded);
+    await syncPvPrincipalDocumentLinks(doc.id, expanded);
 
     await this.syncDeleguesToPermissionRows(
       pv.id,
@@ -521,6 +697,7 @@ export class PvReunionService {
       presentClientFournisseurIds?: string[];
       liens?: LiensExplicites;
       modificationDelegueIds?: string[];
+      contenuHtml?: string | null;
     }
   ) {
     const existing = await prisma.pvReunion.findFirst({
@@ -553,6 +730,13 @@ export class PvReunionService {
         ...(statutUpdate !== undefined ? { statut: statutUpdate } : {}),
         ...(data.dateReunion !== undefined ? { dateReunion: data.dateReunion } : {}),
         ...(data.liens ? { liensExplicites: liensExplicites as any } : {}),
+        ...(data.contenuHtml !== undefined
+          ? {
+              contenuHtml: data.contenuHtml === null || data.contenuHtml === '' ? null : String(data.contenuHtml),
+              contenuUpdatedAt:
+                data.contenuHtml === null || data.contenuHtml === '' ? null : new Date(),
+            }
+          : {}),
       },
     });
 
@@ -588,9 +772,105 @@ export class PvReunionService {
       await this.onDeleguesFormUpdated(id, existing.createdById, prevDelegueIds, data.modificationDelegueIds);
     }
 
-    if (expanded) await replaceLiens(id, expanded);
+    if (expanded) {
+      await replaceLiens(id, expanded);
+      await syncPvPrincipalDocumentLinks(existing.documentId, expanded);
+    }
 
     return this.findOne(id, userId, role);
+  }
+
+  async saveContenuBrouillon(id: string, userId: string, role: string, contenuHtml: string) {
+    const existing = await prisma.pvReunion.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        permissions: { select: { userId: true, niveau: true } },
+        adminSansAcces: { select: { userId: true } },
+      },
+    });
+    if (!existing) throw new Error('NOT_FOUND');
+    if (!capabilitiesPvReunion(toPvAcl(existing), userId, role).canModify) throw new Error('FORBIDDEN');
+    const trimmed = String(contenuHtml || '').trim();
+    if (!trimmed) throw new Error('Contenu vide');
+    if (trimmed.length > 600_000) throw new Error('Contenu trop volumineux');
+
+    await prisma.$transaction(async (tx) => {
+      await tx.pvReunionContenuVersion.create({
+        data: {
+          id: uuidv4(),
+          pvReunionId: id,
+          contenuHtml: trimmed,
+          createdById: userId,
+        },
+      });
+      await tx.pvReunion.update({
+        where: { id },
+        data: { contenuHtml: trimmed, contenuUpdatedAt: new Date() },
+      });
+      const total = await tx.pvReunionContenuVersion.count({ where: { pvReunionId: id } });
+      if (total > 40) {
+        const oldest = await tx.pvReunionContenuVersion.findMany({
+          where: { pvReunionId: id },
+          orderBy: { createdAt: 'asc' },
+          take: total - 40,
+          select: { id: true },
+        });
+        if (oldest.length) {
+          await tx.pvReunionContenuVersion.deleteMany({
+            where: { id: { in: oldest.map((o) => o.id) } },
+          });
+        }
+      }
+    });
+
+    return this.findOne(id, userId, role);
+  }
+
+  async listContenuVersions(id: string, userId: string, role: string) {
+    const pv = await prisma.pvReunion.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        permissions: { select: { userId: true, niveau: true } },
+        adminSansAcces: { select: { userId: true } },
+      },
+    });
+    if (!pv) throw new Error('NOT_FOUND');
+    if (!canViewPvReunion(toPvAcl(pv), userId, role)) throw new Error('NOT_FOUND');
+    const rows = await prisma.pvReunionContenuVersion.findMany({
+      where: { pvReunionId: id },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: {
+        id: true,
+        createdAt: true,
+        contenuHtml: true,
+        createdBy: { select: { id: true, prenom: true, nom: true } },
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt,
+      createdBy: r.createdBy,
+      preview: stripHtmlTags(r.contenuHtml).replace(/\s+/g, ' ').trim().slice(0, 280),
+    }));
+  }
+
+  async getContenuVersion(id: string, versionId: string, userId: string, role: string) {
+    const pv = await prisma.pvReunion.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        permissions: { select: { userId: true, niveau: true } },
+        adminSansAcces: { select: { userId: true } },
+      },
+    });
+    if (!pv) throw new Error('NOT_FOUND');
+    if (!canViewPvReunion(toPvAcl(pv), userId, role)) throw new Error('NOT_FOUND');
+    const v = await prisma.pvReunionContenuVersion.findFirst({
+      where: { id: versionId, pvReunionId: id },
+      include: { createdBy: { select: { id: true, prenom: true, nom: true } } },
+    });
+    if (!v) throw new Error('NOT_FOUND');
+    return v;
   }
 
   async softDelete(id: string, userId: string, role: string) {

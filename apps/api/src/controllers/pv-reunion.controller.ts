@@ -48,6 +48,9 @@ function handleErr(res: Response, e: unknown) {
   const msg = e instanceof Error ? e.message : String(e);
   if (msg === 'NOT_FOUND') return res.status(404).json({ error: 'Non trouvé' });
   if (msg === 'FORBIDDEN') return res.status(403).json({ error: 'Accès refusé' });
+  if (msg === 'Contenu vide' || msg === 'Contenu trop volumineux') {
+    return res.status(400).json({ error: msg });
+  }
   if (
     msg.startsWith('Les administrateurs') ||
     msg.startsWith('Le créateur') ||
@@ -144,7 +147,15 @@ export const getPvReunion = async (req: AuthRequest, res: Response) => {
 export const createPvReunion = async (req: AuthRequest, res: Response) => {
   try {
     const file = req.file as Express.Multer.File | undefined;
-    if (!file) return res.status(400).json({ error: 'Fichier du PV requis' });
+    const contenuHtmlRaw =
+      req.body.contenuHtml != null && String(req.body.contenuHtml).trim() !== ''
+        ? String(req.body.contenuHtml)
+        : '';
+    const contenuHtml = contenuHtmlRaw.trim() ? contenuHtmlRaw : undefined;
+
+    if (!file && !contenuHtml) {
+      return res.status(400).json({ error: 'Fichier du PV ou contenu rédigé requis' });
+    }
     const titre = String(req.body.titre || '').trim();
     if (!titre) return res.status(400).json({ error: 'Titre requis' });
 
@@ -164,6 +175,7 @@ export const createPvReunion = async (req: AuthRequest, res: Response) => {
       modificationDelegueIds: parseIdArrayFromBody(req.body.modificationDelegueIds),
       liens,
       fichier: file,
+      contenuHtml: contenuHtml ?? null,
     });
     await logAccess(req, res, 'creation', ResourceType.pvReunion, pv!.id, pv!.titre);
     res.status(201).json(pv);
@@ -183,6 +195,7 @@ export const updatePvReunion = async (req: AuthRequest, res: Response) => {
       presentClientFournisseurIds?: string[];
       modificationDelegueIds?: string[];
       liens?: LiensExplicites;
+      contenuHtml?: string | null;
     } = {};
     if (body.titre != null) data.titre = String(body.titre).trim();
     if (body.statut !== undefined) {
@@ -214,6 +227,12 @@ export const updatePvReunion = async (req: AuthRequest, res: Response) => {
       'contratIds',
       'processusIds',
     ] as const;
+    if (body.contenuHtml !== undefined) {
+      data.contenuHtml =
+        body.contenuHtml === null || body.contenuHtml === ''
+          ? null
+          : String(body.contenuHtml);
+    }
     if (lienKeys.some((k) => body[k] !== undefined)) {
       const existingPv = await pvReunionService.findOne(
         req.params.id,
@@ -240,6 +259,52 @@ export const updatePvReunion = async (req: AuthRequest, res: Response) => {
     const pv = await pvReunionService.update(req.params.id, req.user!.userId, req.user!.role, data);
     await logAccess(req, res, 'modification', ResourceType.pvReunion, pv!.id, pv!.titre);
     res.json(pv);
+  } catch (e: unknown) {
+    handleErr(res, e);
+  }
+};
+
+export const patchPvReunionContenu = async (req: AuthRequest, res: Response) => {
+  try {
+    const contenuHtml = req.body?.contenuHtml != null ? String(req.body.contenuHtml) : '';
+    if (!contenuHtml.trim()) return res.status(400).json({ error: 'Contenu requis' });
+    const pv = await pvReunionService.saveContenuBrouillon(
+      req.params.id,
+      req.user!.userId,
+      req.user!.role,
+      contenuHtml
+    );
+    await logAccess(req, res, 'modification', ResourceType.pvReunion, pv!.id, pv!.titre, {
+      action: 'pv_contenu_version',
+    });
+    res.json(pv);
+  } catch (e: unknown) {
+    handleErr(res, e);
+  }
+};
+
+export const getPvReunionContenuVersions = async (req: AuthRequest, res: Response) => {
+  try {
+    const list = await pvReunionService.listContenuVersions(
+      req.params.id,
+      req.user!.userId,
+      req.user!.role
+    );
+    res.json(list);
+  } catch (e: unknown) {
+    handleErr(res, e);
+  }
+};
+
+export const getPvReunionContenuVersion = async (req: AuthRequest, res: Response) => {
+  try {
+    const row = await pvReunionService.getContenuVersion(
+      req.params.id,
+      req.params.versionId,
+      req.user!.userId,
+      req.user!.role
+    );
+    res.json(row);
   } catch (e: unknown) {
     handleErr(res, e);
   }
