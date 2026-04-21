@@ -72,13 +72,20 @@ type Props = {
   taches: TacheGantt[];
   getCanEdit?: (t: TacheGantt) => boolean;
   onBarClick?: (t: TacheGantt) => void;
+  getPriorityMeta?: (t: TacheGantt) => { score: number; labels: string[] } | null;
   /** En-tête de la colonne des libellés (ex. « User story / projet ») */
   rowLabelTitle?: string;
 };
 
 const DAY_MS = 86400000;
 
-export default function TachesGanttView({ taches, getCanEdit, onBarClick, rowLabelTitle = 'Tâche / projet' }: Props) {
+export default function TachesGanttView({
+  taches,
+  getCanEdit,
+  onBarClick,
+  getPriorityMeta,
+  rowLabelTitle = 'Tâche / projet',
+}: Props) {
   const model = useMemo(() => {
     if (!taches.length) return null;
     const rows = taches.map((tache) => ({ tache, ...getTacheGanttRange(tache) }));
@@ -150,6 +157,7 @@ export default function TachesGanttView({ taches, getCanEdit, onBarClick, rowLab
             const widthPx = Math.max(spanDays * colWidth, 10);
             const barClass = BAR_BG[tache.statut] || 'bg-gray-500';
             const mayClick = Boolean(onBarClick && (!getCanEdit || getCanEdit(tache)));
+            const priorityMeta = getPriorityMeta?.(tache) || null;
 
             return (
               <div key={tache.id} className="flex min-h-[44px] border-b border-gray-100 hover:bg-gray-50/80">
@@ -160,6 +168,18 @@ export default function TachesGanttView({ taches, getCanEdit, onBarClick, rowLab
                   <p className="text-sm font-medium text-gray-800 truncate" title={tache.nom}>
                     {tache.nom}
                   </p>
+                  {priorityMeta && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-indigo-50 text-indigo-800 border-indigo-200">
+                        Score {priorityMeta.score}
+                      </span>
+                      {priorityMeta.labels.slice(0, 1).map((lb) => (
+                        <span key={`${tache.id}-${lb}`} className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-100 text-indigo-800">
+                          {lb}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {tache.projet && (
                     <p className="text-xs text-gray-500 truncate" title={tache.projet.nom}>
                       {tache.projet.nom}

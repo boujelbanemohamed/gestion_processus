@@ -10,7 +10,8 @@ type TabType =
   | 'typesLicence'
   | 'typesContrat'
   | 'devises'
-  | 'notifications';
+  | 'notifications'
+  | 'affichageTache';
 
 const VALID_TABS: TabType[] = [
   'categories',
@@ -21,6 +22,7 @@ const VALID_TABS: TabType[] = [
   'typesContrat',
   'devises',
   'notifications',
+  'affichageTache',
 ];
 
 function isTabType(s: string): s is TabType {
@@ -770,6 +772,16 @@ export default function Configuration() {
             }`}
           >
             🔔 Notifications
+          </button>
+          <button
+            onClick={() => selectTab('affichageTache')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
+              activeTab === 'affichageTache'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Affichage tâche
           </button>
         </nav>
       </div>
@@ -1840,6 +1852,67 @@ export default function Configuration() {
       {/* Contenu Notifications */}
       {activeTab === 'notifications' && (
         <NotificationsTab />
+      )}
+
+      {/* Contenu Affichage tâche */}
+      {activeTab === 'affichageTache' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900 mb-2">Méthodologie d&apos;ordre d&apos;affichage des tâches</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Cette section documente les règles métier utilisées pour ordonner les tâches dans les vues Liste, Kanban,
+              Gantt et le bloc « Tâches en retard ».
+            </p>
+
+            <div className="space-y-4 text-sm text-gray-700">
+              <div className="p-3 rounded-lg bg-gray-50 border border-gray-200">
+                <p className="font-semibold text-gray-900 mb-1">1) Filtrage initial</p>
+                <p>
+                  Les tâches au statut <span className="font-medium">terminé</span> et <span className="font-medium">archivé</span>{' '}
+                  sont exclues du calcul de priorisation.
+                </p>
+              </div>
+
+              <div className="p-3 rounded-lg bg-gray-50 border border-gray-200">
+                <p className="font-semibold text-gray-900 mb-1">2) Score de priorité (ordre principal)</p>
+                <p className="mb-2">Le score est calculé automatiquement avec les composantes suivantes :</p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>Statut : en cours (+50), à faire (+40), créée (+30), en attente (+15), bloqué (+10)</li>
+                  <li>
+                    Urgence (date de fin prévisionnelle) : en retard (+100), ≤1j (+80), ≤3j (+60), ≤7j (+40), ≤14j (+20), &gt;14j
+                    (+5)
+                  </li>
+                  <li>Priorité métier : élevée (+30), moyenne (+20), basse (+10)</li>
+                  <li>
+                    Complexité : élevée avec deadline ≤7j (+20), moyenne (+10), basse (+5) pour favoriser les quick wins
+                  </li>
+                  <li>Ajustements contextuels : bloquée urgente (+40), bloquée non urgente (-30), en attente (-10)</li>
+                </ul>
+              </div>
+
+              <div className="p-3 rounded-lg bg-gray-50 border border-gray-200">
+                <p className="font-semibold text-gray-900 mb-1">3) Tri final (stable et explicable)</p>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>Tri principal : score décroissant (du plus prioritaire au moins prioritaire)</li>
+                  <li>En cas d&apos;égalité : date de fin prévisionnelle la plus proche</li>
+                  <li>Dernier critère : ordre alphabétique sur le nom de la tâche</li>
+                </ul>
+              </div>
+
+              <div className="p-3 rounded-lg bg-indigo-50 border border-indigo-200">
+                <p className="font-semibold text-indigo-900 mb-1">Labels intelligents</p>
+                <p className="text-indigo-900">
+                  Les labels affichés sont générés automatiquement pour faciliter la lecture : 🔥 Urgent, ⚠️ À risque, 🚧
+                  Bloquée critique, ⚡ Quick win.
+                </p>
+              </div>
+
+              <p className="text-xs text-gray-500 pt-1 border-t border-gray-200">
+                Dernière mise à jour de la méthodologie : <span className="font-medium">20/04/2026</span>.
+              </p>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

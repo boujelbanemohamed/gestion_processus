@@ -11,6 +11,7 @@ import {
   TachesParEntitePersonneGrid,
   TachesParClientFournisseurGrid,
   computeTotalJoursRetardTachesVisibles,
+  computeTaskPriorityScore,
   STATUT_OPTIONS,
   type ClientFournisseurOption,
   type EntiteOption,
@@ -288,6 +289,19 @@ export default function ProjetPilotageAgile({
         tacheVisiblePourUtilisateurSurProjetPage(t, currentUser, projet),
       ),
     [tachesBrutes, currentUser, projet],
+  );
+  const tachesVisiblesTriees = useMemo(
+    () =>
+      [...tachesVisibles].sort((a, b) => {
+        const as = computeTaskPriorityScore(a)?.score ?? Number.NEGATIVE_INFINITY;
+        const bs = computeTaskPriorityScore(b)?.score ?? Number.NEGATIVE_INFINITY;
+        if (as !== bs) return bs - as;
+        const ad = a.dateFinApprox ? new Date(a.dateFinApprox).getTime() : Number.POSITIVE_INFINITY;
+        const bd = b.dateFinApprox ? new Date(b.dateFinApprox).getTime() : Number.POSITIVE_INFINITY;
+        if (ad !== bd) return ad - bd;
+        return (a.nom || '').localeCompare(b.nom || '', 'fr');
+      }),
+    [tachesVisibles]
   );
 
   const peutEdit = peutModifierTacheSelonApi(currentUser);
@@ -675,7 +689,9 @@ export default function ProjetPilotageAgile({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {tachesVisibles.map((t) => (
+                  {tachesVisiblesTriees.map((t) => {
+                    const ps = computeTaskPriorityScore(t);
+                    return (
                     <tr
                       key={t.id}
                       className="hover:bg-gray-50 cursor-pointer"
@@ -690,7 +706,18 @@ export default function ProjetPilotageAgile({
                           {STATUT_OPTIONS.find((s) => s.value === t.statut)?.label || t.statut}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-gray-400 text-xs">—</td>
+                      <td className="px-3 py-2 text-gray-600 text-xs">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200">
+                            {ps?.score ?? '—'}
+                          </span>
+                          {(ps?.labels || []).slice(0, 2).map((lb) => (
+                            <span key={`${t.id}-${lb}`} className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800">
+                              {lb}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
                       <td className="px-3 py-2 text-gray-600">
                         <div className="space-y-1.5">
                           <div>
@@ -730,10 +757,11 @@ export default function ProjetPilotageAgile({
                           : '—'}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
-              {tachesVisibles.length === 0 && (
+              {tachesVisiblesTriees.length === 0 && (
                 <p className="p-6 text-center text-gray-400 text-sm">Aucune tâche à afficher.</p>
               )}
             </div>

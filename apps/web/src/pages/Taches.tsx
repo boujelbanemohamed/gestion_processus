@@ -3021,6 +3021,7 @@ export function TacheCard({
   const clientsRowMore = clientsRow.length - clientsRowShow.length;
   const tacheDureePrevisionnelle = computePlannedDurationDays(tache.dateDebut, tache.dateFinApprox);
   const tachePlanningAdministre = !!(tache.dateDebut && tache.dateFinApprox);
+  const tachePriorityScore = computeTaskPriorityScore(tache);
 
   return (
     <>
@@ -3074,6 +3075,11 @@ export function TacheCard({
         >
           {priorityLabel(tache.priorite)}
         </span>
+        {tachePriorityScore && (
+          <span className="px-2 py-0.5 rounded text-[11px] font-semibold border shrink-0 bg-indigo-50 text-indigo-800 border-indigo-200">
+            🧠 Score {tachePriorityScore.score}
+          </span>
+        )}
         <div className="flex flex-wrap items-center gap-1 min-w-0 basis-full sm:basis-auto sm:max-w-[18rem]">
           {tachePlanningAdministre ? (
             <>
@@ -3153,6 +3159,23 @@ export function TacheCard({
                   </div>
                 )}
               </div>
+              {tachePriorityScore && (
+                <div className="mt-1.5">
+                  <p className="text-xs text-gray-700">
+                    <span className="font-semibold">Priorisation:</span> score {tachePriorityScore.score} —{' '}
+                    {tachePriorityScore.justification}
+                  </p>
+                  {tachePriorityScore.labels.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {tachePriorityScore.labels.map((lb) => (
+                        <span key={`${tache.id}-${lb}`} className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 text-[11px]">
+                          {lb}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               {(tache.assignesEntites?.length || 0) > 0 && (
                 <div className="flex gap-1 flex-wrap">
                   {tache.assignesEntites?.map((e) => (
@@ -3686,6 +3709,66 @@ function priorityLabel(priority?: string): string {
   if (priority === 'haute') return 'Priorité haute';
   if (priority === 'moyenne') return 'Priorité moyenne';
   return 'Priorité basse';
+}
+
+export type TaskPriorityScore = {
+  score: number;
+  justification: string;
+  labels: string[];
+  daysToDue: number | null;
+  isLate: boolean;
+};
+
+const STATUS_SCORE: Record<string, number> = {
+  en_cours: 50,
+  a_faire: 40,
+  cree: 30,
+  en_attente: 15,
+  bloque: 10,
+};
+const PRIORITY_SCORE: Record<string, number> = { haute: 30, moyenne: 20, basse: 10 };
+
+export function computeTaskPriorityScore(task: Tache, now = new Date()): TaskPriorityScore | null {
+  if (task.statut === 'termine' || task.statut === 'archive') return null;
+  const statusScore = STATUS_SCORE[task.statut] ?? 0;
+  const priorityScore = PRIORITY_SCORE[task.priorite || 'basse'] ?? 10;
+  const complexity = task.complexite || 'basse';
+  const dueTs = task.dateFinApprox ? new Date(task.dateFinApprox).getTime() : NaN;
+  const hasDue = Number.isFinite(dueTs);
+  const daysToDue = hasDue ? Math.floor((dueTs - now.getTime()) / (1000 * 3600 * 24)) : null;
+  const isLate = hasDue ? dueTs < now.getTime() : false;
+
+  let urgencyScore = 5;
+  if (isLate) urgencyScore = 100;
+  else if (daysToDue != null && daysToDue <= 1) urgencyScore = 80;
+  else if (daysToDue != null && daysToDue <= 3) urgencyScore = 60;
+  else if (daysToDue != null && daysToDue <= 7) urgencyScore = 40;
+  else if (daysToDue != null && daysToDue <= 14) urgencyScore = 20;
+
+  let complexityScore = 0;
+  if (complexity === 'haute' && daysToDue != null && daysToDue <= 7) complexityScore = 20;
+  else if (complexity === 'moyenne') complexityScore = 10;
+  else complexityScore = 5;
+
+  let contextAdjust = 0;
+  if (task.statut === 'bloque') {
+    contextAdjust += daysToDue != null && daysToDue <= 3 ? 40 : -30;
+  }
+  if (task.statut === 'en_attente') contextAdjust -= 10;
+
+  const score = statusScore + urgencyScore + priorityScore + complexityScore + contextAdjust;
+  const labels: string[] = [];
+  if (score > 120) labels.push('🔥 Urgent');
+  if (daysToDue != null && daysToDue <= 3 && task.statut !== 'en_cours') labels.push('⚠️ À risque');
+  if (task.statut === 'bloque' && daysToDue != null && daysToDue <= 3) labels.push('🚧 Bloquée critique');
+  if (complexity === 'basse' && score > 70) labels.push('⚡ Quick win');
+
+  const urgencyText =
+    daysToDue == null ? 'échéance non renseignée' : isLate ? 'tâche en retard' : `échéance dans ${daysToDue} j`;
+  const justification = `${priorityLabel(task.priorite)} · complexité ${complexity} · ${urgencyText} · statut ${
+    statusLabel(task.statut) || task.statut
+  }`;
+  return { score, justification, labels, daysToDue, isLate };
 }
 
 function truncateUi(s: string, n: number) {
@@ -5248,8 +5331,11 @@ export default function Taches() {
       return Number.isFinite(t) ? t : Number.NEGATIVE_INFINITY;
     };
     return [...visibleTaches].sort((a, b) => {
-      const base = compareTachesByPriorityComplexityDueDate(a, b);
-      if (base !== 0) return base;
+      const as = computeTaskPriorityScore(a);
+      const bs = computeTaskPriorityScore(b);
+      const aScore = as?.score ?? Number.NEGATIVE_INFINITY;
+      const bScore = bs?.score ?? Number.NEGATIVE_INFINITY;
+      if (aScore !== bScore) return bScore - aScore;
       if (filters.triDate === 'createdAt') {
         const da = toTsDesc(a.createdAt);
         const db = toTsDesc(b.createdAt);
@@ -5265,7 +5351,7 @@ export default function Taches() {
         const db = toTsDesc(b.dateFinApprox);
         if (da !== db) return db - da;
       }
-      return (a.nom || '').localeCompare(b.nom || '', 'fr');
+      return compareTachesByPriorityComplexityDueDate(a, b);
     });
   }, [visibleTaches, filters.triDate]);
 
@@ -5339,6 +5425,25 @@ export default function Taches() {
   const tachesEnRetardFiltrees = tachesEnRetard
     .filter((item) => visibleTacheIds.has(item.id))
     .sort((a, b) => (sortedTacheIndexById.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (sortedTacheIndexById.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+  const visibleTaskById = useMemo(() => new Map(visibleTaches.map((t) => [t.id, t])), [visibleTaches]);
+  const getPriorityMetaByTaskId = useCallback(
+    (taskId: string): { score: number; labels: string[] } | null => {
+      const task = visibleTaskById.get(taskId);
+      if (!task) return null;
+      const ps = computeTaskPriorityScore(task);
+      if (!ps) return null;
+      return { score: ps.score, labels: ps.labels };
+    },
+    [visibleTaskById]
+  );
+  const getPriorityMetaForKanban = useCallback(
+    (item: KanbanTache): { score: number; labels: string[] } | null => getPriorityMetaByTaskId(item.id),
+    [getPriorityMetaByTaskId]
+  );
+  const getPriorityMetaForGantt = useCallback(
+    (item: TacheGantt): { score: number; labels: string[] } | null => getPriorityMetaByTaskId(item.id),
+    [getPriorityMetaByTaskId]
+  );
 
   const usAgileKanbanItems = useMemo(
     () => sortedVisibleUserStories.map((us) => userStoryToKanbanAndGantt(us, taches).kanban),
@@ -5948,6 +6053,7 @@ export default function Taches() {
         {showDashboard && <TachesDashboard taches={visibleTaches} />}
         <TachesEnRetardBloc
           items={tachesEnRetardFiltrees}
+          getPriorityMeta={getPriorityMetaByTaskId}
           hideFooterLink
           onTacheClick={(id) => {
             const t = taches.find((x) => x.id === id);
@@ -5968,6 +6074,7 @@ export default function Taches() {
             <TachesGanttView
               taches={visibleTaches}
               getCanEdit={(t) => canEdit(t as Tache)}
+              getPriorityMeta={getPriorityMetaForGantt}
               onBarClick={(t) => {
                 openEditTacheModal(t as Tache);
               }}
@@ -5978,6 +6085,7 @@ export default function Taches() {
             taches={visibleTaches}
             columns={STATUT_OPTIONS}
             getCanEdit={(t) => canEdit(t as Tache)}
+            getPriorityMeta={getPriorityMetaForKanban}
             onMoveTache={handleKanbanMove}
             onCardClick={(t) => {
               openEditTacheModal(t as Tache);
@@ -6196,6 +6304,7 @@ export default function Taches() {
             <TachesGanttView
               taches={usAgileGanttItems}
               rowLabelTitle="User story / projet"
+              getPriorityMeta={getPriorityMetaForGantt}
               onBarClick={(row) => setDetailUserStoryId(row.id)}
             />
           </div>
@@ -6204,6 +6313,7 @@ export default function Taches() {
             taches={usAgileKanbanItems}
             columns={STATUT_OPTIONS}
             readOnly
+            getPriorityMeta={getPriorityMetaForKanban}
             getCanEdit={() => false}
             onMoveTache={noopKanbanMove}
             onCardClick={(row) => setDetailUserStoryId(row.id)}
@@ -6676,6 +6786,7 @@ export default function Taches() {
             <TachesGanttView
               taches={epicAgileGanttItems}
               rowLabelTitle="Epic / projet"
+              getPriorityMeta={getPriorityMetaForGantt}
               onBarClick={(row) => setDetailEpicId(row.id)}
             />
           </div>
@@ -6684,6 +6795,7 @@ export default function Taches() {
             taches={epicAgileKanbanItems}
             columns={STATUT_OPTIONS}
             readOnly
+            getPriorityMeta={getPriorityMetaForKanban}
             getCanEdit={() => false}
             onMoveTache={noopKanbanMove}
             onCardClick={(row) => setDetailEpicId(row.id)}
@@ -7023,7 +7135,12 @@ export default function Taches() {
                             ) : (
                             <ul className="space-y-3 text-gray-700">
                               {(ep.userStories || []).map((u) => {
-                                const tasksUs = getTachesLieesUserStory(u.id, taches);
+                                const tasksUs = [...getTachesLieesUserStory(u.id, taches)].sort((a, b) => {
+                                  const as = computeTaskPriorityScore(a)?.score ?? Number.NEGATIVE_INFINITY;
+                                  const bs = computeTaskPriorityScore(b)?.score ?? Number.NEGATIVE_INFINITY;
+                                  if (as !== bs) return bs - as;
+                                  return (a.nom || '').localeCompare(b.nom || '', 'fr');
+                                });
                                 const statutUs = deriveAggregatedStatutFromTasks(
                                   tasksUs.map((t) => ({ statut: t.statut, dateFinApprox: t.dateFinApprox })),
                                   new Date()
@@ -7073,6 +7190,7 @@ export default function Taches() {
                                               {(() => {
                                                 const nowTask = new Date();
                                                 const isLate = isTacheEnRetardKpi(t, nowTask);
+                                                const prioritySc = computeTaskPriorityScore(t);
                                                 const dureePrevisionnelle = computePlannedDurationDays(
                                                   t.dateDebut,
                                                   t.dateFinApprox
@@ -7099,6 +7217,11 @@ export default function Taches() {
                                                 >
                                                   {priorityLabel(t.priorite)}
                                                 </span>
+                                                {prioritySc && (
+                                                  <span className="px-2 py-0.5 rounded text-[11px] font-semibold border bg-indigo-50 text-indigo-800 border-indigo-200">
+                                                    🧠 Score {prioritySc.score}
+                                                  </span>
+                                                )}
                                                 {isLate && (
                                                   <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-[11px] font-medium">
                                                     ⚠ Retard{joursRetard > 0 ? ` (${joursRetard} j)` : ''}

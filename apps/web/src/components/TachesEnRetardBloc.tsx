@@ -15,13 +15,14 @@ export type TacheEnRetardItem = {
 
 type Props = {
   items: TacheEnRetardItem[];
+  getPriorityMeta?: (tacheId: string) => { score: number; labels: string[] } | null;
   /** Sur la page Tâches : masquer le lien « Ouvrir la page Tâches » */
   hideFooterLink?: boolean;
   /** Si défini, clic sur le nom de la tâche (ex. ouvrir la modale sur la page Tâches) */
   onTacheClick?: (tacheId: string) => void;
 };
 
-export default function TachesEnRetardBloc({ items, hideFooterLink, onTacheClick }: Props) {
+export default function TachesEnRetardBloc({ items, getPriorityMeta, hideFooterLink, onTacheClick }: Props) {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const itemsSig = useMemo(() => items.map((i) => i.id).join(','), [items]);
@@ -56,6 +57,7 @@ export default function TachesEnRetardBloc({ items, hideFooterLink, onTacheClick
           <tbody>
             {pagedItems.map((t) => {
               const projet = t.projet;
+              const priorityMeta = getPriorityMeta?.(t.id) || null;
               return (
                 <tr key={t.id} className="border-t border-gray-100 hover:bg-amber-50/40">
                   <td className="py-3 pr-4 align-top">
@@ -67,6 +69,18 @@ export default function TachesEnRetardBloc({ items, hideFooterLink, onTacheClick
                       {t.nom}
                     </button>
                     <div className="text-xs text-gray-500 capitalize mt-0.5">{t.statut.replace(/_/g, ' ')}</div>
+                    {priorityMeta && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-indigo-50 text-indigo-800 border-indigo-200">
+                          🧠 Score {priorityMeta.score}
+                        </span>
+                        {priorityMeta.labels.slice(0, 2).map((lb) => (
+                          <span key={`${t.id}-${lb}`} className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-100 text-indigo-800">
+                            {lb}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </td>
                   <td className="py-3 pr-4 align-top text-gray-700">
                     {projet ? (

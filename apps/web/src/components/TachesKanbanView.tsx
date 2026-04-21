@@ -24,6 +24,7 @@ type Props = {
   getCanEdit: (t: KanbanTache) => boolean;
   onMoveTache: (tacheId: string, newStatut: string) => Promise<void>;
   onCardClick: (t: KanbanTache) => void;
+  getPriorityMeta?: (t: KanbanTache) => { score: number; labels: string[] } | null;
   /** Vue synthétique (ex. user stories / epics) : pas de glisser-déposer */
   readOnly?: boolean;
 };
@@ -34,6 +35,7 @@ export default function TachesKanbanView({
   getCanEdit,
   onMoveTache,
   onCardClick,
+  getPriorityMeta,
   readOnly = false,
 }: Props) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -137,6 +139,7 @@ export default function TachesKanbanView({
                   const editable = !readOnly && getCanEdit(t);
                   const isDragging = draggingId === t.id;
                   const isMoving = movingId === t.id;
+                  const priorityMeta = getPriorityMeta?.(t) || null;
                   return (
                     <div
                       key={t.id}
@@ -157,6 +160,18 @@ export default function TachesKanbanView({
                       } ${isDragging ? 'opacity-50 ring-2 ring-blue-400' : ''} ${isMoving ? 'pointer-events-none opacity-60' : ''}`}
                     >
                       <p className="text-sm font-medium text-gray-900 line-clamp-3">{t.nom}</p>
+                      {priorityMeta && (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold border bg-indigo-50 text-indigo-800 border-indigo-200">
+                            🧠 Score {priorityMeta.score}
+                          </span>
+                          {priorityMeta.labels.slice(0, 2).map((lb) => (
+                            <span key={`${t.id}-${lb}`} className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-100 text-indigo-800">
+                              {lb}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {(() => {
                         const et = t.entityType ?? 'tache';
                         const primaryLabel =
