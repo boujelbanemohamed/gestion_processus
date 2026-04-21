@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, useRef, useMemo, type FormEvent } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import TachesGanttView, { type TacheGantt } from '../components/TachesGanttView';
 import TachesKanbanView, { type KanbanTache } from '../components/TachesKanbanView';
@@ -3766,7 +3766,7 @@ export function computeTaskPriorityScore(task: Tache, now = new Date()): TaskPri
   const urgencyText =
     daysToDue == null ? 'échéance non renseignée' : isLate ? 'tâche en retard' : `échéance dans ${daysToDue} j`;
   const justification = `${priorityLabel(task.priorite)} · complexité ${complexity} · ${urgencyText} · statut ${
-    statusLabel(task.statut) || task.statut
+    statutLabelFromValue(task.statut) || task.statut
   }`;
   return { score, justification, labels, daysToDue, isLate };
 }
