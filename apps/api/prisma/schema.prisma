@@ -1073,6 +1073,8 @@ model Tache {
   id                  String        @id @default(uuid())
   nom                 String
   statut              TacheStatut   @default(cree)
+  priorite            String        @default("basse")
+  complexite          String        @default("basse")
   dateDebut           DateTime?
   dateFinApprox       DateTime?
   description         String?

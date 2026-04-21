@@ -92,6 +92,8 @@ export const updateTache = async (req: AuthRequest, res: Response) => {
       if ('scenarioExecution' in req.body) pushIfChanged('scenarioExecution', before.scenarioExecution, tache.scenarioExecution);
       if ('critereAcceptation' in req.body) pushIfChanged('critereAcceptation', before.critereAcceptation, tache.critereAcceptation);
       if ('statut' in req.body) pushIfChanged('statut', before.statut, tache.statut);
+      if ('priorite' in req.body) pushIfChanged('priorite', before.priorite || null, tache.priorite || null);
+      if ('complexite' in req.body) pushIfChanged('complexite', before.complexite || null, tache.complexite || null);
       if ('dateDebut' in req.body) pushIfChanged('dateDebut', before.dateDebut || null, tache.dateDebut || null);
       if ('dateFinApprox' in req.body) pushIfChanged('dateFinApprox', before.dateFinApprox || null, tache.dateFinApprox || null);
       if ('projetId' in req.body) pushIfChanged('projetId', before.projetId || null, tache.projetId || null);

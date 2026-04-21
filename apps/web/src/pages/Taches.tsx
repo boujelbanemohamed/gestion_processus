@@ -37,6 +37,18 @@ export const STATUT_OPTIONS = [
   { value: 'termine', label: 'Terminé / Finalisé', color: 'bg-green-100 text-green-700' },
   { value: 'archive', label: 'Archivée', color: 'bg-purple-100 text-purple-700' },
 ];
+const PRIORITE_OPTIONS = [
+  { value: 'haute', label: 'Haute' },
+  { value: 'moyenne', label: 'Moyenne' },
+  { value: 'basse', label: 'Basse' },
+] as const;
+const COMPLEXITE_OPTIONS = [
+  { value: 'haute', label: 'Elevée' },
+  { value: 'moyenne', label: 'Moyenne' },
+  { value: 'basse', label: 'Basse' },
+] as const;
+const PRIORITE_RANK: Record<string, number> = { haute: 0, moyenne: 1, basse: 2 };
+const COMPLEXITE_RANK: Record<string, number> = { haute: 0, moyenne: 1, basse: 2 };
 
 const LIAISON_TYPES = [
   { value: 'concatenation', label: 'Concaténation (bloquante)' },
@@ -188,6 +200,8 @@ export type Tache = {
   id: string;
   nom: string;
   statut: string;
+  priorite?: 'basse' | 'moyenne' | 'haute' | string;
+  complexite?: 'basse' | 'moyenne' | 'haute' | string;
   dateDebut?: string;
   dateFinApprox?: string;
   createdAt?: string;
@@ -777,6 +791,8 @@ export function TacheModal({
   const [form, setForm] = useState({
     nom: editTache?.nom || '',
     statut: editTache?.statut || 'cree',
+    priorite: editTache?.priorite || 'basse',
+    complexite: editTache?.complexite || 'basse',
     dateDebut: editTache?.dateDebut ? editTache.dateDebut.split('T')[0] : '',
     dateFinApprox: editTache?.dateFinApprox ? editTache.dateFinApprox.split('T')[0] : '',
     description: editTache?.description || '',
@@ -933,6 +949,36 @@ export function TacheModal({
                 className="w-full px-3 py-2 border border-gray-300 rounded-md">
                 {STATUT_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Priorité</label>
+                <select
+                  value={form.priorite}
+                  onChange={(e) => setForm({ ...form, priorite: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                >
+                  {PRIORITE_OPTIONS.map((p) => (
+                    <option key={p.value} value={p.value}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Complexité</label>
+                <select
+                  value={form.complexite}
+                  onChange={(e) => setForm({ ...form, complexite: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                >
+                  {COMPLEXITE_OPTIONS.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {/* Projet */}
@@ -3022,6 +3068,12 @@ export function TacheCard({
             <span className="text-[11px] text-gray-400 italic">Non assignée</span>
           )}
         </div>
+        <span
+          className={`px-2 py-0.5 rounded text-[11px] font-medium border shrink-0 ${priorityTagClasses(tache.priorite)}`}
+          title="Priorité de la tâche"
+        >
+          {priorityLabel(tache.priorite)}
+        </span>
         <div className="flex flex-wrap items-center gap-1 min-w-0 basis-full sm:basis-auto sm:max-w-[18rem]">
           {tachePlanningAdministre ? (
             <>
@@ -3604,6 +3656,36 @@ function computePlannedDurationDays(dateDebut?: string, dateFinApprox?: string):
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
   const diffDays = Math.floor((end.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1;
   return Math.max(1, diffDays);
+}
+
+function compareTachesByPriorityComplexityDueDate(a: Tache, b: Tache): number {
+  const ap = PRIORITE_RANK[a.priorite || 'basse'] ?? 999;
+  const bp = PRIORITE_RANK[b.priorite || 'basse'] ?? 999;
+  if (ap !== bp) return ap - bp;
+  const ac = COMPLEXITE_RANK[a.complexite || 'basse'] ?? 999;
+  const bc = COMPLEXITE_RANK[b.complexite || 'basse'] ?? 999;
+  if (ac !== bc) return ac - bc;
+  const toTs = (d?: string) => {
+    if (!d) return Number.POSITIVE_INFINITY;
+    const t = new Date(d).getTime();
+    return Number.isFinite(t) ? t : Number.POSITIVE_INFINITY;
+  };
+  const ad = toTs(a.dateFinApprox);
+  const bd = toTs(b.dateFinApprox);
+  if (ad !== bd) return ad - bd;
+  return (a.nom || '').localeCompare(b.nom || '', 'fr');
+}
+
+function priorityTagClasses(priority?: string): string {
+  if (priority === 'haute') return 'bg-red-100 text-red-800 border-red-200';
+  if (priority === 'moyenne') return 'bg-amber-100 text-amber-800 border-amber-200';
+  return 'bg-green-100 text-green-800 border-green-200';
+}
+
+function priorityLabel(priority?: string): string {
+  if (priority === 'haute') return 'Priorité haute';
+  if (priority === 'moyenne') return 'Priorité moyenne';
+  return 'Priorité basse';
 }
 
 function truncateUi(s: string, n: number) {
@@ -5166,6 +5248,8 @@ export default function Taches() {
       return Number.isFinite(t) ? t : Number.NEGATIVE_INFINITY;
     };
     return [...visibleTaches].sort((a, b) => {
+      const base = compareTachesByPriorityComplexityDueDate(a, b);
+      if (base !== 0) return base;
       if (filters.triDate === 'createdAt') {
         const da = toTsDesc(a.createdAt);
         const db = toTsDesc(b.createdAt);
@@ -5181,12 +5265,6 @@ export default function Taches() {
         const db = toTsDesc(b.dateFinApprox);
         if (da !== db) return db - da;
       }
-      const sa = STATUT_SORT_RANK[a.statut] ?? 999;
-      const sb = STATUT_SORT_RANK[b.statut] ?? 999;
-      if (sa !== sb) return sa - sb;
-      const da = toTs(a.dateFinApprox);
-      const db = toTs(b.dateFinApprox);
-      if (da !== db) return da - db;
       return (a.nom || '').localeCompare(b.nom || '', 'fr');
     });
   }, [visibleTaches, filters.triDate]);
@@ -5257,7 +5335,10 @@ export default function Taches() {
   const epicsEnRetardList = sortedVisibleEpics.filter((ep) => epicIdsEnRetard.has(ep.id));
 
   const visibleTacheIds = new Set(sortedVisibleTaches.map((t) => t.id));
-  const tachesEnRetardFiltrees = tachesEnRetard.filter((item) => visibleTacheIds.has(item.id));
+  const sortedTacheIndexById = new Map(sortedVisibleTaches.map((t, i) => [t.id, i]));
+  const tachesEnRetardFiltrees = tachesEnRetard
+    .filter((item) => visibleTacheIds.has(item.id))
+    .sort((a, b) => (sortedTacheIndexById.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (sortedTacheIndexById.get(b.id) ?? Number.MAX_SAFE_INTEGER));
 
   const usAgileKanbanItems = useMemo(
     () => sortedVisibleUserStories.map((us) => userStoryToKanbanAndGantt(us, taches).kanban),
@@ -7012,6 +7093,12 @@ export default function Taches() {
                                                   <>
                                               <div className="flex flex-wrap items-center gap-2">
                                                 <StatutBadge statut={t.statut} />
+                                                <span
+                                                  className={`px-2 py-0.5 rounded text-[11px] font-medium border ${priorityTagClasses(t.priorite)}`}
+                                                  title="Priorité de la tâche"
+                                                >
+                                                  {priorityLabel(t.priorite)}
+                                                </span>
                                                 {isLate && (
                                                   <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-[11px] font-medium">
                                                     ⚠ Retard{joursRetard > 0 ? ` (${joursRetard} j)` : ''}

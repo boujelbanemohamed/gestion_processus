@@ -329,6 +329,7 @@ export class TacheService {
   async create(data: any, createurId: string) {
     const {
       nom, statut, dateDebut, dateFinApprox,
+      priorite, complexite,
       description, scenarioExecution, critereAcceptation,
       projetId,
       userStoryId,
@@ -342,6 +343,8 @@ export class TacheService {
       data: {
         nom,
         statut: statut || 'cree',
+        priorite: priorite || 'basse',
+        complexite: complexite || 'basse',
         dateDebut: dateDebut ? new Date(dateDebut) : null,
         dateFinApprox: dateFinApprox ? new Date(dateFinApprox) : null,
         description: description || null,
@@ -421,6 +424,7 @@ export class TacheService {
 
     const {
       nom, statut, dateDebut, dateFinApprox,
+      priorite, complexite,
       description, scenarioExecution, critereAcceptation,
       projetId,
       userStoryId,
@@ -436,6 +440,8 @@ export class TacheService {
       data: {
         ...(nom !== undefined && { nom }),
         ...(statut !== undefined && { statut }),
+        ...(priorite !== undefined && { priorite }),
+        ...(complexite !== undefined && { complexite }),
         ...(dateDebut !== undefined && { dateDebut: dateDebut ? new Date(dateDebut) : null }),
         ...(dateFinApprox !== undefined && { dateFinApprox: dateFinApprox ? new Date(dateFinApprox) : null }),
         ...(description !== undefined && { description }),
