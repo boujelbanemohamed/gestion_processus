@@ -816,6 +816,7 @@ export function TacheModal({
   const [userStoryOptions, setUserStoryOptions] = useState<{ id: string; description: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [idCopied, setIdCopied] = useState(false);
 
   useEffect(() => {
     if (lockUserStoryId) setUserStoryId(lockUserStoryId);
@@ -932,6 +933,29 @@ export function TacheModal({
         <button onClick={onClose} className="absolute top-3 right-3 text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
         <div className="p-6">
           <h2 className="text-xl font-bold mb-5">{editTache ? 'Modifier la tâche' : 'Nouvelle tâche'}</h2>
+          {editTache?.id && (
+            <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+              <span>
+                ID tâche : <span className="font-mono text-gray-700 break-all">{editTache.id}</span>
+              </span>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(editTache.id);
+                    setIdCopied(true);
+                    setTimeout(() => setIdCopied(false), 1400);
+                  } catch {
+                    setError("Impossible de copier l'ID automatiquement.");
+                  }
+                }}
+                className="px-2 py-0.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+                title="Copier l'ID de la tâche"
+              >
+                {idCopied ? 'Copié' : 'Copier l’ID'}
+              </button>
+            </div>
+          )}
           {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>}
 
           <div className="space-y-4">
