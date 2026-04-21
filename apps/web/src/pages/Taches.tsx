@@ -2973,6 +2973,8 @@ export function TacheCard({
   const clientsRow = tache.assignesClientsFournisseurs || [];
   const clientsRowShow = clientsRow.slice(0, 4);
   const clientsRowMore = clientsRow.length - clientsRowShow.length;
+  const tacheDureePrevisionnelle = computePlannedDurationDays(tache.dateDebut, tache.dateFinApprox);
+  const tachePlanningAdministre = !!(tache.dateDebut && tache.dateFinApprox);
 
   return (
     <>
@@ -3020,6 +3022,21 @@ export function TacheCard({
             <span className="text-[11px] text-gray-400 italic">Non assignée</span>
           )}
         </div>
+        <div className="flex flex-wrap items-center gap-1 min-w-0 basis-full sm:basis-auto sm:max-w-[18rem]">
+          {tachePlanningAdministre ? (
+            <>
+              <span className="text-[11px] text-gray-600">
+                🗓 {new Date(tache.dateDebut!).toLocaleDateString('fr-FR')}
+              </span>
+              <span className="text-gray-300 text-[11px]">→</span>
+              <span className="text-[11px] text-gray-600">
+                ⏰ {new Date(tache.dateFinApprox!).toLocaleDateString('fr-FR')}
+              </span>
+            </>
+          ) : (
+            <span className="text-[11px] text-gray-400 italic">📆 Non administré</span>
+          )}
+        </div>
         {clientsRow.length > 0 && (
           <div className="flex flex-wrap items-center gap-1 min-w-0 basis-full sm:basis-auto sm:max-w-[14rem] md:max-w-xs">
             {clientsRowShow.map((c) => (
@@ -3055,6 +3072,11 @@ export function TacheCard({
                 {tache.projet && <span>📁 {tache.projet.nom}</span>}
                 {tache.dateDebut && <span>🗓 {new Date(tache.dateDebut).toLocaleDateString('fr-FR')}</span>}
                 {tache.dateFinApprox && <span>⏰ {new Date(tache.dateFinApprox).toLocaleDateString('fr-FR')}</span>}
+                {tacheDureePrevisionnelle != null ? (
+                  <span>⏳ {tacheDureePrevisionnelle} jour{tacheDureePrevisionnelle > 1 ? 's' : ''} nécessaires</span>
+                ) : (
+                  <span className="italic text-gray-400">⏳ Non administré</span>
+                )}
                 {tache.createur && (
                   <span>
                     👤 {tache.createur.prenom} {tache.createur.nom}
@@ -3573,6 +3595,15 @@ function isTacheEnRetardKpi(t: Tache, now: Date): boolean {
   if (t.statut === 'bloque') return true;
   if (t.dateFinApprox && new Date(t.dateFinApprox) < now) return true;
   return false;
+}
+
+function computePlannedDurationDays(dateDebut?: string, dateFinApprox?: string): number | null {
+  if (!dateDebut || !dateFinApprox) return null;
+  const start = new Date(dateDebut);
+  const end = new Date(dateFinApprox);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const diffDays = Math.floor((end.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1;
+  return Math.max(1, diffDays);
 }
 
 function truncateUi(s: string, n: number) {
@@ -6961,6 +6992,10 @@ export default function Taches() {
                                               {(() => {
                                                 const nowTask = new Date();
                                                 const isLate = isTacheEnRetardKpi(t, nowTask);
+                                                const dureePrevisionnelle = computePlannedDurationDays(
+                                                  t.dateDebut,
+                                                  t.dateFinApprox
+                                                );
                                                 const joursRetard =
                                                   t.dateFinApprox && new Date(t.dateFinApprox) < nowTask
                                                     ? Math.max(
@@ -7006,6 +7041,22 @@ export default function Taches() {
                                                   ✅ Terminée le {new Date(dateTerminee).toLocaleDateString('fr-FR')}
                                                 </div>
                                               )}
+                                              <div className="mt-1 text-[11px] text-gray-600 flex flex-wrap items-center gap-2">
+                                                {t.dateDebut && t.dateFinApprox ? (
+                                                  <>
+                                                    <span>🗓 {new Date(t.dateDebut).toLocaleDateString('fr-FR')}</span>
+                                                    <span className="text-gray-300">→</span>
+                                                    <span>⏰ {new Date(t.dateFinApprox).toLocaleDateString('fr-FR')}</span>
+                                                    {dureePrevisionnelle != null && (
+                                                      <span>
+                                                        ⏳ {dureePrevisionnelle} jour{dureePrevisionnelle > 1 ? 's' : ''} nécessaires
+                                                      </span>
+                                                    )}
+                                                  </>
+                                                ) : (
+                                                  <span className="italic text-gray-400">📆 Non administré</span>
+                                                )}
+                                              </div>
                                               {(t.assignesEntites || []).length > 0 && (
                                                 <div className="mt-1.5 flex flex-wrap gap-1">
                                                   {(t.assignesEntites || []).map((e) => (
