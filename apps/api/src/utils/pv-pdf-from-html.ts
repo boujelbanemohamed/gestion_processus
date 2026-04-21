@@ -1,11 +1,14 @@
 /**
- * Génération PDF côté serveur pour un PV rédigé en HTML.
- * Mise en page type procès-verbal : titre centré, tableau infos générales, participants numérotés,
- * corps par sections (titres h2), rattachements en bas uniquement si renseignés.
+ * Génération PDF pour un PV rédigé en HTML.
+ * Par défaut : Chromium (Puppeteer) pour un rendu proche du navigateur (tableaux, listes, styles).
+ * Repli : PDFKit (texte) si PV_PDF_ENGINE=pdfkit ou si Chromium échoue.
  */
 import PDFDocument from 'pdfkit';
+import type { PvPdfMeta } from './pv-pdf-meta';
+import { PV_PDF_MAX_HTML_CHARS } from './pv-pdf-meta';
+import { generatePvPdfBufferChromium, isChromiumPdfDisabled } from './pv-pdf-html-chromium';
 
-const MAX_HTML_CHARS = 600_000;
+export type { PvPdfMeta } from './pv-pdf-meta';
 
 function stripHtmlToText(html: string): string {
   const s = html
@@ -50,7 +53,6 @@ function wrapLines(text: string, maxChars: number): string[] {
   return lines;
 }
 
-/** Découpe le HTML en blocs suivant les titres &lt;h2&gt; (structure type PV). */
 function extractH2Sections(html: string): { heading: string; contentHtml: string }[] {
   const clean = html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -79,7 +81,6 @@ function normalizeHeadingKey(h: string): string {
     .trim();
 }
 
-/** Évite la redondance avec le bloc métadonnées déjà rendu en PDF. */
 function shouldSkipSectionHeading(heading: string, metaRattachementsPrinted: boolean): boolean {
   const k = normalizeHeadingKey(heading);
   if (/^(1\.?\s*)?informations generales/.test(k)) return true;
@@ -88,7 +89,6 @@ function shouldSkipSectionHeading(heading: string, metaRattachementsPrinted: boo
   return false;
 }
 
-/** Section sans contenu utile (ex. modèle « À compléter… » uniquement). */
 function isPlaceholderOrEmptyBody(text: string): boolean {
   const t = text.replace(/\s+/g, ' ').trim();
   if (!t) return true;
@@ -97,26 +97,8 @@ function isPlaceholderOrEmptyBody(text: string): boolean {
   return false;
 }
 
-export type PvPdfMeta = {
-  titre: string;
-  statutLabel: string;
-  dateReunionLabel: string;
-  participantUserLines: string[];
-  participantClientLines: string[];
-  liensProjets?: string;
-  liensTaches?: string;
-  liensUserStories?: string;
-  liensEpics?: string;
-  bodyHtml: string;
-  generatedAt: Date;
-};
-
-export async function generatePvPdfBuffer(meta: PvPdfMeta): Promise<Buffer> {
+function generatePvPdfBufferPdfKit(meta: PvPdfMeta): Promise<Buffer> {
   const html = meta.bodyHtml || '';
-  if (html.length > MAX_HTML_CHARS) {
-    throw new Error('Contenu HTML trop volumineux');
-  }
-
   const hasRattachementsMeta = !!(
     meta.liensProjets?.trim() ||
     meta.liensTaches?.trim() ||
@@ -160,7 +142,6 @@ export async function generatePvPdfBuffer(meta: PvPdfMeta): Promise<Buffer> {
 
     const moveDownGap = (u = 0.35) => doc.moveDown(u);
 
-    // — Titre principal (exemple fourni)
     doc.y = margin;
     doc
       .font('Helvetica-Bold')
@@ -169,7 +150,6 @@ export async function generatePvPdfBuffer(meta: PvPdfMeta): Promise<Buffer> {
       .text('PROCÈS-VERBAL DE RÉUNION', margin, doc.y, { width: contentWidth, align: 'center' });
     moveDownGap(1);
 
-    // — Informations générales (tableau 2 colonnes, libellés gris)
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827').text('Informations générales', margin, doc.y, {
       width: contentWidth,
     });
@@ -191,7 +171,6 @@ export async function generatePvPdfBuffer(meta: PvPdfMeta): Promise<Buffer> {
     }
     moveDownGap(0.75);
 
-    // — Participants (liste numérotée)
     doc.font('Helvetica-Bold').fontSize(11).text('Participants', margin, doc.y, { width: contentWidth });
     moveDownGap(0.25);
     doc.font('Helvetica').fontSize(10).fillColor('#111827');
@@ -211,7 +190,6 @@ export async function generatePvPdfBuffer(meta: PvPdfMeta): Promise<Buffer> {
     }
     moveDownGap(0.65);
 
-    // — Rattachements (uniquement les lignes renseignées)
     if (hasRattachementsMeta) {
       doc.font('Helvetica-Bold').fontSize(11).text('Rattachements', margin, doc.y, { width: contentWidth });
       moveDownGap(0.25);
@@ -235,7 +213,6 @@ export async function generatePvPdfBuffer(meta: PvPdfMeta): Promise<Buffer> {
       moveDownGap(0.65);
     }
 
-    // — Corps du PV (sections h2)
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827').text('Contenu du procès-verbal', margin, doc.y, {
       width: contentWidth,
     });
@@ -281,4 +258,21 @@ export async function generatePvPdfBuffer(meta: PvPdfMeta): Promise<Buffer> {
 
     doc.end();
   });
+}
+
+export async function generatePvPdfBuffer(meta: PvPdfMeta): Promise<Buffer> {
+  const html = meta.bodyHtml || '';
+  if (html.length > PV_PDF_MAX_HTML_CHARS) {
+    throw new Error('Contenu HTML trop volumineux');
+  }
+
+  if (!isChromiumPdfDisabled()) {
+    try {
+      return await generatePvPdfBufferChromium(meta);
+    } catch (e) {
+      console.warn('[pv-pdf] Chromium/Puppeteer indisponible ou erreur, repli PDFKit:', e);
+    }
+  }
+
+  return generatePvPdfBufferPdfKit(meta);
 }

@@ -143,7 +143,13 @@ export default function NotificationBell() {
                 >
                   <div className="flex items-start gap-2">
                     <span className="text-lg mt-0.5">
-                      {n.type === 'mention' ? '📌' : '🔔'}
+                      {n.type === 'mention'
+                        ? '📌'
+                        : n.type === 'commentaire_pv_assigne'
+                          ? '✅'
+                          : n.type === 'commentaire_pv'
+                            ? '💬'
+                            : '🔔'}
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className={`text-sm ${!n.lue ? 'font-semibold text-gray-800' : 'text-gray-700'} truncate`}>

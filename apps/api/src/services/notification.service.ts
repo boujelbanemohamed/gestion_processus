@@ -25,12 +25,12 @@ export class NotificationService {
     lienType?: string;
     lienId?: string;
   }) {
-    return (prisma as any).notification.create({ data });
+    return prisma.notification.create({ data });
   }
 
   // ── Récupérer les notifications d'un utilisateur ──────────────────────────
   async getNotifications(userId: string) {
-    return (prisma as any).notification.findMany({
+    return prisma.notification.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
       take: 50,
@@ -39,7 +39,7 @@ export class NotificationService {
 
   // ── Marquer une notification comme lue ───────────────────────────────────
   async marquerLue(id: string, userId: string) {
-    return (prisma as any).notification.updateMany({
+    return prisma.notification.updateMany({
       where: { id, userId },
       data: { lue: true },
     });
@@ -47,7 +47,7 @@ export class NotificationService {
 
   // ── Marquer toutes comme lues ─────────────────────────────────────────────
   async marquerToutesLues(userId: string) {
-    return (prisma as any).notification.updateMany({
+    return prisma.notification.updateMany({
       where: { userId, lue: false },
       data: { lue: true },
     });
@@ -55,7 +55,7 @@ export class NotificationService {
 
   // ── Compter les non lues ──────────────────────────────────────────────────
   async countNonLues(userId: string) {
-    return (prisma as any).notification.count({
+    return prisma.notification.count({
       where: { userId, lue: false },
     });
   }
@@ -430,36 +430,47 @@ export class NotificationService {
     auteurNom: string;
     appUrl: string;
     pieceJointeNom?: string;
+    /** Si true : le commentaire est assigné à chaque destinataire (e-mail + in-app explicites). */
+    estAssignation?: boolean;
   }) {
     const lien = `${data.appUrl}/pv-reunion/${data.pvId}`;
     const pieceHtml = data.pieceJointeNom
       ? `<p style="margin:12px 0">📎 Pièce jointe : <strong>${data.pieceJointeNom}</strong></p>`
       : '';
+    const assign = !!data.estAssignation;
     for (const dest of data.destinataires) {
       try {
         await this.createNotification({
           userId: dest.id,
-          type: 'commentaire_pv',
-          titre: `Commentaire sur « ${data.pvTitre} »`,
-          contenu: `${data.auteurNom} : ${data.commentaire.substring(0, 100)}${data.commentaire.length > 100 ? '...' : ''}`,
+          type: assign ? 'commentaire_pv_assigne' : 'commentaire_pv',
+          titre: assign
+            ? `Commentaire qui vous est assigné — « ${data.pvTitre} »`
+            : `Commentaire sur « ${data.pvTitre} »`,
+          contenu: assign
+            ? `${data.auteurNom} vous a assigné un commentaire sur ce PV : ${data.commentaire.substring(0, 100)}${data.commentaire.length > 100 ? '…' : ''}`
+            : `${data.auteurNom} : ${data.commentaire.substring(0, 100)}${data.commentaire.length > 100 ? '...' : ''}`,
           lienType: 'pvReunion',
           lienId: data.pvId,
         });
-      } catch {
-        /* silencieux */
+      } catch (err) {
+        console.error('[NOTIF] Erreur notification in-app commentaire PV:', err);
       }
       try {
         const smtp = await this.getActiveSMTP();
         if (!smtp) continue;
+        const introAssign = `<p><strong>${data.auteurNom}</strong> vous a <strong>assigné</strong> un commentaire sur le procès-verbal <strong>${data.pvTitre}</strong> :</p>`;
+        const introGeneral = `<p><strong>${data.auteurNom}</strong> a commenté le procès-verbal <strong>${data.pvTitre}</strong> :</p>`;
         await smtp.transporter.sendMail({
           from: `"${smtp.smtp.fromName || 'PMO Hub'}" <${smtp.smtp.fromEmail}>`,
           to: dest.email,
-          subject: `💬 Commentaire sur PV : ${data.pvTitre}`,
+          subject: assign
+            ? `Commentaire PV qui vous est assigné : ${data.pvTitre}`
+            : `💬 Commentaire sur PV : ${data.pvTitre}`,
           html: `<div style="font-family:Arial,sans-serif;max-width:600px">
-            <div style="background:#0369a1;color:white;padding:20px;border-radius:8px 8px 0 0"><h2 style="margin:0">💬 PV de réunion</h2></div>
+            <div style="background:#0369a1;color:white;padding:20px;border-radius:8px 8px 0 0"><h2 style="margin:0">${assign ? '✅ Commentaire assigné' : '💬 PV de réunion'}</h2></div>
             <div style="background:#f9fafb;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
               <p>Bonjour <strong>${dest.nom}</strong>,</p>
-              <p><strong>${data.auteurNom}</strong> a commenté le procès-verbal <strong>${data.pvTitre}</strong> :</p>
+              ${assign ? introAssign : introGeneral}
               <div style="background:white;border-left:4px solid #0369a1;padding:12px;margin:16px 0;border-radius:4px;font-style:italic">
                 "${data.commentaire.substring(0, 400)}${data.commentaire.length > 400 ? '...' : ''}"
               </div>

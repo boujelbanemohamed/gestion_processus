@@ -1124,6 +1124,7 @@ export class PvReunionService {
     }
 
     if (destinataires.length > 0) {
+      const estAssignation = !!(assigneAId && assigneAId !== auteurId);
       this.notificationService
         .notifierCommentairePvReunion({
           pvId,
@@ -1133,8 +1134,9 @@ export class PvReunionService {
           auteurNom,
           appUrl,
           pieceJointeNom: fichier?.originalname,
+          estAssignation,
         })
-        .catch(() => {});
+        .catch((err: unknown) => console.error('[PV] Notification commentaire:', err));
     }
 
     return c;
