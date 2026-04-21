@@ -6,7 +6,9 @@ import { DOCUMENT_TYPE_OPTIONS, documentTypeLabel } from '../constants/documentT
 import { getPaginationPageNumbers } from '../utils/pagination';
 import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
 import { DocumentAccesNatifModal } from '../components/DocumentAccesNatifModal';
+import { PvReunionAccesModal } from '../components/PvReunionAccesModal';
 import { isNativeAuthorControlledUploadDoc as isNativeProjetUploadDoc } from '../utils/documentNativeAcces';
+import { canModifyModule } from '../utils/uiModuleRoute';
 import * as XLSX from 'xlsx';
 
 const NIVEAUX_CONTRAT_DOC = [
@@ -99,6 +101,7 @@ export default function Documents() {
   const [error, setError] = useState('');
   const [showAccesModal, setShowAccesModal] = useState(false);
   const [showDocAccesContratModal, setShowDocAccesContratModal] = useState(false);
+  const [pvReunionAccesModal, setPvReunionAccesModal] = useState<{ id: string; titre: string } | null>(null);
   const [acceDoc, setAcceDoc] = useState<any>(null);
   const [acceEstConfidentiel, setAcceEstConfidentiel] = useState(false);
   const [accePermissionUserIds, setAccePermissionUserIds] = useState<string[]>([]);
@@ -604,17 +607,75 @@ export default function Documents() {
     return false;
   };
 
+  /** Même règles que la liste PV : module + droits sur le PV (créateur, permissions, admin non exclu). */
+  const canOpenPvReunionAccesModal = (linkedPv: any | null | undefined, pvIdFromRef: string | null) => {
+    if (!currentUser || !canModifyModule(currentUser.uiModules, 'pv_reunion')) return false;
+    const pv = linkedPv;
+    const pvId = pv?.id || pvIdFromRef;
+    if (!pvId) return false;
+    if (isAdmin) {
+      if (!pv) return true;
+      const refused =
+        pv.adminSansAccesUserIds?.includes(currentUser.id) ||
+        (pv.adminSansAcces || []).some((x: { userId: string }) => x.userId === currentUser.id);
+      return !refused;
+    }
+    if (!pv) return false;
+    if (pv.createdById === currentUser.id) return true;
+    const row = (pv.permissions || []).find(
+      (p: any) => (p.userId || p.user?.id) === currentUser.id && ['gestion', 'suppression', 'modification'].includes(p.niveau)
+    );
+    return !!row;
+  };
+
+  const resolvePvReunionForDocumentAcces = (doc: any): { id: string; titre: string; linkedPv: any | null } | null => {
+    const linkedPv = doc.pvReunion || doc.pvReunionsPrincipal?.[0] || doc.pvReunionCommentPieces?.[0]?.pvReunion || null;
+    const id =
+      doc.referenceType === 'pvReunion' && doc.referenceId
+        ? String(doc.referenceId)
+        : linkedPv?.id || null;
+    if (!id) return null;
+    const titre = linkedPv?.titre || doc.nom || 'PV de réunion';
+    return { id, titre, linkedPv };
+  };
+
   const handleOpenAccesModal = async (doc: any) => {
-    setAcceDoc(doc);
     if (isNativeProjetUploadDoc(doc)) {
+      setAcceDoc(doc);
       setShowDocAccesContratModal(true);
       return;
     }
+
+    const pvAcc = resolvePvReunionForDocumentAcces(doc);
+    const isPvPrincipalOrRef =
+      doc.typeDocument === 'pv_reunion' ||
+      doc.referenceType === 'pvReunion' ||
+      !!doc.pvReunionsPrincipal?.length ||
+      !!pvAcc?.linkedPv;
+    if (pvAcc && isPvPrincipalOrRef && canOpenPvReunionAccesModal(pvAcc.linkedPv, pvAcc.id)) {
+      setPvReunionAccesModal({ id: pvAcc.id, titre: pvAcc.titre });
+      return;
+    }
+
+    setAcceDoc(doc);
     setAcceEstConfidentiel(doc.estConfidentiel || false);
     setAccePermissionUserIds(
       doc.permissionsUtilisateurs?.map((p: any) => p.userId || p.user?.id).filter(Boolean) || []
     );
     setShowAccesModal(true);
+  };
+
+  const canShowAccesButton = (doc: any) => {
+    if (isNativeProjetUploadDoc(doc)) return canModifierAcces(doc);
+    const linkedPv = doc.pvReunion || doc.pvReunionsPrincipal?.[0] || doc.pvReunionCommentPieces?.[0]?.pvReunion || null;
+    const pvAcc = resolvePvReunionForDocumentAcces(doc);
+    const isPv =
+      doc.typeDocument === 'pv_reunion' ||
+      doc.referenceType === 'pvReunion' ||
+      !!doc.pvReunionsPrincipal?.length ||
+      !!linkedPv?.id;
+    if (isPv && pvAcc && canOpenPvReunionAccesModal(pvAcc.linkedPv, pvAcc.id)) return true;
+    return canModifierAcces(doc);
   };
 
   const handleSaveAcces = async () => {
@@ -1479,7 +1540,7 @@ export default function Documents() {
                         >
                           ✏️ Modifier
                         </button>
-                        {canModifierAcces(d) && (
+                        {canShowAccesButton(d) && (
                           <button
                             type="button"
                             onClick={() => void handleOpenAccesModal(d)}
@@ -1497,7 +1558,7 @@ export default function Documents() {
                         </button>
                       </>
                     )}
-                    {!isAdmin && canModifierAcces(d) && (
+                    {!isAdmin && canShowAccesButton(d) && (
                       <button
                         type="button"
                         onClick={() => void handleOpenAccesModal(d)}
@@ -2090,6 +2151,17 @@ export default function Documents() {
           setAcceDoc(null);
         }}
         onAfterMutation={() => loadDocuments()}
+      />
+
+      <PvReunionAccesModal
+        open={!!pvReunionAccesModal}
+        onClose={() => setPvReunionAccesModal(null)}
+        pvId={pvReunionAccesModal?.id ?? null}
+        titreFallback={pvReunionAccesModal?.titre ?? ''}
+        onPermissionsChanged={() => {
+          void loadDocuments();
+          notifyDocumentsListAccesSync();
+        }}
       />
 
       {/* Modal Modifier Accès (hors pièce confidentielle « natif projet ») */}

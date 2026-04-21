@@ -566,23 +566,90 @@ export class PvReunionService {
         })
       : [];
 
+    const liensProjets = projets.length
+      ? projets.map((p) => `${p.nom}${p.codeProjet ? ` (${p.codeProjet})` : ''}`).join(' ; ')
+      : undefined;
+    const liensTaches = taches.length ? taches.map((t) => t.nom).join(' ; ') : undefined;
+    const liensUserStories = uss.length
+      ? uss.map((u) => (u.description || '').replace(/\s+/g, ' ').slice(0, 120)).join(' ; ')
+      : undefined;
+    const liensEpics = eps.length ? eps.map((e) => e.nom).join(' ; ') : undefined;
+
     return {
       titre: data.titre.trim(),
       statutLabel: pvStatutLabelFr(st),
       dateReunionLabel: data.dateReunion
         ? data.dateReunion.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
         : '—',
-      participantsUsers: users.map((u) => `${u.prenom} ${u.nom}`).join(', ') || '—',
-      participantsClients:
-        cfs.map((c) => `${c.nom} (${c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})`).join(', ') || '—',
-      liensProjets: projets.map((p) => `${p.nom}${p.codeProjet ? ` (${p.codeProjet})` : ''}`).join(' ; ') || '—',
-      liensTaches: taches.map((t) => t.nom).join(' ; ') || '—',
-      liensUserStories:
-        uss.map((u) => (u.description || '').replace(/\s+/g, ' ').slice(0, 120)).join(' ; ') || '—',
-      liensEpics: eps.map((e) => e.nom).join(' ; ') || '—',
+      participantUserLines: users.map((u) => `${u.prenom} ${u.nom}`.trim()),
+      participantClientLines: cfs.map((c) => `${c.nom} (${c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})`),
+      ...(liensProjets ? { liensProjets } : {}),
+      ...(liensTaches ? { liensTaches } : {}),
+      ...(liensUserStories ? { liensUserStories } : {}),
+      ...(liensEpics ? { liensEpics } : {}),
       bodyHtml,
       generatedAt: new Date(),
     };
+  }
+
+  /**
+   * Régénère le fichier PDF principal à partir du HTML stocké (PV rédigé dans l’app).
+   * Sans contenu HTML, ne fait rien (PV importé uniquement comme fichier).
+   */
+  private async syncPrincipalPdfFromPvState(pvId: string): Promise<void> {
+    const pv = await prisma.pvReunion.findFirst({
+      where: { id: pvId, deletedAt: null },
+      include: {
+        presentsUser: { select: { userId: true } },
+        presentsClientFournisseur: { select: { clientFournisseurId: true } },
+      },
+    });
+    if (!pv?.contenuHtml?.trim()) return;
+
+    const expanded = await expandLiens(parseLiensExplicites(pv.liensExplicites));
+    const presentUserIds = pv.presentsUser.map((p) => p.userId);
+    const presentClientFournisseurIds = pv.presentsClientFournisseur.map((p) => p.clientFournisseurId);
+
+    const meta = await this.buildPdfMetaForCreate(
+      {
+        titre: pv.titre,
+        statut: pv.statut,
+        dateReunion: pv.dateReunion,
+        presentUserIds,
+        presentClientFournisseurIds,
+      },
+      expanded,
+      pv.contenuHtml
+    );
+    const buf = await generatePvPdfBuffer(meta);
+    const base = buildPvPrincipalFileBaseName(pv.titre, pv.dateReunion);
+    const storedName = `${Date.now()}-${uuidv4()}.pdf`;
+    await fs.mkdir(UPLOAD_DIR, { recursive: true });
+    const diskPath = path.join(UPLOAD_DIR, storedName);
+    await fs.writeFile(diskPath, buf);
+
+    const doc = await prisma.document.findUnique({
+      where: { id: pv.documentId },
+      select: { fichierUrl: true },
+    });
+    const oldUrl = doc?.fichierUrl;
+    await prisma.document.update({
+      where: { id: pv.documentId },
+      data: {
+        nom: `${base}.pdf`,
+        fichierNomOriginal: `${base}.pdf`,
+        fichierUrl: storedName,
+        fichierTaille: buf.length,
+        fichierType: 'application/pdf',
+      },
+    });
+    if (oldUrl && oldUrl !== storedName) {
+      try {
+        await fs.unlink(path.join(UPLOAD_DIR, oldUrl));
+      } catch {
+        /* fichier déjà absent ou verrouillé */
+      }
+    }
   }
 
   async create(
@@ -777,6 +844,25 @@ export class PvReunionService {
       await syncPvPrincipalDocumentLinks(existing.documentId, expanded);
     }
 
+    const pdfMetaDirty =
+      data.contenuHtml !== undefined ||
+      data.titre != null ||
+      data.statut !== undefined ||
+      data.dateReunion !== undefined ||
+      !!data.presentUserIds ||
+      !!data.presentClientFournisseurIds ||
+      !!data.liens;
+
+    if (pdfMetaDirty) {
+      const row = await prisma.pvReunion.findUnique({
+        where: { id },
+        select: { contenuHtml: true },
+      });
+      if (row?.contenuHtml?.trim()) {
+        await this.syncPrincipalPdfFromPvState(id);
+      }
+    }
+
     return this.findOne(id, userId, role);
   }
 
@@ -822,6 +908,8 @@ export class PvReunionService {
         }
       }
     });
+
+    await this.syncPrincipalPdfFromPvState(id);
 
     return this.findOne(id, userId, role);
   }

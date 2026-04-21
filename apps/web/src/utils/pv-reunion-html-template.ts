@@ -62,11 +62,18 @@ export function buildStructuredPvHtml(ctx: PvTemplateContext): string {
 
 <h2>8. Conclusion</h2>
 <p><em>À compléter…</em></p>
-
-<h2>Rattachements (référence)</h2>
-<p><strong>Projets :</strong> ${escapeHtml(ctx.projetsLines.join(' ; ') || '—')}</p>
-<p><strong>Tâches :</strong> ${escapeHtml(ctx.tachesLines.join(' ; ') || '—')}</p>
-<p><strong>User stories :</strong> ${escapeHtml(ctx.userStoriesLines.join(' ; ') || '—')}</p>
-<p><strong>Epics :</strong> ${escapeHtml(ctx.epicsLines.join(' ; ') || '—')}</p>
+${(() => {
+  const parts: string[] = [];
+  if (ctx.projetsLines.length)
+    parts.push(`<p><strong>Projets :</strong> ${escapeHtml(ctx.projetsLines.join(' ; '))}</p>`);
+  if (ctx.tachesLines.length)
+    parts.push(`<p><strong>Tâches :</strong> ${escapeHtml(ctx.tachesLines.join(' ; '))}</p>`);
+  if (ctx.userStoriesLines.length)
+    parts.push(`<p><strong>User stories :</strong> ${escapeHtml(ctx.userStoriesLines.join(' ; '))}</p>`);
+  if (ctx.epicsLines.length)
+    parts.push(`<p><strong>Epics :</strong> ${escapeHtml(ctx.epicsLines.join(' ; '))}</p>`);
+  if (!parts.length) return '';
+  return `\n<h2>Rattachements (référence)</h2>\n${parts.join('\n')}`;
+})()}
 `.trim();
 }
