@@ -15,6 +15,7 @@ export type PvTemplateContext = {
   titre: string;
   statutLabel: string;
   dateReunionLabel: string;
+  derniereMiseAJourLabel?: string;
   usersLines: string[];
   cfLines: string[];
   projetsLines: string[];
@@ -90,9 +91,7 @@ ${actions
 
   return `
 <h2>Informations générales</h2>
-<p><strong>Titre de la réunion :</strong> ${t}</p>
-<p><strong>Date :</strong> ${escapeHtml(ctx.dateReunionLabel)}</p>
-<p><strong>Statut :</strong> ${escapeHtml(ctx.statutLabel)}</p>
+<p><strong>Dernière mise à jour :</strong> ${escapeHtml(ctx.derniereMiseAJourLabel || '—')}</p>
 
 <h2>Participants</h2>
 <h3>Présents (utilisateurs)</h3>

@@ -30,5 +30,12 @@ export async function htmlElementToPdfBlob(el: HTMLElement): Promise<Blob> {
     heightLeft -= pageHeight - margin * 2;
   }
 
+  const totalPages = pdf.getNumberOfPages();
+  pdf.setFontSize(9);
+  for (let i = 1; i <= totalPages; i++) {
+    pdf.setPage(i);
+    pdf.text(`Page ${i}/${totalPages}`, pageWidth - margin, pageHeight - 4, { align: 'right' });
+  }
+
   return pdf.output('blob');
 }

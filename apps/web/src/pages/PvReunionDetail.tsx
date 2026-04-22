@@ -527,6 +527,11 @@ export default function PvReunionDetail() {
         titre: titre.trim() || pv?.titre || 'Réunion',
         statutLabel,
         dateReunionLabel: dateLabel,
+        derniereMiseAJourLabel: pv?.contenuUpdatedAt
+          ? new Date(pv.contenuUpdatedAt).toLocaleString('fr-FR')
+          : pv?.updatedAt
+            ? new Date(pv.updatedAt).toLocaleString('fr-FR')
+            : '—',
         usersLines,
         cfLines,
         projetsLines,
@@ -1514,14 +1519,14 @@ export default function PvReunionDetail() {
       >
         <header className="border-b border-gray-200 pb-3 mb-4">
           {companyInfo?.logoFilename ? (
-            <div className="mb-3 text-center">
+            <div className="mb-3 flex items-center justify-between gap-4">
               <img
                 src={`${API_BASE_URL}/company-info/logo?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
                 alt="Logo entreprise"
-                className="h-16 object-contain mx-auto"
+                className="h-20 object-contain"
               />
               {String(companyInfo?.nomEntreprise || '').trim() ? (
-                <p className="text-[13px] font-semibold text-gray-700 mt-1">{companyInfo.nomEntreprise}</p>
+                <p className="text-xl font-bold text-gray-800 text-right">{companyInfo.nomEntreprise}</p>
               ) : null}
             </div>
           ) : null}

@@ -597,6 +597,7 @@ export default function PvReunionList() {
         titre: titre.trim() || 'Réunion',
         statutLabel: st,
         dateReunionLabel: dateLabel,
+        derniereMiseAJourLabel: new Date().toLocaleString('fr-FR'),
         usersLines: uLines,
         cfLines,
         projetsLines: projLines,
