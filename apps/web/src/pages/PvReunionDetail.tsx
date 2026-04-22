@@ -82,6 +82,15 @@ function stripH2NumberingInHtml(html: string): string {
   return String(html || '').replace(/<h2([^>]*)>\s*\d+\.\s*/gi, '<h2$1>');
 }
 
+function normalizeKey(s: string): string {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function parsePvStructuredFieldsFromHtml(html: string): {
   ordreDuJour: string;
   pointsDiscutes: string;
@@ -159,13 +168,15 @@ function parsePvStructuredFieldsFromHtml(html: string): {
       const action = (cells[0]?.textContent || '').trim();
       const responsable = (cells[1]?.textContent || '').trim();
       const dateLimite = toInputDate((cells[2]?.textContent || '').trim());
+      const userIdAttr = (tr as HTMLTableRowElement).getAttribute('data-user-id') || '';
+      const entiteIdAttr = (tr as HTMLTableRowElement).getAttribute('data-entite-id') || '';
       if (!action && !responsable && !dateLimite) continue;
       actionRows.push({
         ...makeActionRow(),
         action,
         dateLimite,
-        userId: '',
-        entiteId: '',
+        userId: userIdAttr.trim(),
+        entiteId: entiteIdAttr.trim(),
         responsableLibre: responsable,
       });
     }
@@ -310,6 +321,16 @@ export default function PvReunionDetail() {
 
   const canModule = canModifyModule(user?.uiModules, 'pv_reunion');
   const canEdit = !!(pv?.capabilities?.canModify && canModule);
+  const inferResponsableSelection = (row: PvActionInput): { userId: string; entiteId: string } => {
+    if (row.userId || row.entiteId) return { userId: row.userId, entiteId: row.entiteId };
+    const key = normalizeKey(row.responsableLibre);
+    if (!key) return { userId: row.userId, entiteId: row.entiteId };
+    const matchedUser = users.find((u: any) => normalizeKey(`${u.prenom} ${u.nom}`) === key);
+    if (matchedUser) return { userId: String(matchedUser.id), entiteId: '' };
+    const matchedEntite = entites.find((e: any) => normalizeKey(e.nom || '') === key);
+    if (matchedEntite) return { userId: '', entiteId: String(matchedEntite.id) };
+    return { userId: row.userId, entiteId: row.entiteId };
+  };
   const parseLines = (s: string) =>
     String(s || '')
       .split(/\n+/)
@@ -467,6 +488,23 @@ export default function PvReunionDetail() {
   }, [pv]);
 
   useEffect(() => {
+    if (!editMode || (!users.length && !entites.length)) return;
+    setActionsInput((prev) => {
+      let changed = false;
+      const next = prev.map((row) => {
+        if (row.userId || row.entiteId || !row.responsableLibre) return row;
+        const inferred = inferResponsableSelection(row);
+        if (inferred.userId || inferred.entiteId) {
+          changed = true;
+          return { ...row, ...inferred };
+        }
+        return row;
+      });
+      return changed ? next : prev;
+    });
+  }, [editMode, users, entites]);
+
+  useEffect(() => {
     const statutLabel = PV_STATUTS.find((s) => s.value === statutPv)?.label || statutPv;
     const dateLabel = dateReunion
       ? new Date(dateReunion).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
@@ -518,6 +556,8 @@ export default function PvReunionDetail() {
           action: a.action.trim(),
           responsable,
           dateLimite: a.dateLimite ? toFrDateLabel(a.dateLimite) : '',
+          userId: a.userId,
+          entiteId: a.entiteId,
         };
       })
       .filter((a) => a.action || a.responsable || a.dateLimite);

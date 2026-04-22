@@ -32,7 +32,7 @@ export type PvTemplateContext = {
   decisionsPrisesLines?: string[];
   risquesBlocagesText?: string;
   conclusionText?: string;
-  actionsRows?: Array<{ action: string; responsable: string; dateLimite: string }>;
+  actionsRows?: Array<{ action: string; responsable: string; dateLimite: string; userId?: string; entiteId?: string }>;
 };
 
 /** Structure type pour un procès-verbal (HTML compatible éditeur / export). */
@@ -48,6 +48,8 @@ export function buildStructuredPvHtml(ctx: PvTemplateContext): string {
       action: String(x?.action || '').trim(),
       responsable: String(x?.responsable || '').trim(),
       dateLimite: String(x?.dateLimite || '').trim(),
+      userId: String(x?.userId || '').trim(),
+      entiteId: String(x?.entiteId || '').trim(),
     }))
     .filter((x) => x.action || x.responsable || x.dateLimite);
 
@@ -87,7 +89,7 @@ export function buildStructuredPvHtml(ctx: PvTemplateContext): string {
 ${actions
   .map(
     (a) =>
-      `<tr><td>${escapeHtml(a.action || '—')}</td><td>${escapeHtml(a.responsable || '—')}</td><td>${escapeHtml(a.dateLimite || '—')}</td></tr>`
+      `<tr data-user-id="${escapeHtml(a.userId)}" data-entite-id="${escapeHtml(a.entiteId)}"><td>${escapeHtml(a.action || '—')}</td><td>${escapeHtml(a.responsable || '—')}</td><td>${escapeHtml(a.dateLimite || '—')}</td></tr>`
   )
   .join('')}
 </tbody>
