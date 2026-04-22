@@ -130,10 +130,10 @@ function decodeHtmlEntities(raw: string): string {
 
 function extractAssignedActionRowsFromHtml(
   html: string
-): Array<{ userId: string; actionLabel: string }> {
+): Array<{ targetType: 'user' | 'entite'; targetId: string; actionLabel: string }> {
   const source = String(html || '');
   if (!source.trim()) return [];
-  const rows: Array<{ userId: string; actionLabel: string }> = [];
+  const rows: Array<{ targetType: 'user' | 'entite'; targetId: string; actionLabel: string }> = [];
   const trRegex = /<tr\b([^>]*)>([\s\S]*?)<\/tr>/gi;
   let m: RegExpExecArray | null;
   while ((m = trRegex.exec(source)) !== null) {
@@ -144,6 +144,7 @@ function extractAssignedActionRowsFromHtml(
     if (!isNotifyEnabled) continue;
     const userIdsAttr = /data-user-ids="([^"]*)"/i.exec(attrs)?.[1] || '';
     const legacyUserId = /data-user-id="([^"]*)"/i.exec(attrs)?.[1] || '';
+    const entiteId = String(/data-entite-id="([^"]*)"/i.exec(attrs)?.[1] || '').trim();
     let userIds: string[] = [];
     if (userIdsAttr) {
       try {
@@ -156,7 +157,7 @@ function extractAssignedActionRowsFromHtml(
       }
     }
     if (!userIds.length && legacyUserId) userIds = [String(legacyUserId).trim()];
-    if (!userIds.length) continue;
+    if (!userIds.length && !entiteId) continue;
     const td = /<td\b[^>]*>([\s\S]*?)<\/td>/i.exec(inner);
     const actionLabel = decodeHtmlEntities(
       String(td?.[1] || '')
@@ -166,7 +167,10 @@ function extractAssignedActionRowsFromHtml(
     );
     if (!actionLabel || actionLabel === '—') continue;
     for (const userId of userIds) {
-      rows.push({ userId, actionLabel });
+      rows.push({ targetType: 'user', targetId: userId, actionLabel });
+    }
+    if (entiteId) {
+      rows.push({ targetType: 'entite', targetId: entiteId, actionLabel });
     }
   }
   return rows;
@@ -530,35 +534,88 @@ export class PvReunionService {
     const nextRows = extractAssignedActionRowsFromHtml(opts.nextHtml || '');
     if (!nextRows.length) return;
     const previousSet = new Set(
-      extractAssignedActionRowsFromHtml(opts.previousHtml || '').map((r) => `${r.userId}::${r.actionLabel}`)
+      extractAssignedActionRowsFromHtml(opts.previousHtml || '').map(
+        (r) => `${r.targetType}:${r.targetId}::${r.actionLabel}`
+      )
     );
-    const toNotify = nextRows.filter((r) => !previousSet.has(`${r.userId}::${r.actionLabel}`));
+    const toNotify = nextRows.filter(
+      (r) => !previousSet.has(`${r.targetType}:${r.targetId}::${r.actionLabel}`)
+    );
     if (!toNotify.length) return;
-    const userIds = uniq(
+    const directUserIds = uniq(
       toNotify
-        .map((r) => r.userId)
+        .filter((r) => r.targetType === 'user')
+        .map((r) => r.targetId)
         .filter((id) => id && id !== opts.auteurId)
     );
-    if (!userIds.length) return;
-    const users = await prisma.user.findMany({
-      where: { id: { in: userIds } },
-      select: { id: true, email: true, nom: true, prenom: true },
-    });
-    if (!users.length) return;
+    const entiteIds = uniq(
+      toNotify
+        .filter((r) => r.targetType === 'entite')
+        .map((r) => r.targetId)
+        .filter(Boolean)
+    );
+    const [usersDirect, entites] = await Promise.all([
+      directUserIds.length
+        ? prisma.user.findMany({
+            where: { id: { in: directUserIds } },
+            select: { id: true, email: true, nom: true, prenom: true },
+          })
+        : Promise.resolve([] as Array<{ id: string; email: string; nom: string; prenom: string }>),
+      entiteIds.length
+        ? prisma.entite.findMany({
+            where: { id: { in: entiteIds }, deletedAt: null },
+            select: {
+              id: true,
+              responsableId: true,
+              responsable: { select: { id: true, email: true, nom: true, prenom: true } },
+            },
+          })
+        : Promise.resolve(
+            [] as Array<{
+              id: string;
+              responsableId: string | null;
+              responsable: { id: string; email: string; nom: string; prenom: string } | null;
+            }>
+          ),
+    ]);
+    const users = new Map<string, { id: string; email: string; nom: string; prenom: string }>();
+    for (const u of usersDirect) users.set(u.id, u);
+    for (const e of entites) {
+      if (!e.responsable || !e.responsableId) continue;
+      if (e.responsableId === opts.auteurId) continue;
+      users.set(e.responsableId, e.responsable);
+    }
+    if (!users.size) return;
+    const resolvedUsers = [...users.values()];
+    const usersById = new Map(resolvedUsers.map((u) => [u.id, u]));
+    const entiteToResponsable = new Map<string, string>();
+    for (const e of entites) {
+      if (e.responsableId) entiteToResponsable.set(e.id, e.responsableId);
+    }
     const byUser = new Map<string, string[]>();
     for (const row of toNotify) {
-      if (row.userId === opts.auteurId) continue;
-      const list = byUser.get(row.userId) || [];
+      let resolvedUserId = '';
+      if (row.targetType === 'user') {
+        resolvedUserId = row.targetId;
+      } else {
+        resolvedUserId = entiteToResponsable.get(row.targetId) || '';
+      }
+      if (!resolvedUserId || resolvedUserId === opts.auteurId) continue;
+      if (!usersById.has(resolvedUserId)) continue;
+      const list = byUser.get(resolvedUserId) || [];
       if (!list.includes(row.actionLabel)) list.push(row.actionLabel);
-      byUser.set(row.userId, list);
+      byUser.set(resolvedUserId, list);
     }
+    if (!byUser.size) return;
+    const usersForNotif = resolvedUsers.filter((u) => byUser.has(u.id));
+    if (!usersForNotif.length) return;
     const auteur = await prisma.user.findUnique({
       where: { id: opts.auteurId },
-      select: { nom: true, prenom: true },
+      select: { id: true, email: true, nom: true, prenom: true },
     });
     const auteurNom = auteur ? `${auteur.prenom} ${auteur.nom}` : 'Un utilisateur';
     const appUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    for (const u of users) {
+    for (const u of usersForNotif) {
       const labels = byUser.get(u.id) || [];
       if (!labels.length) continue;
       for (const actionLabel of labels) {
