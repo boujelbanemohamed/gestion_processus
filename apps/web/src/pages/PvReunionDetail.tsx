@@ -54,6 +54,7 @@ type PvActionInput = {
   action: string;
   userId: string;
   entiteId: string;
+  clientFournisseurId: string;
   dateLimite: string;
   responsableLibre: string;
 };
@@ -64,6 +65,7 @@ function makeActionRow(): PvActionInput {
     action: '',
     userId: '',
     entiteId: '',
+    clientFournisseurId: '',
     dateLimite: '',
     responsableLibre: '',
   };
@@ -170,6 +172,7 @@ function parsePvStructuredFieldsFromHtml(html: string): {
       const dateLimite = toInputDate((cells[2]?.textContent || '').trim());
       const userIdAttr = (tr as HTMLTableRowElement).getAttribute('data-user-id') || '';
       const entiteIdAttr = (tr as HTMLTableRowElement).getAttribute('data-entite-id') || '';
+      const cfIdAttr = (tr as HTMLTableRowElement).getAttribute('data-cf-id') || '';
       if (!action && !responsable && !dateLimite) continue;
       actionRows.push({
         ...makeActionRow(),
@@ -177,6 +180,7 @@ function parsePvStructuredFieldsFromHtml(html: string): {
         dateLimite,
         userId: userIdAttr.trim(),
         entiteId: entiteIdAttr.trim(),
+        clientFournisseurId: cfIdAttr.trim(),
         responsableLibre: responsable,
       });
     }
@@ -321,15 +325,35 @@ export default function PvReunionDetail() {
 
   const canModule = canModifyModule(user?.uiModules, 'pv_reunion');
   const canEdit = !!(pv?.capabilities?.canModify && canModule);
-  const inferResponsableSelection = (row: PvActionInput): { userId: string; entiteId: string } => {
-    if (row.userId || row.entiteId) return { userId: row.userId, entiteId: row.entiteId };
+  const inferResponsableSelection = (
+    row: PvActionInput
+  ): { userId: string; entiteId: string; clientFournisseurId: string } => {
+    if (row.userId || row.entiteId || row.clientFournisseurId) {
+      return {
+        userId: row.userId,
+        entiteId: row.entiteId,
+        clientFournisseurId: row.clientFournisseurId,
+      };
+    }
     const key = normalizeKey(row.responsableLibre);
-    if (!key) return { userId: row.userId, entiteId: row.entiteId };
+    if (!key) {
+      return {
+        userId: row.userId,
+        entiteId: row.entiteId,
+        clientFournisseurId: row.clientFournisseurId,
+      };
+    }
     const matchedUser = users.find((u: any) => normalizeKey(`${u.prenom} ${u.nom}`) === key);
-    if (matchedUser) return { userId: String(matchedUser.id), entiteId: '' };
+    if (matchedUser) return { userId: String(matchedUser.id), entiteId: '', clientFournisseurId: '' };
     const matchedEntite = entites.find((e: any) => normalizeKey(e.nom || '') === key);
-    if (matchedEntite) return { userId: '', entiteId: String(matchedEntite.id) };
-    return { userId: row.userId, entiteId: row.entiteId };
+    if (matchedEntite) return { userId: '', entiteId: String(matchedEntite.id), clientFournisseurId: '' };
+    const matchedCf = clientsFournisseurs.find((cf: any) => normalizeKey(clientFournisseurLabel(cf)) === key);
+    if (matchedCf) return { userId: '', entiteId: '', clientFournisseurId: String(matchedCf.id) };
+    return {
+      userId: row.userId,
+      entiteId: row.entiteId,
+      clientFournisseurId: row.clientFournisseurId,
+    };
   };
   const parseLines = (s: string) =>
     String(s || '')
@@ -492,9 +516,9 @@ export default function PvReunionDetail() {
     setActionsInput((prev) => {
       let changed = false;
       const next = prev.map((row) => {
-        if (row.userId || row.entiteId || !row.responsableLibre) return row;
+        if (row.userId || row.entiteId || row.clientFournisseurId || !row.responsableLibre) return row;
         const inferred = inferResponsableSelection(row);
-        if (inferred.userId || inferred.entiteId) {
+        if (inferred.userId || inferred.entiteId || inferred.clientFournisseurId) {
           changed = true;
           return { ...row, ...inferred };
         }
@@ -502,7 +526,7 @@ export default function PvReunionDetail() {
       });
       return changed ? next : prev;
     });
-  }, [editMode, users, entites]);
+  }, [editMode, users, entites, clientsFournisseurs]);
 
   useEffect(() => {
     const statutLabel = PV_STATUTS.find((s) => s.value === statutPv)?.label || statutPv;
@@ -550,7 +574,10 @@ export default function PvReunionDetail() {
       .map((a) => {
         const u = users.find((x: any) => x.id === a.userId);
         const en = entites.find((x: any) => x.id === a.entiteId);
-        const responsableAuto = [u ? `${u.prenom} ${u.nom}` : '', en ? en.nom : ''].filter(Boolean).join(' / ');
+        const cf = clientsFournisseurs.find((x: any) => x.id === a.clientFournisseurId);
+        const responsableAuto = [u ? `${u.prenom} ${u.nom}` : '', en ? en.nom : '', cf ? clientFournisseurLabel(cf) : '']
+          .filter(Boolean)
+          .join(' / ');
         const responsable = responsableAuto || String(a.responsableLibre || '').trim();
         return {
           action: a.action.trim(),
@@ -558,6 +585,7 @@ export default function PvReunionDetail() {
           dateLimite: a.dateLimite ? toFrDateLabel(a.dateLimite) : '',
           userId: a.userId,
           entiteId: a.entiteId,
+          clientFournisseurId: a.clientFournisseurId,
         };
       })
       .filter((a) => a.action || a.responsable || a.dateLimite);
@@ -1081,7 +1109,7 @@ export default function PvReunionDetail() {
                   )}
                   <div className="space-y-2">
                     {actionsInput.map((row) => (
-                      <div key={row.id} className="grid lg:grid-cols-12 gap-2 items-start">
+                      <div key={row.id} className="grid lg:grid-cols-14 gap-2 items-start">
                         <input
                           className="lg:col-span-4 border border-gray-200 rounded-md px-2 py-1.5 text-sm"
                           placeholder="Action"
@@ -1093,7 +1121,7 @@ export default function PvReunionDetail() {
                           }
                         />
                         <select
-                          className="lg:col-span-3 border border-gray-200 rounded-md px-2 py-1.5 text-sm"
+                          className="lg:col-span-2 border border-gray-200 rounded-md px-2 py-1.5 text-sm"
                           value={row.entiteId}
                           onChange={(e) =>
                             setActionsInput((prev) =>
@@ -1109,7 +1137,7 @@ export default function PvReunionDetail() {
                           ))}
                         </select>
                         <select
-                          className="lg:col-span-3 border border-gray-200 rounded-md px-2 py-1.5 text-sm"
+                          className="lg:col-span-2 border border-gray-200 rounded-md px-2 py-1.5 text-sm"
                           value={row.userId}
                           onChange={(e) =>
                             setActionsInput((prev) =>
@@ -1124,7 +1152,25 @@ export default function PvReunionDetail() {
                             </option>
                           ))}
                         </select>
-                        <div className="lg:col-span-2 flex gap-2">
+                        <select
+                          className="lg:col-span-3 border border-gray-200 rounded-md px-2 py-1.5 text-sm"
+                          value={row.clientFournisseurId}
+                          onChange={(e) =>
+                            setActionsInput((prev) =>
+                              prev.map((x) =>
+                                x.id === row.id ? { ...x, clientFournisseurId: e.target.value } : x
+                              )
+                            )
+                          }
+                        >
+                          <option value="">Client/Fournisseur (optionnel)</option>
+                          {clientsFournisseurs.map((cf: any) => (
+                            <option key={cf.id} value={cf.id}>
+                              {clientFournisseurLabel(cf)}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="lg:col-span-3 flex gap-2">
                           <input
                             type="date"
                             className="flex-1 border border-gray-200 rounded-md px-2 py-1.5 text-sm"
