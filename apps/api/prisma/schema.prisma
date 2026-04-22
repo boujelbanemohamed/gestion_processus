@@ -1209,6 +1209,14 @@ model Notification {
   @@index([lue])
 }
 
+/// Activation par canal (email / in-app) pour les notifications métier — clés alignées sur l’écran Configuration.
+model NotificationSetting {
+  key           String   @id
+  emailEnabled  Boolean  @default(true)
+  appEnabled    Boolean  @default(true)
+  updatedAt     DateTime @updatedAt
+}
+
 /// Emails automatiques (NotificationService) non délivrés — SMTP absent ou erreur d’envoi.
 model NotificationEmailFailure {
   id           String   @id @default(uuid())

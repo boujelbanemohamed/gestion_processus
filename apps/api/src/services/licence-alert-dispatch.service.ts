@@ -6,6 +6,7 @@ import {
   LICENCE_ALERTE_SUJET_DEFAUT,
   applyLicenceAlerteTemplate,
 } from '../constants/licence-alerte-mail';
+import { NotificationSettingService } from './notification-setting.service';
 
 function startOfLocalDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -134,6 +135,10 @@ export async function runLicenceAlertDispatch(): Promise<{ sent: number; skipped
       continue;
     }
     if (!shouldSendLicenceAlert(row, licence, today)) {
+      skipped++;
+      continue;
+    }
+    if (!(await NotificationSettingService.isEmailEnabled('licence_alerte'))) {
       skipped++;
       continue;
     }

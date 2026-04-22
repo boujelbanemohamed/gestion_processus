@@ -27,6 +27,7 @@ import * as tacheController from "./controllers/tache.controller";
 import * as epicController from "./controllers/epic.controller";
 import * as notificationController from "./controllers/notification.controller";
 import * as notificationEmailFailureController from "./controllers/notification-email-failure.controller";
+import * as notificationSettingController from "./controllers/notification-setting.controller";
 import * as licenceController from "./controllers/licence.controller";
 import * as typeLicenceController from "./controllers/type-licence.controller";
 import * as typeContratController from "./controllers/type-contrat.controller";
@@ -533,6 +534,16 @@ app.post(
   "/api/v1/admin/notification-email-failures/:id/resend",
   requireRole("admin"),
   notificationEmailFailureController.resendNotificationEmailFailure
+);
+app.get(
+  "/api/v1/admin/notification-settings",
+  requireRole("admin"),
+  notificationSettingController.listNotificationSettings
+);
+app.patch(
+  "/api/v1/admin/notification-settings/:key",
+  requireRole("admin"),
+  notificationSettingController.patchNotificationSetting
 );
 
 // Gestion des erreurs

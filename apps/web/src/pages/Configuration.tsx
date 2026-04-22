@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, API_BASE_URL } from '../services/api';
 
@@ -36,12 +36,16 @@ const NOTIFICATION_EMAIL_KIND_LABELS: Record<string, string> = {
   assignation: 'Assignation (tâche)',
   statut: 'Changement de statut',
   retard: 'Tâche en retard',
+  nouvelle_tache: 'Nouvelle tâche (projet)',
   nouvelle_tache_projet: 'Nouvelle tâche (projet)',
-  commentaire: 'Commentaire',
+  commentaire: 'Commentaire (tâche)',
+  commentaire_epic: 'Commentaire (epic)',
+  commentaire_user_story: 'Commentaire (user story)',
   commentaire_pv: 'Commentaire PV',
   commentaire_pv_assigne: 'Commentaire PV assigné',
   assignation_action_pv: 'Action PV assignée',
   document: 'Document sur tâche',
+  licence_alerte: 'Alerte licence',
 };
 
 function UnsentEmailNotificationsSection() {
@@ -188,6 +192,57 @@ function NotificationsTab() {
   const [testEmailMap, setTestEmailMap] = useState<Record<string, string>>({});
   const [testingMap, setTestingMap] = useState<Record<string, boolean>>({});
   const [testResultMap, setTestResultMap] = useState<Record<string, {success: boolean, message: string} | null>>({});
+  const [settingsByKey, setSettingsByKey] = useState<
+    Record<string, { emailEnabled: boolean; appEnabled: boolean }>
+  >({});
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [smtpConfigsNotif, setSmtpConfigsNotif] = useState<any[]>([]);
+
+  const loadNotificationSettings = async () => {
+    setSettingsLoading(true);
+    try {
+      const { data } = await api.get('/admin/notification-settings');
+      const m: Record<string, { emailEnabled: boolean; appEnabled: boolean }> = {};
+      for (const row of data || []) {
+        m[row.key] = { emailEnabled: !!row.emailEnabled, appEnabled: !!row.appEnabled };
+      }
+      setSettingsByKey(m);
+    } catch {
+      setSettingsByKey({});
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadNotificationSettings();
+    void (async () => {
+      try {
+        const { data } = await api.get('/smtp');
+        setSmtpConfigsNotif(Array.isArray(data) ? data : []);
+      } catch {
+        setSmtpConfigsNotif([]);
+      }
+    })();
+  }, []);
+
+  const smtpValidForNotifications = useMemo(() => {
+    const active = (smtpConfigsNotif || []).find((c: any) => c?.isActive);
+    if (!active) return { ok: false as const, reason: 'missing' as const };
+    const tr = active.lastTestResult;
+    if (tr && tr.success === false) return { ok: false as const, reason: 'failed' as const };
+    return { ok: true as const };
+  }, [smtpConfigsNotif]);
+
+  const getSetting = (key: string) => settingsByKey[key] || { emailEnabled: true, appEnabled: true };
+
+  const patchNotificationSetting = async (
+    key: string,
+    partial: { emailEnabled?: boolean; appEnabled?: boolean }
+  ) => {
+    await api.patch(`/admin/notification-settings/${key}`, partial);
+    await loadNotificationSettings();
+  };
 
   const sendTestNotification = async (n: any) => {
     const email = testEmailMap[n.id];
@@ -281,6 +336,24 @@ PMO Hub` },
 
 PMO Hub` },
     {
+      id: 'assignation_action_pv',
+      icon: '✅',
+      pages: ['PV de réunion'],
+      titre: 'Action du tableau assignée (PV)',
+      description:
+        'Envoyée lorsqu’une ligne d’action du PV est assignée à un ou plusieurs utilisateurs (et entité avec notification).',
+      destinataire: 'Utilisateurs assignés (+ responsable entité si concerné)',
+      declencheur: 'Enregistrement du PV avec actions notifiables',
+      sujet: 'Action assignée sur PV : [Titre PV]',
+      template: `Bonjour [Prenom Nom],
+
+[Auteur] vous a assigné une action dans le procès-verbal [Titre PV].
+
+[Libellé action]
+
+PMO Hub`,
+    },
+    {
       id: 'licence_alerte',
       icon: '🔔',
       pages: ['Licences'],
@@ -332,8 +405,49 @@ Consultez l application pour plus de details : [Lien application]
                     ))}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">Actif</span>
+                <div className="flex flex-col items-end gap-2 shrink-0 text-xs">
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="text-[10px] uppercase tracking-wide text-gray-500">Application</span>
+                    <div className="flex rounded-md border border-gray-200 overflow-hidden">
+                      <button
+                        type="button"
+                        disabled={settingsLoading}
+                        onClick={() => void patchNotificationSetting(n.id, { appEnabled: true })}
+                        className={`px-2 py-1 ${getSetting(n.id).appEnabled ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                      >
+                        Activée
+                      </button>
+                      <button
+                        type="button"
+                        disabled={settingsLoading}
+                        onClick={() => void patchNotificationSetting(n.id, { appEnabled: false })}
+                        className={`px-2 py-1 border-l border-gray-200 ${!getSetting(n.id).appEnabled ? 'bg-gray-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                      >
+                        Désactivée
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="text-[10px] uppercase tracking-wide text-gray-500">Email</span>
+                    <div className="flex rounded-md border border-gray-200 overflow-hidden">
+                      <button
+                        type="button"
+                        disabled={settingsLoading}
+                        onClick={() => void patchNotificationSetting(n.id, { emailEnabled: true })}
+                        className={`px-2 py-1 ${getSetting(n.id).emailEnabled ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                      >
+                        Activé
+                      </button>
+                      <button
+                        type="button"
+                        disabled={settingsLoading}
+                        onClick={() => void patchNotificationSetting(n.id, { emailEnabled: false })}
+                        className={`px-2 py-1 border-l border-gray-200 ${!getSetting(n.id).emailEnabled ? 'bg-gray-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                      >
+                        Désactivé
+                      </button>
+                    </div>
+                  </div>
                   <button onClick={() => setOpenTemplate(openTemplate === n.id ? null : n.id)} className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 text-gray-600">
                     {openTemplate === n.id ? 'Masquer' : 'Voir template'}
                   </button>
@@ -376,9 +490,15 @@ Consultez l application pour plus de details : [Lien application]
             </div>
           ))}
         </div>
-        <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-700">Les notifications par email necessitent une configuration SMTP active.</p>
-        </div>
+        {!smtpValidForNotifications.ok && (
+          <div className="mt-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-800 font-medium">
+              {smtpValidForNotifications.reason === 'missing'
+                ? 'Aucune configuration SMTP active : les emails de notification ne peuvent pas être envoyés. Activez et testez une configuration dans l’onglet « Configuration SMTP ».'
+                : 'La configuration SMTP active a échoué au dernier test : les envois risquent d’échouer. Corrigez les paramètres puis relancez un test depuis l’onglet « Configuration SMTP ».'}
+            </p>
+          </div>
+        )}
       </div>
 
       <UnsentEmailNotificationsSection />

@@ -1,6 +1,7 @@
 import { prisma } from '../utils/prisma';
 import nodemailer from 'nodemailer';
 import { recordNotificationEmailFailure } from './notification-email-failure.service';
+import { NotificationSettingService, resolveEmailSettingKey } from './notification-setting.service';
 
 export class NotificationService {
 
@@ -26,11 +27,15 @@ export class NotificationService {
     html: string;
     metadata?: Record<string, unknown>;
   }) {
+    const settingKey = resolveEmailSettingKey(params.kind);
+    if (!(await NotificationSettingService.isEmailEnabled(settingKey))) {
+      return;
+    }
     const smtp = await this.getActiveSMTP();
     if (!smtp) {
       console.log('[NOTIF] Pas de config SMTP active — email non envoyé');
       await recordNotificationEmailFailure({
-        kind: params.kind,
+        kind: settingKey,
         toEmail: params.toEmail,
         toUserId: params.toUserId,
         subject: params.subject,
@@ -51,7 +56,7 @@ export class NotificationService {
     } catch (err) {
       console.error(`[NOTIF] Erreur envoi email (${params.kind}):`, err);
       await recordNotificationEmailFailure({
-        kind: params.kind,
+        kind: settingKey,
         toEmail: params.toEmail,
         toUserId: params.toUserId,
         subject: params.subject,
@@ -72,6 +77,25 @@ export class NotificationService {
     lienId?: string;
   }) {
     return prisma.notification.create({ data });
+  }
+
+  private async createInAppIfEnabled(
+    settingKey: string,
+    data: {
+      userId: string;
+      type: string;
+      titre: string;
+      contenu: string;
+      lienType?: string;
+      lienId?: string;
+    }
+  ) {
+    if (!(await NotificationSettingService.isAppEnabled(settingKey))) return;
+    try {
+      await prisma.notification.create({ data });
+    } catch {
+      /* silencieux */
+    }
   }
 
   // ── Récupérer les notifications d'un utilisateur ──────────────────────────
@@ -206,8 +230,7 @@ export class NotificationService {
 
       if (!user || user.id === data.auteurId) continue;
 
-      // 1. Notification in-app
-      await this.createNotification({
+      await this.createInAppIfEnabled('mention', {
         userId: user.id,
         type: 'mention',
         titre: `Mention : "${data.context.titre}"`,
@@ -216,7 +239,7 @@ export class NotificationService {
         lienId: data.context.id,
       });
 
-      // 2. Email
+      // Email
       await this.envoyerEmailMention({
         destinataireEmail: user.email,
         destinataireNom: `${user.prenom} ${user.nom}`,
@@ -239,15 +262,13 @@ export class NotificationService {
     auteurNom: string;
     appUrl: string;
   }) {
-    try {
-      await this.createNotification({
-        userId: data.assigneUserId,
-        type: 'assignation',
-        titre: `Vous avez été assigné à "${data.tacheNom}"`,
-        contenu: `${data.auteurNom} vous a assigné à cette tâche.`,
-        lienType: 'tache', lienId: data.tacheId,
-      });
-    } catch { /* silencieux */ }
+    await this.createInAppIfEnabled('assignation', {
+      userId: data.assigneUserId,
+      type: 'assignation',
+      titre: `Vous avez été assigné à "${data.tacheNom}"`,
+      contenu: `${data.auteurNom} vous a assigné à cette tâche.`,
+      lienType: 'tache', lienId: data.tacheId,
+    });
     await this.sendNotificationEmail({
       kind: 'assignation',
       toEmail: data.assigneEmail,
@@ -282,14 +303,12 @@ export class NotificationService {
     const ancienLabel = statutLabels[data.ancienStatut] || data.ancienStatut;
 
     for (const dest of data.destinataires) {
-      try {
-        await this.createNotification({
-          userId: dest.id, type: 'statut',
-          titre: `Statut modifié : "${data.tacheNom}" → ${nouveauLabel}`,
-          contenu: `${data.auteurNom} a changé le statut de ${ancienLabel} à ${nouveauLabel}.`,
-          lienType: 'tache', lienId: data.tacheId,
-        });
-      } catch { /* silencieux */ }
+      await this.createInAppIfEnabled('statut', {
+        userId: dest.id, type: 'statut',
+        titre: `Statut modifié : "${data.tacheNom}" → ${nouveauLabel}`,
+        contenu: `${data.auteurNom} a changé le statut de ${ancienLabel} à ${nouveauLabel}.`,
+        lienType: 'tache', lienId: data.tacheId,
+      });
       await this.sendNotificationEmail({
         kind: 'statut',
         toEmail: dest.email,
@@ -317,14 +336,12 @@ export class NotificationService {
     appUrl: string;
   }) {
     for (const dest of data.destinataires) {
-      try {
-        await this.createNotification({
-          userId: dest.id, type: 'retard',
-          titre: `⚠️ Tâche en retard : "${data.tacheNom}"`,
-          contenu: `Cette tâche est en retard de ${data.joursRetard} jour(s).`,
-          lienType: 'tache', lienId: data.tacheId,
-        });
-      } catch { /* silencieux */ }
+      await this.createInAppIfEnabled('retard', {
+        userId: dest.id, type: 'retard',
+        titre: `⚠️ Tâche en retard : "${data.tacheNom}"`,
+        contenu: `Cette tâche est en retard de ${data.joursRetard} jour(s).`,
+        lienType: 'tache', lienId: data.tacheId,
+      });
       await this.sendNotificationEmail({
         kind: 'retard',
         toEmail: dest.email,
@@ -352,14 +369,12 @@ export class NotificationService {
     createurNom: string; appUrl: string;
   }) {
     for (const membre of data.membres) {
-      try {
-        await this.createNotification({
-          userId: membre.id, type: 'nouvelle_tache',
-          titre: `Nouvelle tâche dans "${data.projetNom}"`,
-          contenu: `${data.createurNom} a créé la tâche "${data.tacheNom}".`,
-          lienType: 'tache', lienId: data.tacheId,
-        });
-      } catch { /* silencieux */ }
+      await this.createInAppIfEnabled('nouvelle_tache', {
+        userId: membre.id, type: 'nouvelle_tache',
+        titre: `Nouvelle tâche dans "${data.projetNom}"`,
+        contenu: `${data.createurNom} a créé la tâche "${data.tacheNom}".`,
+        lienType: 'tache', lienId: data.tacheId,
+      });
       await this.sendNotificationEmail({
         kind: 'nouvelle_tache_projet',
         toEmail: membre.email,
@@ -399,19 +414,24 @@ export class NotificationService {
     const cta =
       data.cibleType === 'tache' ? 'Voir la tâche →' : 'Voir les tâches →';
 
+    const settingKey =
+      data.cibleType === 'epic'
+        ? 'commentaire_epic'
+        : data.cibleType === 'userStory'
+          ? 'commentaire_user_story'
+          : 'commentaire';
+
     for (const dest of data.destinataires) {
-      try {
-        await this.createNotification({
-          userId: dest.id,
-          type: 'commentaire',
-          titre: `Nouveau commentaire sur "${data.cibleNom}"`,
-          contenu: `${data.auteurNom} : ${data.commentaire.substring(0, 100)}`,
-          lienType: data.cibleType,
-          lienId: data.cibleId,
-        });
-      } catch { /* silencieux */ }
+      await this.createInAppIfEnabled(settingKey, {
+        userId: dest.id,
+        type: 'commentaire',
+        titre: `Nouveau commentaire sur "${data.cibleNom}"`,
+        contenu: `${data.auteurNom} : ${data.commentaire.substring(0, 100)}`,
+        lienType: data.cibleType,
+        lienId: data.cibleId,
+      });
       await this.sendNotificationEmail({
-        kind: 'commentaire',
+        kind: settingKey,
         toEmail: dest.email,
         toUserId: dest.id,
         subject: `💬 Nouveau commentaire : ${data.cibleNom}`,
@@ -467,22 +487,18 @@ export class NotificationService {
       : '';
     const assign = !!data.estAssignation;
     for (const dest of data.destinataires) {
-      try {
-        await this.createNotification({
-          userId: dest.id,
-          type: assign ? 'commentaire_pv_assigne' : 'commentaire_pv',
-          titre: assign
-            ? `Commentaire qui vous est assigné — « ${data.pvTitre} »`
-            : `Commentaire sur « ${data.pvTitre} »`,
-          contenu: assign
-            ? `${data.auteurNom} vous a assigné un commentaire sur ce PV : ${data.commentaire.substring(0, 100)}${data.commentaire.length > 100 ? '…' : ''}`
-            : `${data.auteurNom} : ${data.commentaire.substring(0, 100)}${data.commentaire.length > 100 ? '...' : ''}`,
-          lienType: 'pvReunion',
-          lienId: data.pvId,
-        });
-      } catch (err) {
-        console.error('[NOTIF] Erreur notification in-app commentaire PV:', err);
-      }
+      await this.createInAppIfEnabled('commentaire_pv', {
+        userId: dest.id,
+        type: assign ? 'commentaire_pv_assigne' : 'commentaire_pv',
+        titre: assign
+          ? `Commentaire qui vous est assigné — « ${data.pvTitre} »`
+          : `Commentaire sur « ${data.pvTitre} »`,
+        contenu: assign
+          ? `${data.auteurNom} vous a assigné un commentaire sur ce PV : ${data.commentaire.substring(0, 100)}${data.commentaire.length > 100 ? '…' : ''}`
+          : `${data.auteurNom} : ${data.commentaire.substring(0, 100)}${data.commentaire.length > 100 ? '...' : ''}`,
+        lienType: 'pvReunion',
+        lienId: data.pvId,
+      });
       const introAssign = `<p><strong>${data.auteurNom}</strong> vous a <strong>assigné</strong> un commentaire sur le procès-verbal <strong>${data.pvTitre}</strong> :</p>`;
       const introGeneral = `<p><strong>${data.auteurNom}</strong> a commenté le procès-verbal <strong>${data.pvTitre}</strong> :</p>`;
       await this.sendNotificationEmail({
@@ -517,18 +533,14 @@ export class NotificationService {
     appUrl: string;
   }) {
     const lien = `${data.appUrl}/pv-reunion/${data.pvId}`;
-    try {
-      await this.createNotification({
-        userId: data.destinataire.id,
-        type: 'assignation_action_pv',
-        titre: `Action PV assignée — « ${data.pvTitre} »`,
-        contenu: `${data.auteurNom} vous a assigné une action : ${data.actionLabel}`,
-        lienType: 'pvReunion',
-        lienId: data.pvId,
-      });
-    } catch (err) {
-      console.error('[NOTIF] Erreur notification action PV (in-app):', err);
-    }
+    await this.createInAppIfEnabled('assignation_action_pv', {
+      userId: data.destinataire.id,
+      type: 'assignation_action_pv',
+      titre: `Action PV assignée — « ${data.pvTitre} »`,
+      contenu: `${data.auteurNom} vous a assigné une action : ${data.actionLabel}`,
+      lienType: 'pvReunion',
+      lienId: data.pvId,
+    });
     await this.sendNotificationEmail({
       kind: 'assignation_action_pv',
       toEmail: data.destinataire.email,
@@ -554,14 +566,12 @@ export class NotificationService {
     auteurNom: string; appUrl: string;
   }) {
     for (const dest of data.destinataires) {
-      try {
-        await this.createNotification({
-          userId: dest.id, type: 'document',
-          titre: `Nouveau document dans "${data.tacheNom}"`,
-          contenu: `${data.auteurNom} a uploadé "${data.documentNom}".`,
-          lienType: 'tache', lienId: data.tacheId,
-        });
-      } catch { /* silencieux */ }
+      await this.createInAppIfEnabled('document', {
+        userId: dest.id, type: 'document',
+        titre: `Nouveau document dans "${data.tacheNom}"`,
+        contenu: `${data.auteurNom} a uploadé "${data.documentNom}".`,
+        lienType: 'tache', lienId: data.tacheId,
+      });
       await this.sendNotificationEmail({
         kind: 'document',
         toEmail: dest.email,
