@@ -837,6 +837,16 @@ export default function PvReunionDetail() {
     }
   };
 
+  const handleOpenStoredPdfDetail = () => {
+    if (!pv?.document?.id) {
+      alert('Document PDF du PV introuvable.');
+      return;
+    }
+    const token = localStorage.getItem('token');
+    const url = `${API_BASE_URL}/documents/${pv.document.id}/view${token ? `?token=${token}` : ''}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   if (loading) {
     return <div className="p-6 text-center text-gray-500">Chargement…</div>;
   }
@@ -1258,11 +1268,10 @@ export default function PvReunionDetail() {
           <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
             <button
               type="button"
-              onClick={() => void handlePreviewPdfDetail()}
-              disabled={pdfPreviewDetailLoading}
-              className="px-3 py-1.5 text-xs text-center bg-gray-100 text-gray-800 rounded hover:bg-gray-200 disabled:opacity-50"
+              onClick={handleOpenStoredPdfDetail}
+              className="px-3 py-1.5 text-xs text-center bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
             >
-              👁 {pdfPreviewDetailLoading ? 'Ouverture…' : 'Consulter le document'}
+              👁 Consulter le document
             </button>
             {!editMode && (
               <>
