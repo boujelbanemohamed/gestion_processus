@@ -62,7 +62,7 @@ export function buildStructuredPvHtml(ctx: PvTemplateContext): string {
 
   const actionsHtml = actions.length
     ? `
-<h2>6. Actions à réaliser</h2>
+<h2>Actions à réaliser</h2>
 <table>
 <thead>
 <tr><th>Action</th><th>Responsable</th><th>Date limite</th></tr>
@@ -90,9 +90,9 @@ ${actions
 <h3>Présents (clients / fournisseurs)</h3>
 <ul>${linesToUl(ctx.cfLines)}</ul>
 
-${ordre.length ? `<h2>3. Ordre du jour</h2><ol>${linesToUl(ordre)}</ol>` : ''}
-${pointsHtml ? `<h2>4. Points discutés</h2>${pointsHtml}` : ''}
-${decisions.length ? `<h2>5. Décisions prises</h2><ol>${linesToUl(decisions)}</ol>` : ''}
+${ordre.length ? `<h2>Ordre du jour</h2><ol>${linesToUl(ordre)}</ol>` : ''}
+${pointsHtml ? `<h2>Points discutés</h2>${pointsHtml}` : ''}
+${decisions.length ? `<h2>Décisions prises</h2><ol>${linesToUl(decisions)}</ol>` : ''}
 ${actionsHtml}
 ${risquesHtml ? `<h2>7. Risques / blocages</h2>${risquesHtml}` : ''}
 

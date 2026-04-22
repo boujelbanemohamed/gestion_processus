@@ -233,7 +233,7 @@ function generatePvPdfBufferPdfKit(meta: PvPdfMeta): Promise<Buffer> {
       moveDownGap(0.65);
     }
 
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827').text('Contenu du procès-verbal', margin, doc.y, {
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827').text('Détail du Procès Verbal', margin, doc.y, {
       width: contentWidth,
     });
     moveDownGap(0.35);

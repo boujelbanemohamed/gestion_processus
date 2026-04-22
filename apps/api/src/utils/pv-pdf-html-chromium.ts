@@ -139,7 +139,7 @@ function buildPrintableHtml(meta: PvPdfMeta): string {
   <meta charset="utf-8" />
   <title>${escapeHtml(meta.titre)}</title>
   <style>
-    @page { size: A4; margin: 20mm 14mm 18mm; }
+    @page { size: A4; margin: 18mm 14mm 16mm; }
     * { box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -203,8 +203,8 @@ function buildPrintableHtml(meta: PvPdfMeta): string {
     .participants ol { margin: 0.25em 0 0.75em; padding-left: 1.35em; }
     .participants li { margin: 0.15em 0; }
     .racc p { margin: 0.2em 0; font-size: 9.5pt; color: #374151; }
-    h2.contenu-title { font-size: 11.5pt; margin-top: 1em; }
-    .pv-sec { margin-bottom: 0.65em; page-break-inside: avoid; }
+    h2.contenu-title { font-size: 11.5pt; margin-top: 0.8em; }
+    .pv-sec { margin-bottom: 0.45em; page-break-inside: avoid; }
     .pv-sec h2 { font-size: 11pt; margin: 0.65em 0 0.3em; font-weight: 700; }
     .sec-body :where(p, ul, ol) { margin: 0.35em 0; }
     .sec-body h3 { font-size: 10.5pt; margin: 0.5em 0 0.2em; font-weight: 600; }
@@ -227,9 +227,9 @@ function buildPrintableHtml(meta: PvPdfMeta): string {
   <h2 class="block-title">Participants</h2>
   <div class="participants"><ol>${participantsOl}</ol></div>
   ${rattHtml}
-  <h2 class="block-title contenu-title">Points discutés</h2>
+  <h2 class="block-title contenu-title">Détail du Procès Verbal</h2>
   ${bodyJoined}
-  <p style="font-size:8pt;color:#6b7280;margin-top:1.2em;text-align:center;">${escapeHtml(footerText)}</p>
+  <div style="position:fixed;bottom:${hasAddress ? '4mm' : '0'};left:0;right:0;font-size:8pt;color:#6b7280;text-align:center;background:white;">${escapeHtml(footerText)}</div>
 </body>
 </html>`;
 }

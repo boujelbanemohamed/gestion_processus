@@ -83,6 +83,23 @@ function parsePvStructuredFieldsFromHtml(html: string): {
   risquesBlocages: string;
   actions: PvActionInput[];
 } {
+  const toInputDate = (value: string): string => {
+    const v = String(value || '').trim();
+    if (!v) return '';
+    // yyyy-MM-dd
+    const isoMatch = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+    // dd/MM/yyyy or dd-MM-yyyy
+    const frMatch = v.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);
+    if (frMatch) return `${frMatch[3]}-${frMatch[2]}-${frMatch[1]}`;
+    const parsed = new Date(v);
+    if (Number.isNaN(parsed.getTime())) return '';
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+
   if (!html || typeof window === 'undefined') {
     return { ordreDuJour: '', pointsDiscutes: '', decisions: '', risquesBlocages: '', actions: [] };
   }
@@ -133,7 +150,7 @@ function parsePvStructuredFieldsFromHtml(html: string): {
       if (!cells.length) continue;
       const action = (cells[0]?.textContent || '').trim();
       const responsable = (cells[1]?.textContent || '').trim();
-      const dateLimite = (cells[2]?.textContent || '').trim();
+      const dateLimite = toInputDate((cells[2]?.textContent || '').trim());
       if (!action && !responsable && !dateLimite) continue;
       actionRows.push({ ...makeActionRow(), action, dateLimite, userId: '', entiteId: '' });
     }
@@ -280,6 +297,18 @@ export default function PvReunionDetail() {
       .split(/\n+/)
       .map((x) => x.trim())
       .filter(Boolean);
+  const toFrDateLabel = (value: string): string => {
+    const v = String(value || '').trim();
+    if (!v) return '';
+    const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return v;
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    const dt = new Date(y, mo - 1, d);
+    if (Number.isNaN(dt.getTime())) return v;
+    return dt.toLocaleDateString('fr-FR');
+  };
 
   const projectScopedTaskIds = useMemo(() => {
     if (!projetIds.length) return new Set<string>();
@@ -466,9 +495,7 @@ export default function PvReunionDetail() {
         return {
           action: a.action.trim(),
           responsable,
-          dateLimite: a.dateLimite
-            ? new Date(`${a.dateLimite}T00:00:00`).toLocaleDateString('fr-FR')
-            : '',
+          dateLimite: a.dateLimite ? toFrDateLabel(a.dateLimite) : '',
         };
       })
       .filter((a) => a.action || a.responsable || a.dateLimite);
