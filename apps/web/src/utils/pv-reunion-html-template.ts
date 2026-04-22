@@ -89,12 +89,12 @@ ${actions
     : '';
 
   return `
-<h2>1. Informations générales</h2>
+<h2>Informations générales</h2>
 <p><strong>Titre de la réunion :</strong> ${t}</p>
 <p><strong>Date :</strong> ${escapeHtml(ctx.dateReunionLabel)}</p>
 <p><strong>Statut :</strong> ${escapeHtml(ctx.statutLabel)}</p>
 
-<h2>2. Participants</h2>
+<h2>Participants</h2>
 <h3>Présents (utilisateurs)</h3>
 <ul>${linesToUl(ctx.usersLines)}</ul>
 <h3>Présents (clients / fournisseurs)</h3>

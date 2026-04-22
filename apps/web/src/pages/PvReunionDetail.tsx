@@ -76,11 +76,16 @@ function normalizeSectionTitle(s: string): string {
     .trim();
 }
 
+function stripH2NumberingInHtml(html: string): string {
+  return String(html || '').replace(/<h2([^>]*)>\s*\d+\.\s*/gi, '<h2$1>');
+}
+
 function parsePvStructuredFieldsFromHtml(html: string): {
   ordreDuJour: string;
   pointsDiscutes: string;
   decisions: string;
   risquesBlocages: string;
+  conclusion: string;
   actions: PvActionInput[];
 } {
   const toInputDate = (value: string): string => {
@@ -101,11 +106,11 @@ function parsePvStructuredFieldsFromHtml(html: string): {
   };
 
   if (!html || typeof window === 'undefined') {
-    return { ordreDuJour: '', pointsDiscutes: '', decisions: '', risquesBlocages: '', actions: [] };
+    return { ordreDuJour: '', pointsDiscutes: '', decisions: '', risquesBlocages: '', conclusion: '', actions: [] };
   }
   const doc = new DOMParser().parseFromString(`<div id="pv-root">${html}</div>`, 'text/html');
   const root = doc.getElementById('pv-root');
-  if (!root) return { ordreDuJour: '', pointsDiscutes: '', decisions: '', risquesBlocages: '', actions: [] };
+  if (!root) return { ordreDuJour: '', pointsDiscutes: '', decisions: '', risquesBlocages: '', conclusion: '', actions: [] };
 
   const sections = new Map<string, Element[]>();
   let current = '';
@@ -140,6 +145,7 @@ function parsePvStructuredFieldsFromHtml(html: string): {
   const pointsNodes = pick((k) => k.includes('points discutes'));
   const decisionsNodes = pick((k) => k.includes('decisions prises'));
   const risquesNodes = pick((k) => k.includes('risques / blocages') || k.includes('risques / blocage'));
+  const conclusionNodes = pick((k) => k.includes('conclusion'));
   const actionsNodes = pick((k) => k.includes('actions a realiser'));
   const table = actionsNodes.find((n) => n.tagName.toLowerCase() === 'table') || actionsNodes[0]?.querySelector('table');
   const actionRows: PvActionInput[] = [];
@@ -161,6 +167,7 @@ function parsePvStructuredFieldsFromHtml(html: string): {
     pointsDiscutes: textFromNodes(pointsNodes),
     decisions: listTextFromNodes(decisionsNodes),
     risquesBlocages: textFromNodes(risquesNodes),
+    conclusion: textFromNodes(conclusionNodes),
     actions: actionRows,
   };
 }
@@ -249,6 +256,7 @@ export default function PvReunionDetail() {
   const [contrats, setContrats] = useState<any[]>([]);
   const [processusList, setProcessusList] = useState<any[]>([]);
   const [entites, setEntites] = useState<any[]>([]);
+  const [companyInfo, setCompanyInfo] = useState<any>(null);
 
   const [titre, setTitre] = useState('');
   const [statutPv, setStatutPv] = useState('brouillon');
@@ -280,6 +288,7 @@ export default function PvReunionDetail() {
   const [pointsDiscutesInput, setPointsDiscutesInput] = useState('');
   const [decisionsInput, setDecisionsInput] = useState('');
   const [risquesBlocagesInput, setRisquesBlocagesInput] = useState('');
+  const [conclusionInput, setConclusionInput] = useState('');
   const [actionsInput, setActionsInput] = useState<PvActionInput[]>([]);
   const previewPvRef = useRef<HTMLDivElement | null>(null);
   const [pdfPreviewDetailLoading, setPdfPreviewDetailLoading] = useState(false);
@@ -372,7 +381,7 @@ export default function PvReunionDetail() {
 
   const loadRefs = async () => {
     try {
-      const [u, cf, p, t, us, e, c, pr, ent] = await Promise.all([
+      const [u, cf, p, t, us, e, c, pr, ent, comp] = await Promise.all([
         api.get('/users'),
         api.get('/clients-fournisseurs'),
         api.get('/projets'),
@@ -382,6 +391,7 @@ export default function PvReunionDetail() {
         api.get('/contrats'),
         api.get('/processus'),
         api.get('/entites').catch(() => ({ data: [] })),
+        api.get('/company-info').catch(() => ({ data: null })),
       ]);
       setUsers(u.data || []);
       setClientsFournisseurs(cf.data || []);
@@ -392,6 +402,7 @@ export default function PvReunionDetail() {
       setContrats(c.data || []);
       setProcessusList(pr.data || []);
       setEntites(ent.data || []);
+      setCompanyInfo(comp.data || null);
     } catch {
       /* */
     }
@@ -442,6 +453,7 @@ export default function PvReunionDetail() {
     setPointsDiscutesInput(parsed.pointsDiscutes || '');
     setDecisionsInput(parsed.decisions || '');
     setRisquesBlocagesInput(parsed.risquesBlocages || '');
+    setConclusionInput(parsed.conclusion || '');
     setActionsInput(parsed.actions || []);
   }, [pv]);
 
@@ -515,6 +527,7 @@ export default function PvReunionDetail() {
         pointsDiscutesText: pointsDiscutesInput,
         decisionsPrisesLines: parseLines(decisionsInput),
         risquesBlocagesText: risquesBlocagesInput,
+        conclusionText: conclusionInput,
         actionsRows,
       })
     );
@@ -532,6 +545,7 @@ export default function PvReunionDetail() {
     pointsDiscutesInput,
     decisionsInput,
     risquesBlocagesInput,
+    conclusionInput,
     actionsInput,
     users,
     entites,
@@ -986,6 +1000,14 @@ export default function PvReunionDetail() {
                     onChange={(e) => setRisquesBlocagesInput(e.target.value)}
                   />
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Conclusion</label>
+                  <textarea
+                    className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm min-h-[84px]"
+                    value={conclusionInput}
+                    onChange={(e) => setConclusionInput(e.target.value)}
+                  />
+                </div>
                 <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-xs font-semibold text-gray-700">Actions à réaliser</p>
@@ -1073,7 +1095,7 @@ export default function PvReunionDetail() {
                 </div>
               </div>
               <p className="text-[11px] text-gray-500">
-                Les sections vides (ordre du jour, décisions, risques/blocages, actions) ne seront pas affichées
+                Les sections vides (ordre du jour, décisions, risques/blocages, actions, conclusion) ne seront pas affichées
                 dans le PDF généré.
               </p>
             </div>
@@ -1363,7 +1385,7 @@ export default function PvReunionDetail() {
               )}
               <div
                 className="prose-pv-read text-sm text-gray-800 border border-gray-100 rounded-lg p-4 bg-gray-50/50 max-h-[480px] overflow-y-auto"
-                dangerouslySetInnerHTML={{ __html: pv.contenuHtml }}
+                dangerouslySetInnerHTML={{ __html: stripH2NumberingInHtml(pv.contenuHtml || '') }}
               />
               <style>{`
                 .prose-pv-read h2 { font-size: 1.05rem; font-weight: 700; margin: 0.6rem 0 0.25rem; }
@@ -1483,6 +1505,20 @@ export default function PvReunionDetail() {
         aria-hidden
       >
         <header className="border-b border-gray-200 pb-3 mb-4">
+          {companyInfo?.logoFilename ? (
+            <div className="flex items-center justify-between mb-2">
+              <img
+                src={`${API_BASE_URL}/company-info/logo?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+                alt="Logo entreprise"
+                className="h-10 object-contain"
+              />
+              <span className="text-[11px] text-gray-500">
+                {[companyInfo?.nomEntreprise, companyInfo?.formatEntreprise, companyInfo?.tailleEntreprise]
+                  .filter((x: string) => String(x || '').trim())
+                  .join(' • ')}
+              </span>
+            </div>
+          ) : null}
           <p className="text-xs uppercase tracking-wide text-gray-500">Procès-verbal de réunion</p>
           <h1 className="text-xl font-bold text-gray-900 mt-1">{titre.trim() || pv.titre}</h1>
           <p className="text-xs text-gray-500 mt-2">
@@ -1494,6 +1530,11 @@ export default function PvReunionDetail() {
           </p>
         </header>
         <div className="prose-pv-preview" dangerouslySetInnerHTML={{ __html: contenuHtml || '<p></p>' }} />
+        {String(companyInfo?.adresseEntreprise || '').trim() ? (
+          <footer className="border-t border-gray-200 mt-6 pt-2 text-center text-[11px] text-gray-500">
+            {companyInfo.adresseEntreprise}
+          </footer>
+        ) : null}
         <style>{`
           .prose-pv-preview h2 { font-size: 1.05rem; font-weight: 700; margin: 0.65rem 0 0.3rem; }
           .prose-pv-preview h3 { font-size: 0.95rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }

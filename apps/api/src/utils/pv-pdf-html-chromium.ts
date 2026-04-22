@@ -63,10 +63,14 @@ function normalizeHeadingKey(h: string): string {
 
 function shouldSkipSectionHeading(heading: string, metaRattachementsPrinted: boolean): boolean {
   const k = normalizeHeadingKey(heading);
-  if (/^(1\.?\s*)?informations generales/.test(k)) return true;
+  if (/^(\d+\.?\s*)?informations generales/.test(k)) return true;
   if (/^(\d+\.?\s*)?participants$/.test(k)) return true;
   if (metaRattachementsPrinted && /rattachements/.test(k)) return true;
   return false;
+}
+
+function stripHeadingNumberPrefix(heading: string): string {
+  return String(heading || '').replace(/^\s*\d+\.\s*/, '').trim();
 }
 
 function isPlaceholderOrEmptyBody(text: string): boolean {
@@ -123,7 +127,8 @@ function buildPrintableHtml(meta: PvPdfMeta): string {
     const plain = stripHtmlToText(sec.contentHtml);
     if (sec.heading && isPlaceholderOrEmptyBody(plain)) continue;
     if (!sec.heading && isPlaceholderOrEmptyBody(plain)) continue;
-    const h = sec.heading ? `<h2>${escapeHtml(sec.heading)}</h2>` : '';
+    const cleanHeading = stripHeadingNumberPrefix(sec.heading);
+    const h = cleanHeading ? `<h2>${escapeHtml(cleanHeading)}</h2>` : '';
     bodyParts.push(`<section class="pv-sec">${h}<div class="sec-body">${sanitizeUserHtmlFragment(sec.contentHtml)}</div></section>`);
   }
   const bodyJoined = bodyParts.join('\n');
@@ -143,7 +148,7 @@ function buildPrintableHtml(meta: PvPdfMeta): string {
     * { box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      font-size: 10.5pt;
+      font-size: 13px;
       line-height: 1.45;
       color: #111827;
       margin: 0;
@@ -205,11 +210,11 @@ function buildPrintableHtml(meta: PvPdfMeta): string {
     .racc p { margin: 0.2em 0; font-size: 9.5pt; color: #374151; }
     h2.contenu-title { font-size: 11.5pt; margin-top: 0.8em; }
     .pv-sec { margin-bottom: 0.45em; page-break-inside: avoid; }
-    .pv-sec h2 { font-size: 11pt; margin: 0.65em 0 0.3em; font-weight: 700; }
+    .pv-sec h2 { font-size: 1.05rem; margin: 0.65rem 0 0.3rem; font-weight: 700; }
     .sec-body :where(p, ul, ol) { margin: 0.35em 0; }
-    .sec-body h3 { font-size: 10.5pt; margin: 0.5em 0 0.2em; font-weight: 600; }
-    .sec-body table { border-collapse: collapse; width: 100%; margin: 0.45em 0; font-size: 9.5pt; }
-    .sec-body th, .sec-body td { border: 1px solid #c5cad3; padding: 5px 7px; vertical-align: top; }
+    .sec-body h3 { font-size: 0.95rem; margin: 0.5rem 0 0.25rem; font-weight: 600; }
+    .sec-body table { border-collapse: collapse; width: 100%; margin: 0.4rem 0; font-size: 12px; }
+    .sec-body th, .sec-body td { border: 1px solid #ccc; padding: 4px 6px; vertical-align: top; }
     .sec-body th { background: #f3f4f6; font-weight: 600; }
     .sec-body ul, .sec-body ol { padding-left: 1.25em; }
   </style>

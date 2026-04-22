@@ -83,10 +83,14 @@ function normalizeHeadingKey(h: string): string {
 
 function shouldSkipSectionHeading(heading: string, metaRattachementsPrinted: boolean): boolean {
   const k = normalizeHeadingKey(heading);
-  if (/^(1\.?\s*)?informations generales/.test(k)) return true;
+  if (/^(\d+\.?\s*)?informations generales/.test(k)) return true;
   if (/^(\d+\.?\s*)?participants$/.test(k)) return true;
   if (metaRattachementsPrinted && /rattachements/.test(k)) return true;
   return false;
+}
+
+function stripHeadingNumberPrefix(heading: string): string {
+  return String(heading || '').replace(/^\s*\d+\.\s*/, '').trim();
 }
 
 function isPlaceholderOrEmptyBody(text: string): boolean {
@@ -252,8 +256,10 @@ function generatePvPdfBufferPdfKit(meta: PvPdfMeta): Promise<Buffer> {
         continue;
       }
       if (sec.heading) {
+        const cleanHeading = stripHeadingNumberPrefix(sec.heading);
+        if (!cleanHeading) continue;
         ensureSpace(16);
-        doc.font('Helvetica-Bold').fontSize(10.5).fillColor('#111827').text(sec.heading, {
+        doc.font('Helvetica-Bold').fontSize(10.5).fillColor('#111827').text(cleanHeading, {
           width: contentWidth,
           lineGap: 2,
         });

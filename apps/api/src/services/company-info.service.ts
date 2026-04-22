@@ -4,7 +4,8 @@ import { prisma } from '../utils/prisma';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
-const STORE_FILE = path.join(DATA_DIR, 'company-info.json');
+const STORE_FILE = path.join(UPLOAD_DIR, 'company-info', 'company-info.json');
+const LEGACY_STORE_FILE = path.join(DATA_DIR, 'company-info.json');
 
 export type CompanyInfo = {
   nomEntreprise: string;
@@ -29,24 +30,31 @@ const DEFAULT_INFO: CompanyInfoStored = {
   updatedById: null,
 };
 
-async function ensureDataDir(): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+async function ensureStoreDir(): Promise<void> {
+  await fs.mkdir(path.dirname(STORE_FILE), { recursive: true });
+}
+
+async function readStoredInfo(): Promise<CompanyInfoStored> {
+  try {
+    const raw = await fs.readFile(STORE_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_INFO, ...(parsed || {}) };
+  } catch {
+    // fallback legacy
+  }
+  try {
+    const raw = await fs.readFile(LEGACY_STORE_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_INFO, ...(parsed || {}) };
+  } catch {
+    return DEFAULT_INFO;
+  }
 }
 
 export class CompanyInfoService {
   async get(): Promise<CompanyInfo> {
-    await ensureDataDir();
-    let stored: CompanyInfoStored = DEFAULT_INFO;
-    try {
-      const raw = await fs.readFile(STORE_FILE, 'utf8');
-      const parsed = JSON.parse(raw);
-      stored = {
-        ...DEFAULT_INFO,
-        ...(parsed || {}),
-      };
-    } catch {
-      // Première utilisation: pas de fichier.
-    }
+    await ensureStoreDir();
+    const stored = await readStoredInfo();
     let updatedBy: CompanyInfo['updatedBy'] = null;
     if (stored.updatedById) {
       updatedBy = await prisma.user.findUnique({
@@ -99,7 +107,7 @@ export class CompanyInfoService {
       updatedById: input.updatedById,
     };
 
-    await ensureDataDir();
+    await ensureStoreDir();
     await fs.writeFile(STORE_FILE, JSON.stringify(next, null, 2), 'utf8');
     return this.get();
   }
