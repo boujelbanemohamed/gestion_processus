@@ -856,11 +856,10 @@ export default function PvReunionDetail() {
       const fileName = `${(pv.titre || 'PV').replace(/[^\w.-]+/g, '_')}.pdf`;
       const file = new File([blob], fileName, { type: 'application/pdf' });
       const fd = new FormData();
-      fd.append('fichier', file);
+      // Même champ que multer (`upload.single('file')`) — voir document.controller.ts
+      fd.append('file', file);
       fd.append('commentaireVersion', 'Synchronisation depuis aperçu PDF (détail PV)');
-      await uploadApi.post(`/documents/${pv.document.id}/versions`, fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      await uploadApi.post(`/documents/${pv.document.id}/versions`, fd);
       await load();
       const token = localStorage.getItem('token');
       const url = `${API_BASE_URL}/documents/${pv.document.id}/view${token ? `?token=${token}` : ''}`;
