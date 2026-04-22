@@ -735,7 +735,9 @@ export default function PvReunionDetail() {
     }
     setPdfPreviewDetailLoading(true);
     try {
-      const blob = await htmlElementToPdfBlob(previewPvRef.current);
+      const blob = await htmlElementToPdfBlob(previewPvRef.current, {
+        footerAddress: String(companyInfo?.adresseEntreprise || '').trim(),
+      });
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank', 'noopener,noreferrer');
       window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
@@ -1538,11 +1540,6 @@ export default function PvReunionDetail() {
           </div>
         </header>
         <div className="prose-pv-preview" dangerouslySetInnerHTML={{ __html: contenuHtml || '<p></p>' }} />
-        {String(companyInfo?.adresseEntreprise || '').trim() ? (
-          <footer className="border-t border-gray-200 mt-6 pt-2 text-center text-[11px] text-gray-500">
-            {companyInfo.adresseEntreprise}
-          </footer>
-        ) : null}
         <style>{`
           .prose-pv-preview h2 { font-size: 1.05rem; font-weight: 700; margin: 0.65rem 0 0.3rem; }
           .prose-pv-preview h3 { font-size: 0.95rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }

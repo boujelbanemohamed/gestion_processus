@@ -11,6 +11,11 @@ function linesToUl(lines: string[]): string {
   return lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('');
 }
 
+function linesToParagraphs(lines: string[]): string {
+  if (!lines.length) return '<p>—</p>';
+  return lines.map((l) => `<p>${escapeHtml(l)}</p>`).join('');
+}
+
 export type PvTemplateContext = {
   titre: string;
   statutLabel: string;
@@ -99,9 +104,9 @@ ${actions
 <h3>Présents (clients / fournisseurs)</h3>
 <ul>${linesToUl(ctx.cfLines)}</ul>
 
-${ordre.length ? `<h2>Ordre du jour</h2><ol>${linesToUl(ordre)}</ol>` : ''}
+${ordre.length ? `<h2>Ordre du jour</h2>${linesToParagraphs(ordre)}` : ''}
 ${pointsHtml ? `<h2>Points discutés</h2>${pointsHtml}` : ''}
-${decisions.length ? `<h2>Décisions prises</h2><ol>${linesToUl(decisions)}</ol>` : ''}
+${decisions.length ? `<h2>Décisions prises</h2>${linesToParagraphs(decisions)}` : ''}
 ${actionsHtml}
 ${risquesHtml ? `<h2>Risques / blocages</h2>${risquesHtml}` : ''}
 ${conclusionHtml ? `<h2>Conclusion</h2>${conclusionHtml}` : ''}

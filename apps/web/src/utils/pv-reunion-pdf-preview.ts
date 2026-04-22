@@ -1,8 +1,12 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
+type PdfPreviewOptions = {
+  footerAddress?: string;
+};
+
 /** Aperçu PDF côté client (capture paginée du rendu HTML). */
-export async function htmlElementToPdfBlob(el: HTMLElement): Promise<Blob> {
+export async function htmlElementToPdfBlob(el: HTMLElement, options?: PdfPreviewOptions): Promise<Blob> {
   const canvas = await html2canvas(el, {
     scale: 2,
     useCORS: true,
@@ -31,9 +35,13 @@ export async function htmlElementToPdfBlob(el: HTMLElement): Promise<Blob> {
   }
 
   const totalPages = pdf.getNumberOfPages();
+  const footerAddress = String(options?.footerAddress || '').trim();
   pdf.setFontSize(9);
   for (let i = 1; i <= totalPages; i++) {
     pdf.setPage(i);
+    if (footerAddress) {
+      pdf.text(footerAddress, margin, pageHeight - 4, { align: 'left', maxWidth: pageWidth - margin * 2 - 26 });
+    }
     pdf.text(`Page ${i}/${totalPages}`, pageWidth - margin, pageHeight - 4, { align: 'right' });
   }
 
