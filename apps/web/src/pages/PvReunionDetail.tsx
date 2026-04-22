@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { api, API_BASE_URL } from '../services/api';
 import axios from 'axios';
@@ -57,6 +57,8 @@ function IdChips({
   onChange,
   renderLabel,
   disabled,
+  searchable,
+  searchPlaceholder,
 }: {
   label: string;
   options: { id: string }[];
@@ -64,12 +66,30 @@ function IdChips({
   onChange: (ids: string[]) => void;
   renderLabel: (x: any) => string;
   disabled?: boolean;
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const shown = useMemo(() => {
+    if (!q) return options;
+    return options.filter((x: any) => String(renderLabel(x) || '').toLowerCase().includes(q));
+  }, [options, q, renderLabel]);
+
   return (
     <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 max-h-44 overflow-y-auto">
       <p className="text-xs font-semibold text-gray-600 mb-2">{label}</p>
+      {searchable && (
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={searchPlaceholder || 'Rechercher...'}
+          className="w-full border border-gray-200 rounded-md px-2 py-1 text-xs mb-2 bg-white"
+        />
+      )}
       <div className="space-y-1">
-        {options.map((x: any) => (
+        {shown.map((x: any) => (
           <label
             key={x.id}
             className={`flex items-start gap-2 text-sm rounded px-1 ${disabled ? 'opacity-60' : 'cursor-pointer hover:bg-white/80'}`}
@@ -88,6 +108,9 @@ function IdChips({
             <span className="text-gray-800">{renderLabel(x)}</span>
           </label>
         ))}
+        {shown.length === 0 && (
+          <p className="text-xs text-gray-400 italic">Aucun résultat</p>
+        )}
       </div>
     </div>
   );
@@ -149,6 +172,53 @@ export default function PvReunionDetail() {
 
   const canModule = canModifyModule(user?.uiModules, 'pv_reunion');
   const canEdit = !!(pv?.capabilities?.canModify && canModule);
+
+  const projectScopedTaskIds = useMemo(() => {
+    if (!projetIds.length) return new Set<string>();
+    const selectedProjects = new Set(projetIds);
+    return new Set(
+      taches
+        .filter((t: any) => t?.projetId && selectedProjects.has(String(t.projetId)))
+        .map((t: any) => String(t.id))
+    );
+  }, [projetIds, taches]);
+
+  const filteredTaches = useMemo(() => {
+    if (!projetIds.length) return taches;
+    return taches.filter((t: any) => projectScopedTaskIds.has(String(t.id)));
+  }, [projetIds, taches, projectScopedTaskIds]);
+
+  const filteredEpics = useMemo(() => {
+    if (!projetIds.length) return epics;
+    const selectedProjects = new Set(projetIds);
+    return epics.filter((e: any) => e?.projetId && selectedProjects.has(String(e.projetId)));
+  }, [projetIds, epics]);
+
+  const filteredUserStories = useMemo(() => {
+    if (!projetIds.length) return userStories;
+    const selectedProjects = new Set(projetIds);
+    return userStories.filter((us: any) => {
+      const epicProjectId = us?.epic?.projetId ? String(us.epic.projetId) : '';
+      if (epicProjectId && selectedProjects.has(epicProjectId)) return true;
+      if (us?.projetId && selectedProjects.has(String(us.projetId))) return true;
+      // Fallback: user story liée à une tâche du projet sélectionné.
+      return taches.some(
+        (t: any) =>
+          t?.userStoryId === us?.id && t?.projetId && selectedProjects.has(String(t.projetId))
+      );
+    });
+  }, [projetIds, userStories, taches]);
+
+  useEffect(() => {
+    if (!projetIds.length) return;
+    const allowedTaskIds = new Set(filteredTaches.map((x: any) => String(x.id)));
+    const allowedEpicIds = new Set(filteredEpics.map((x: any) => String(x.id)));
+    const allowedUserStoryIds = new Set(filteredUserStories.map((x: any) => String(x.id)));
+
+    setTacheIds((prev) => prev.filter((id) => allowedTaskIds.has(String(id))));
+    setEpicIds((prev) => prev.filter((id) => allowedEpicIds.has(String(id))));
+    setUserStoryIds((prev) => prev.filter((id) => allowedUserStoryIds.has(String(id))));
+  }, [projetIds, filteredTaches, filteredEpics, filteredUserStories]);
 
   const load = async () => {
     if (!id) return;
@@ -611,17 +681,21 @@ export default function PvReunionDetail() {
                 selected={projetIds}
                 onChange={setProjetIds}
                 renderLabel={(x) => x.nom || x.codeProjet}
+                searchable
+                searchPlaceholder="Rechercher un projet..."
               />
               <IdChips
                 label="Tâches"
-                options={taches}
+                options={filteredTaches}
                 selected={tacheIds}
                 onChange={setTacheIds}
                 renderLabel={(x) => x.nom}
+                searchable
+                searchPlaceholder="Rechercher une tâche..."
               />
               <IdChips
                 label="User stories"
-                options={userStories}
+                options={filteredUserStories}
                 selected={userStoryIds}
                 onChange={setUserStoryIds}
                 renderLabel={(x) =>
@@ -629,13 +703,17 @@ export default function PvReunionDetail() {
                     ? `${(x.description || '').slice(0, 60)}…`
                     : x.description || x.id
                 }
+                searchable
+                searchPlaceholder="Rechercher une user story..."
               />
               <IdChips
                 label="Epics"
-                options={epics}
+                options={filteredEpics}
                 selected={epicIds}
                 onChange={setEpicIds}
                 renderLabel={(x) => x.nom}
+                searchable
+                searchPlaceholder="Rechercher un epic..."
               />
               <IdChips
                 label="Contrats"
@@ -643,6 +721,8 @@ export default function PvReunionDetail() {
                 selected={contratIds}
                 onChange={setContratIds}
                 renderLabel={(x) => x.nom}
+                searchable
+                searchPlaceholder="Rechercher un contrat..."
               />
               <IdChips
                 label="Processus"
@@ -650,6 +730,8 @@ export default function PvReunionDetail() {
                 selected={processusIds}
                 onChange={setProcessusIds}
                 renderLabel={(x) => x.nom}
+                searchable
+                searchPlaceholder="Rechercher un processus..."
               />
             </div>
             <IdChips
