@@ -1104,16 +1104,14 @@ export default function PvReunionDetail() {
           </div>
 
           <div className="flex flex-wrap gap-2 lg:flex-col lg:items-stretch shrink-0 lg:min-w-[11rem]">
-            {pv.document?.id && (
-              <a
-                href={`${API_BASE_URL}/documents/${pv.document.id}/view?token=${localStorage.getItem('token')}`}
-                target="_blank"
-                rel="noreferrer"
-                className="px-3 py-1.5 text-xs text-center bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
-              >
-                👁 Consulter le document
-              </a>
-            )}
+            <button
+              type="button"
+              onClick={() => void handlePreviewPdfDetail()}
+              disabled={pdfPreviewDetailLoading}
+              className="px-3 py-1.5 text-xs text-center bg-gray-100 text-gray-800 rounded hover:bg-gray-200 disabled:opacity-50"
+            >
+              👁 {pdfPreviewDetailLoading ? 'Ouverture…' : 'Consulter le document'}
+            </button>
             {!editMode && (
               <>
                 <button
