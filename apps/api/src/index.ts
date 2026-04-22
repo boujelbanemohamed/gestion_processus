@@ -26,6 +26,7 @@ import * as clientFournisseurController from "./controllers/client-fournisseur.c
 import * as tacheController from "./controllers/tache.controller";
 import * as epicController from "./controllers/epic.controller";
 import * as notificationController from "./controllers/notification.controller";
+import * as notificationEmailFailureController from "./controllers/notification-email-failure.controller";
 import * as licenceController from "./controllers/licence.controller";
 import * as typeLicenceController from "./controllers/type-licence.controller";
 import * as typeContratController from "./controllers/type-contrat.controller";
@@ -516,6 +517,23 @@ app.get("/api/v1/notifications", notificationController.getNotifications);
 app.get("/api/v1/notifications/count", notificationController.countNonLues);
 app.patch("/api/v1/notifications/:id/lue", notificationController.marquerLue);
 app.patch("/api/v1/notifications/toutes-lues", notificationController.marquerToutesLues);
+
+// Échecs d’envoi d’emails de notification (admin — Configuration)
+app.get(
+  "/api/v1/admin/notification-email-failures",
+  requireRole("admin"),
+  notificationEmailFailureController.listNotificationEmailFailures
+);
+app.delete(
+  "/api/v1/admin/notification-email-failures/:id",
+  requireRole("admin"),
+  notificationEmailFailureController.deleteNotificationEmailFailure
+);
+app.post(
+  "/api/v1/admin/notification-email-failures/:id/resend",
+  requireRole("admin"),
+  notificationEmailFailureController.resendNotificationEmailFailure
+);
 
 // Gestion des erreurs
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

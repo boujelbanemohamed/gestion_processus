@@ -31,6 +31,157 @@ function isTabType(s: string): s is TabType {
   return VALID_TABS.includes(s as TabType);
 }
 
+const NOTIFICATION_EMAIL_KIND_LABELS: Record<string, string> = {
+  mention: 'Mention',
+  assignation: 'Assignation (tâche)',
+  statut: 'Changement de statut',
+  retard: 'Tâche en retard',
+  nouvelle_tache_projet: 'Nouvelle tâche (projet)',
+  commentaire: 'Commentaire',
+  commentaire_pv: 'Commentaire PV',
+  commentaire_pv_assigne: 'Commentaire PV assigné',
+  assignation_action_pv: 'Action PV assignée',
+  document: 'Document sur tâche',
+};
+
+function UnsentEmailNotificationsSection() {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get('/admin/notification-email-failures');
+      setRows(Array.isArray(data) ? data : []);
+    } catch {
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const resend = async (id: string) => {
+    setBusyId(id);
+    try {
+      await api.post(`/admin/notification-email-failures/${id}/resend`);
+      await load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Renvoi impossible');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const remove = async (id: string) => {
+    if (!window.confirm('Supprimer cette entrée ? Elle ne sera plus proposée au renvoi.')) return;
+    setBusyId(id);
+    try {
+      await api.delete(`/admin/notification-email-failures/${id}`);
+      await load();
+    } catch {
+      alert('Suppression impossible');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-lg shadow p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Notifications non envoyées</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Emails automatiques (tâches, PV, etc.) qui n’ont pas pu partir : absence de SMTP actif, erreur serveur
+            mail, refus du relais, etc. Vous pouvez renvoyer après correction de la configuration ou supprimer l’entrée.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={loading}
+          className="px-3 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+        >
+          {loading ? 'Chargement…' : 'Actualiser'}
+        </button>
+      </div>
+
+      {loading && rows.length === 0 ? (
+        <p className="text-sm text-gray-500 py-6">Chargement…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-gray-600 py-4 border border-dashed border-gray-200 rounded-lg px-4 bg-gray-50">
+          Aucun échec d’envoi enregistré. Les prochains échecs (après déploiement de cette version) apparaîtront ici.
+        </p>
+      ) : (
+        <div className="overflow-x-auto border border-gray-200 rounded-lg">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50 text-gray-600 text-left">
+              <tr>
+                <th className="px-3 py-2 font-medium">Date</th>
+                <th className="px-3 py-2 font-medium">Type</th>
+                <th className="px-3 py-2 font-medium">Destinataire</th>
+                <th className="px-3 py-2 font-medium">Sujet</th>
+                <th className="px-3 py-2 font-medium">Erreur</th>
+                <th className="px-3 py-2 font-medium w-40">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {rows.map((r) => {
+                const destLabel =
+                  r.toUser?.prenom != null
+                    ? `${r.toUser.prenom} ${r.toUser.nom} · ${r.toEmail}`
+                    : r.toEmail;
+                const errShort =
+                  String(r.errorMessage || '').length > 140
+                    ? `${String(r.errorMessage).slice(0, 140)}…`
+                    : r.errorMessage;
+                return (
+                  <tr key={r.id} className="hover:bg-gray-50/80 align-top">
+                    <td className="px-3 py-2 whitespace-nowrap text-gray-700">
+                      {r.createdAt ? new Date(r.createdAt).toLocaleString('fr-FR') : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-gray-800">
+                      {NOTIFICATION_EMAIL_KIND_LABELS[r.kind] || r.kind}
+                    </td>
+                    <td className="px-3 py-2 text-gray-800 break-all max-w-[14rem]">{destLabel}</td>
+                    <td className="px-3 py-2 text-gray-800 break-all max-w-[14rem]">{r.subject}</td>
+                    <td className="px-3 py-2 text-red-700 break-words max-w-[18rem]" title={r.errorMessage}>
+                      {errShort || '—'}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-col gap-1">
+                        <button
+                          type="button"
+                          disabled={busyId === r.id}
+                          onClick={() => void resend(r.id)}
+                          className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          {busyId === r.id ? '…' : 'Renvoyer'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busyId === r.id}
+                          onClick={() => void remove(r.id)}
+                          className="px-2 py-1 text-xs border border-red-200 text-red-700 rounded hover:bg-red-50 disabled:opacity-50"
+                        >
+                          Supprimer
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function NotificationsTab() {
   const [openTemplate, setOpenTemplate] = useState<string | null>(null);
@@ -229,6 +380,8 @@ Consultez l application pour plus de details : [Lien application]
           <p className="text-sm text-blue-700">Les notifications par email necessitent une configuration SMTP active.</p>
         </div>
       </div>
+
+      <UnsentEmailNotificationsSection />
     </div>
   );
 }

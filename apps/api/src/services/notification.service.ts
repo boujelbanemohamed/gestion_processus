@@ -1,5 +1,6 @@
 import { prisma } from '../utils/prisma';
 import nodemailer from 'nodemailer';
+import { recordNotificationEmailFailure } from './notification-email-failure.service';
 
 export class NotificationService {
 
@@ -14,6 +15,51 @@ export class NotificationService {
       auth: { user: smtp.user, pass: smtp.password },
     });
     return { smtp, transporter };
+  }
+
+  /** Envoie un email transactionnel ; en cas d’absence SMTP ou d’erreur, enregistre pour la page Configuration. */
+  private async sendNotificationEmail(params: {
+    kind: string;
+    toEmail: string;
+    toUserId?: string | null;
+    subject: string;
+    html: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    const smtp = await this.getActiveSMTP();
+    if (!smtp) {
+      console.log('[NOTIF] Pas de config SMTP active — email non envoyé');
+      await recordNotificationEmailFailure({
+        kind: params.kind,
+        toEmail: params.toEmail,
+        toUserId: params.toUserId,
+        subject: params.subject,
+        htmlBody: params.html,
+        errorMessage: 'Pas de configuration SMTP active',
+        metadata: params.metadata,
+      });
+      return;
+    }
+    try {
+      await smtp.transporter.sendMail({
+        from: `"${smtp.smtp.fromName || 'PMO Hub'}" <${smtp.smtp.fromEmail}>`,
+        to: params.toEmail,
+        subject: params.subject,
+        html: params.html,
+      });
+      console.log(`[NOTIF] Email ${params.kind} envoyé à ${params.toEmail}`);
+    } catch (err) {
+      console.error(`[NOTIF] Erreur envoi email (${params.kind}):`, err);
+      await recordNotificationEmailFailure({
+        kind: params.kind,
+        toEmail: params.toEmail,
+        toUserId: params.toUserId,
+        subject: params.subject,
+        htmlBody: params.html,
+        errorMessage: err instanceof Error ? err.message : String(err),
+        metadata: params.metadata,
+      });
+    }
   }
 
   // ── Créer une notification in-app ─────────────────────────────────────────
@@ -89,26 +135,16 @@ export class NotificationService {
   async envoyerEmailMention(data: {
     destinataireEmail: string;
     destinataireNom: string;
+    destinataireUserId?: string;
     auteurNom: string;
     commentaireContenu: string;
     appUrl: string;
     context: { type: 'tache' | 'epic' | 'userStory'; titre: string };
   }) {
-    try {
-      const smtpData = await this.getActiveSMTP();
-      if (!smtpData) {
-        console.log('[NOTIF] Pas de config SMTP active — email non envoyé');
-        return;
-      }
-      const { smtp, transporter } = smtpData;
-      const lien = `${data.appUrl}/taches`;
-      const L = this.libelleContexte(data.context.type);
-
-      await transporter.sendMail({
-        from: `"${smtp.fromName || 'PMO Hub'}" <${smtp.fromEmail}>`,
-        to: data.destinataireEmail,
-        subject: `📌 Mention (${L.sujet}) : ${data.context.titre}`,
-        html: `
+    const lien = `${data.appUrl}/taches`;
+    const L = this.libelleContexte(data.context.type);
+    const subject = `📌 Mention (${L.sujet}) : ${data.context.titre}`;
+    const html = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <div style="background: #2563eb; color: white; padding: 20px; border-radius: 8px 8px 0 0;">
               <h2 style="margin:0;">📌 Nouvelle mention</h2>
@@ -126,12 +162,15 @@ export class NotificationService {
               <p style="color: #9ca3af; font-size: 12px; margin-top: 20px;">PMO Hub — Notification automatique</p>
             </div>
           </div>
-        `,
-      });
-      console.log(`[NOTIF] Email mention envoyé à ${data.destinataireEmail}`);
-    } catch (err) {
-      console.error('[NOTIF] Erreur envoi email mention:', err);
-    }
+        `;
+    await this.sendNotificationEmail({
+      kind: 'mention',
+      toEmail: data.destinataireEmail,
+      toUserId: data.destinataireUserId,
+      subject,
+      html,
+      metadata: { contextType: data.context.type, titre: data.context.titre },
+    });
   }
 
   // ── Traiter les mentions dans un commentaire ──────────────────────────────
@@ -181,6 +220,7 @@ export class NotificationService {
       await this.envoyerEmailMention({
         destinataireEmail: user.email,
         destinataireNom: `${user.prenom} ${user.nom}`,
+        destinataireUserId: user.id,
         auteurNom: data.auteurNom,
         commentaireContenu: data.contenu,
         appUrl: data.appUrl,
@@ -208,14 +248,12 @@ export class NotificationService {
         lienType: 'tache', lienId: data.tacheId,
       });
     } catch { /* silencieux */ }
-    try {
-      const smtp = await this.getActiveSMTP();
-      if (!smtp) return;
-      await smtp.transporter.sendMail({
-        from: `"${smtp.smtp.fromName || 'PMO Hub'}" <${smtp.smtp.fromEmail}>`,
-        to: data.assigneEmail,
-        subject: `✅ Nouvelle assignation : ${data.tacheNom}`,
-        html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+    await this.sendNotificationEmail({
+      kind: 'assignation',
+      toEmail: data.assigneEmail,
+      toUserId: data.assigneUserId,
+      subject: `✅ Nouvelle assignation : ${data.tacheNom}`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px">
           <div style="background:#2563eb;color:white;padding:20px;border-radius:8px 8px 0 0"><h2 style="margin:0">✅ Nouvelle assignation</h2></div>
           <div style="background:#f9fafb;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
             <p>Bonjour <strong>${data.assigneNom}</strong>,</p>
@@ -226,8 +264,8 @@ export class NotificationService {
             <a href="${data.appUrl}/taches" style="display:inline-block;background:#2563eb;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Voir la tâche →</a>
             <p style="color:#9ca3af;font-size:12px;margin-top:20px">PMO Hub — Notification automatique</p>
           </div></div>`,
-      });
-    } catch (err) { console.error('[NOTIF] Erreur assignation:', err); }
+      metadata: { tacheId: data.tacheId },
+    });
   }
 
   // ── Changement de statut ──────────────────────────────────────────────────
@@ -252,14 +290,12 @@ export class NotificationService {
           lienType: 'tache', lienId: data.tacheId,
         });
       } catch { /* silencieux */ }
-      try {
-        const smtp = await this.getActiveSMTP();
-        if (!smtp) continue;
-        await smtp.transporter.sendMail({
-          from: `"${smtp.smtp.fromName || 'PMO Hub'}" <${smtp.smtp.fromEmail}>`,
-          to: dest.email,
-          subject: `🔄 Statut modifié : ${data.tacheNom}`,
-          html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+      await this.sendNotificationEmail({
+        kind: 'statut',
+        toEmail: dest.email,
+        toUserId: dest.id,
+        subject: `🔄 Statut modifié : ${data.tacheNom}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px">
             <div style="background:#7c3aed;color:white;padding:20px;border-radius:8px 8px 0 0"><h2 style="margin:0">🔄 Changement de statut</h2></div>
             <div style="background:#f9fafb;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
               <p>Bonjour <strong>${dest.nom}</strong>,</p>
@@ -269,8 +305,8 @@ export class NotificationService {
               </div>
               <a href="${data.appUrl}/taches" style="display:inline-block;background:#7c3aed;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Voir la tâche →</a>
             </div></div>`,
-        });
-      } catch (err) { console.error('[NOTIF] Erreur statut:', err); }
+        metadata: { tacheId: data.tacheId },
+      });
     }
   }
 
@@ -289,14 +325,12 @@ export class NotificationService {
           lienType: 'tache', lienId: data.tacheId,
         });
       } catch { /* silencieux */ }
-      try {
-        const smtp = await this.getActiveSMTP();
-        if (!smtp) continue;
-        await smtp.transporter.sendMail({
-          from: `"${smtp.smtp.fromName || 'PMO Hub'}" <${smtp.smtp.fromEmail}>`,
-          to: dest.email,
-          subject: `⚠️ Tâche en retard : ${data.tacheNom}`,
-          html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+      await this.sendNotificationEmail({
+        kind: 'retard',
+        toEmail: dest.email,
+        toUserId: dest.id,
+        subject: `⚠️ Tâche en retard : ${data.tacheNom}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px">
             <div style="background:#dc2626;color:white;padding:20px;border-radius:8px 8px 0 0"><h2 style="margin:0">⚠️ Tâche en retard</h2></div>
             <div style="background:#f9fafb;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
               <p>Bonjour <strong>${dest.nom}</strong>,</p>
@@ -306,8 +340,8 @@ export class NotificationService {
               </div>
               <a href="${data.appUrl}/taches" style="display:inline-block;background:#dc2626;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Voir la tâche →</a>
             </div></div>`,
-        });
-      } catch (err) { console.error('[NOTIF] Erreur retard:', err); }
+        metadata: { tacheId: data.tacheId, joursRetard: data.joursRetard },
+      });
     }
   }
 
@@ -326,14 +360,12 @@ export class NotificationService {
           lienType: 'tache', lienId: data.tacheId,
         });
       } catch { /* silencieux */ }
-      try {
-        const smtp = await this.getActiveSMTP();
-        if (!smtp) continue;
-        await smtp.transporter.sendMail({
-          from: `"${smtp.smtp.fromName || 'PMO Hub'}" <${smtp.smtp.fromEmail}>`,
-          to: membre.email,
-          subject: `📋 Nouvelle tâche dans ${data.projetNom}`,
-          html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+      await this.sendNotificationEmail({
+        kind: 'nouvelle_tache_projet',
+        toEmail: membre.email,
+        toUserId: membre.id,
+        subject: `📋 Nouvelle tâche dans ${data.projetNom}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px">
             <div style="background:#059669;color:white;padding:20px;border-radius:8px 8px 0 0"><h2 style="margin:0">📋 Nouvelle tâche</h2></div>
             <div style="background:#f9fafb;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
               <p>Bonjour <strong>${membre.nom}</strong>,</p>
@@ -343,8 +375,8 @@ export class NotificationService {
               </div>
               <a href="${data.appUrl}/taches" style="display:inline-block;background:#059669;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Voir la tâche →</a>
             </div></div>`,
-        });
-      } catch (err) { console.error('[NOTIF] Erreur nouvelle tâche projet:', err); }
+        metadata: { tacheId: data.tacheId, projetNom: data.projetNom },
+      });
     }
   }
 
@@ -378,14 +410,12 @@ export class NotificationService {
           lienId: data.cibleId,
         });
       } catch { /* silencieux */ }
-      try {
-        const smtp = await this.getActiveSMTP();
-        if (!smtp) continue;
-        await smtp.transporter.sendMail({
-          from: `"${smtp.smtp.fromName || 'PMO Hub'}" <${smtp.smtp.fromEmail}>`,
-          to: dest.email,
-          subject: `💬 Nouveau commentaire : ${data.cibleNom}`,
-          html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+      await this.sendNotificationEmail({
+        kind: 'commentaire',
+        toEmail: dest.email,
+        toUserId: dest.id,
+        subject: `💬 Nouveau commentaire : ${data.cibleNom}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px">
             <div style="background:#0284c7;color:white;padding:20px;border-radius:8px 8px 0 0"><h2 style="margin:0">💬 Nouveau commentaire</h2></div>
             <div style="background:#f9fafb;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
               <p>Bonjour <strong>${dest.nom}</strong>,</p>
@@ -395,10 +425,8 @@ export class NotificationService {
               </div>
               <a href="${data.appUrl}/taches" style="display:inline-block;background:#0284c7;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">${cta}</a>
             </div></div>`,
-        });
-      } catch (err) {
-        console.error('[NOTIF] Erreur commentaire:', err);
-      }
+        metadata: { cibleType: data.cibleType, cibleId: data.cibleId },
+      });
     }
   }
 
@@ -455,18 +483,16 @@ export class NotificationService {
       } catch (err) {
         console.error('[NOTIF] Erreur notification in-app commentaire PV:', err);
       }
-      try {
-        const smtp = await this.getActiveSMTP();
-        if (!smtp) continue;
-        const introAssign = `<p><strong>${data.auteurNom}</strong> vous a <strong>assigné</strong> un commentaire sur le procès-verbal <strong>${data.pvTitre}</strong> :</p>`;
-        const introGeneral = `<p><strong>${data.auteurNom}</strong> a commenté le procès-verbal <strong>${data.pvTitre}</strong> :</p>`;
-        await smtp.transporter.sendMail({
-          from: `"${smtp.smtp.fromName || 'PMO Hub'}" <${smtp.smtp.fromEmail}>`,
-          to: dest.email,
-          subject: assign
-            ? `Commentaire PV qui vous est assigné : ${data.pvTitre}`
-            : `💬 Commentaire sur PV : ${data.pvTitre}`,
-          html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+      const introAssign = `<p><strong>${data.auteurNom}</strong> vous a <strong>assigné</strong> un commentaire sur le procès-verbal <strong>${data.pvTitre}</strong> :</p>`;
+      const introGeneral = `<p><strong>${data.auteurNom}</strong> a commenté le procès-verbal <strong>${data.pvTitre}</strong> :</p>`;
+      await this.sendNotificationEmail({
+        kind: assign ? 'commentaire_pv_assigne' : 'commentaire_pv',
+        toEmail: dest.email,
+        toUserId: dest.id,
+        subject: assign
+          ? `Commentaire PV qui vous est assigné : ${data.pvTitre}`
+          : `💬 Commentaire sur PV : ${data.pvTitre}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px">
             <div style="background:#0369a1;color:white;padding:20px;border-radius:8px 8px 0 0"><h2 style="margin:0">${assign ? '✅ Commentaire assigné' : '💬 PV de réunion'}</h2></div>
             <div style="background:#f9fafb;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
               <p>Bonjour <strong>${dest.nom}</strong>,</p>
@@ -477,10 +503,8 @@ export class NotificationService {
               ${pieceHtml}
               <a href="${lien}" style="display:inline-block;background:#0369a1;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Ouvrir le PV →</a>
             </div></div>`,
-        });
-      } catch (err) {
-        console.error('[NOTIF] Erreur commentaire PV:', err);
-      }
+        metadata: { pvId: data.pvId, assign },
+      });
     }
   }
 
@@ -505,14 +529,12 @@ export class NotificationService {
     } catch (err) {
       console.error('[NOTIF] Erreur notification action PV (in-app):', err);
     }
-    try {
-      const smtp = await this.getActiveSMTP();
-      if (!smtp) return;
-      await smtp.transporter.sendMail({
-        from: `"${smtp.smtp.fromName || 'PMO Hub'}" <${smtp.smtp.fromEmail}>`,
-        to: data.destinataire.email,
-        subject: `✅ Action assignée sur PV : ${data.pvTitre}`,
-        html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+    await this.sendNotificationEmail({
+      kind: 'assignation_action_pv',
+      toEmail: data.destinataire.email,
+      toUserId: data.destinataire.id,
+      subject: `✅ Action assignée sur PV : ${data.pvTitre}`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px">
           <div style="background:#0f766e;color:white;padding:20px;border-radius:8px 8px 0 0"><h2 style="margin:0">✅ Action PV assignée</h2></div>
           <div style="background:#f9fafb;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
             <p>Bonjour <strong>${data.destinataire.nom}</strong>,</p>
@@ -522,10 +544,8 @@ export class NotificationService {
             </div>
             <a href="${lien}" style="display:inline-block;background:#0f766e;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Ouvrir le PV →</a>
           </div></div>`,
-      });
-    } catch (err) {
-      console.error('[NOTIF] Erreur email action PV:', err);
-    }
+      metadata: { pvId: data.pvId },
+    });
   }
 
   async notifierDocumentUploade(data: {
@@ -542,14 +562,12 @@ export class NotificationService {
           lienType: 'tache', lienId: data.tacheId,
         });
       } catch { /* silencieux */ }
-      try {
-        const smtp = await this.getActiveSMTP();
-        if (!smtp) continue;
-        await smtp.transporter.sendMail({
-          from: `"${smtp.smtp.fromName || 'PMO Hub'}" <${smtp.smtp.fromEmail}>`,
-          to: dest.email,
-          subject: `📎 Nouveau document : ${data.tacheNom}`,
-          html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+      await this.sendNotificationEmail({
+        kind: 'document',
+        toEmail: dest.email,
+        toUserId: dest.id,
+        subject: `📎 Nouveau document : ${data.tacheNom}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px">
             <div style="background:#d97706;color:white;padding:20px;border-radius:8px 8px 0 0"><h2 style="margin:0">📎 Nouveau document</h2></div>
             <div style="background:#f9fafb;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
               <p>Bonjour <strong>${dest.nom}</strong>,</p>
@@ -559,8 +577,8 @@ export class NotificationService {
               </div>
               <a href="${data.appUrl}/taches" style="display:inline-block;background:#d97706;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Voir la tâche →</a>
             </div></div>`,
-        });
-      } catch (err) { console.error('[NOTIF] Erreur document:', err); }
+        metadata: { tacheId: data.tacheId, documentNom: data.documentNom },
+      });
     }
   }
 

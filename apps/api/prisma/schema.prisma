@@ -193,6 +193,7 @@ model User {
   epicCommentaires      EpicCommentaire[]      @relation("EpicCommentaireUser")
   userStoryCommentaires UserStoryCommentaire[] @relation("UserStoryCommentaireUser")
   notifications         Notification[]         @relation("NotificationUser")
+  notificationEmailFailuresAsRecipient NotificationEmailFailure[] @relation("NotificationEmailFailureUser")
 
   licencesCreees              Licence[]              @relation("LicenceCreatedBy")
   licencePermissions        LicencePermission[]
@@ -1206,6 +1207,24 @@ model Notification {
 
   @@index([userId])
   @@index([lue])
+}
+
+/// Emails automatiques (NotificationService) non délivrés — SMTP absent ou erreur d’envoi.
+model NotificationEmailFailure {
+  id           String   @id @default(uuid())
+  /// mention | assignation | statut | retard | nouvelle_tache_projet | commentaire | commentaire_pv | assignation_action_pv | document
+  kind         String
+  toEmail      String
+  toUserId     String?
+  toUser       User?    @relation("NotificationEmailFailureUser", fields: [toUserId], references: [id], onDelete: SetNull)
+  subject      String
+  htmlBody     String   @db.Text
+  errorMessage String   @db.Text
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([kind])
 }
 
 // ── TACHE DOCUMENTS ───────────────────────────────────────────────────────────
