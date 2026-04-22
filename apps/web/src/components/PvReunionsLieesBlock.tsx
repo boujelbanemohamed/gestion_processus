@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../services/api';
+import { api, API_BASE_URL } from '../services/api';
 
 type PvRow = {
   id: string;
@@ -74,6 +74,16 @@ export function PvReunionsLieesBlock({
               <span className="text-xs text-gray-500">
                 {new Date(pv.dateReunion).toLocaleDateString('fr-FR')}
               </span>
+            )}
+            {pv.document?.id && (
+              <a
+                href={`${API_BASE_URL}/documents/${pv.document.id}/view?token=${localStorage.getItem('token')}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-blue-600 hover:underline"
+              >
+                Voir le PDF
+              </a>
             )}
           </li>
         ))}

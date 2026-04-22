@@ -118,6 +118,41 @@ function stripHtmlTags(html: string): string {
     .replace(/<[^>]+>/g, ' ');
 }
 
+function decodeHtmlEntities(raw: string): string {
+  return raw
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function extractAssignedActionRowsFromHtml(
+  html: string
+): Array<{ userId: string; actionLabel: string }> {
+  const source = String(html || '');
+  if (!source.trim()) return [];
+  const rows: Array<{ userId: string; actionLabel: string }> = [];
+  const trRegex = /<tr\b[^>]*data-user-id="([^"]*)"[^>]*>([\s\S]*?)<\/tr>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = trRegex.exec(source)) !== null) {
+    const userId = String(m[1] || '').trim();
+    if (!userId) continue;
+    const inner = m[2] || '';
+    const td = /<td\b[^>]*>([\s\S]*?)<\/td>/i.exec(inner);
+    const actionLabel = decodeHtmlEntities(
+      String(td?.[1] || '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    );
+    if (!actionLabel || actionLabel === '—') continue;
+    rows.push({ userId, actionLabel });
+  }
+  return rows;
+}
+
 function parseLiensExplicites(raw: unknown): LiensExplicites {
   if (!raw || typeof raw !== 'object') return { ...emptyLiens };
   const o = raw as Record<string, unknown>;
@@ -466,6 +501,62 @@ export class PvReunionService {
     }
   }
 
+  private async notifyAssignedActionUsers(opts: {
+    pvId: string;
+    pvTitre: string;
+    auteurId: string;
+    previousHtml?: string | null;
+    nextHtml?: string | null;
+  }) {
+    const nextRows = extractAssignedActionRowsFromHtml(opts.nextHtml || '');
+    if (!nextRows.length) return;
+    const previousSet = new Set(
+      extractAssignedActionRowsFromHtml(opts.previousHtml || '').map((r) => `${r.userId}::${r.actionLabel}`)
+    );
+    const toNotify = nextRows.filter((r) => !previousSet.has(`${r.userId}::${r.actionLabel}`));
+    if (!toNotify.length) return;
+    const userIds = uniq(
+      toNotify
+        .map((r) => r.userId)
+        .filter((id) => id && id !== opts.auteurId)
+    );
+    if (!userIds.length) return;
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, email: true, nom: true, prenom: true },
+    });
+    if (!users.length) return;
+    const byUser = new Map<string, string[]>();
+    for (const row of toNotify) {
+      if (row.userId === opts.auteurId) continue;
+      const list = byUser.get(row.userId) || [];
+      if (!list.includes(row.actionLabel)) list.push(row.actionLabel);
+      byUser.set(row.userId, list);
+    }
+    const auteur = await prisma.user.findUnique({
+      where: { id: opts.auteurId },
+      select: { nom: true, prenom: true },
+    });
+    const auteurNom = auteur ? `${auteur.prenom} ${auteur.nom}` : 'Un utilisateur';
+    const appUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    for (const u of users) {
+      const labels = byUser.get(u.id) || [];
+      if (!labels.length) continue;
+      for (const actionLabel of labels) {
+        this.notificationService
+          .notifierAssignationActionPvReunion({
+            pvId: opts.pvId,
+            pvTitre: opts.pvTitre,
+            actionLabel,
+            destinataire: { id: u.id, email: u.email, nom: `${u.prenom} ${u.nom}` },
+            auteurNom,
+            appUrl,
+          })
+          .catch((err: unknown) => console.error('[PV] Notification action assignée:', err));
+      }
+    }
+  }
+
   async findAll(userId: string, role: string) {
     const list = await prisma.pvReunion.findMany({
       where: { deletedAt: null },
@@ -775,6 +866,16 @@ export class PvReunionService {
       userId
     );
 
+    if (htmlTrim) {
+      await this.notifyAssignedActionUsers({
+        pvId: pv.id,
+        pvTitre: pv.titre,
+        auteurId: userId,
+        previousHtml: '',
+        nextHtml: htmlTrim,
+      });
+    }
+
     return this.findOne(pv.id, userId, role);
   }
 
@@ -795,8 +896,13 @@ export class PvReunionService {
   ) {
     const existing = await prisma.pvReunion.findFirst({
       where: { id, deletedAt: null },
-      include: {
-        modificationDelegues: true,
+      select: {
+        id: true,
+        createdById: true,
+        liensExplicites: true,
+        contenuHtml: true,
+        titre: true,
+        modificationDelegues: { select: { userId: true } },
         permissions: { select: { userId: true, niveau: true } },
         adminSansAcces: { select: { userId: true } },
       },
@@ -816,6 +922,7 @@ export class PvReunionService {
       statutUpdate = st;
     }
 
+    const previousHtml = existing.contenuHtml || '';
     await prisma.pvReunion.update({
       where: { id },
       data: {
@@ -889,13 +996,29 @@ export class PvReunionService {
       }
     }
 
+    if (data.contenuHtml !== undefined) {
+      const nextHtml =
+        data.contenuHtml === null || data.contenuHtml === '' ? '' : String(data.contenuHtml);
+      await this.notifyAssignedActionUsers({
+        pvId: id,
+        pvTitre: data.titre?.trim() || existing.titre,
+        auteurId: userId,
+        previousHtml,
+        nextHtml,
+      });
+    }
+
     return this.findOne(id, userId, role);
   }
 
   async saveContenuBrouillon(id: string, userId: string, role: string, contenuHtml: string) {
     const existing = await prisma.pvReunion.findFirst({
       where: { id, deletedAt: null },
-      include: {
+      select: {
+        id: true,
+        createdById: true,
+        titre: true,
+        contenuHtml: true,
         permissions: { select: { userId: true, niveau: true } },
         adminSansAcces: { select: { userId: true } },
       },
@@ -903,6 +1026,7 @@ export class PvReunionService {
     if (!existing) throw new Error('NOT_FOUND');
     if (!capabilitiesPvReunion(toPvAcl(existing), userId, role).canModify) throw new Error('FORBIDDEN');
     const trimmed = String(contenuHtml || '').trim();
+    const previousHtml = existing.contenuHtml || '';
     if (!trimmed) throw new Error('Contenu vide');
     if (trimmed.length > 600_000) throw new Error('Contenu trop volumineux');
 
@@ -936,6 +1060,13 @@ export class PvReunionService {
     });
 
     await this.syncPrincipalPdfFromPvState(id);
+    await this.notifyAssignedActionUsers({
+      pvId: id,
+      pvTitre: existing.titre,
+      auteurId: userId,
+      previousHtml,
+      nextHtml: trimmed,
+    });
 
     return this.findOne(id, userId, role);
   }

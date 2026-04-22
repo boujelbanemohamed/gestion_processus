@@ -484,6 +484,50 @@ export class NotificationService {
     }
   }
 
+  async notifierAssignationActionPvReunion(data: {
+    pvId: string;
+    pvTitre: string;
+    actionLabel: string;
+    destinataire: { id: string; email: string; nom: string };
+    auteurNom: string;
+    appUrl: string;
+  }) {
+    const lien = `${data.appUrl}/pv-reunion/${data.pvId}`;
+    try {
+      await this.createNotification({
+        userId: data.destinataire.id,
+        type: 'assignation_action_pv',
+        titre: `Action PV assignée — « ${data.pvTitre} »`,
+        contenu: `${data.auteurNom} vous a assigné une action : ${data.actionLabel}`,
+        lienType: 'pvReunion',
+        lienId: data.pvId,
+      });
+    } catch (err) {
+      console.error('[NOTIF] Erreur notification action PV (in-app):', err);
+    }
+    try {
+      const smtp = await this.getActiveSMTP();
+      if (!smtp) return;
+      await smtp.transporter.sendMail({
+        from: `"${smtp.smtp.fromName || 'PMO Hub'}" <${smtp.smtp.fromEmail}>`,
+        to: data.destinataire.email,
+        subject: `✅ Action assignée sur PV : ${data.pvTitre}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+          <div style="background:#0f766e;color:white;padding:20px;border-radius:8px 8px 0 0"><h2 style="margin:0">✅ Action PV assignée</h2></div>
+          <div style="background:#f9fafb;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
+            <p>Bonjour <strong>${data.destinataire.nom}</strong>,</p>
+            <p><strong>${data.auteurNom}</strong> vous a assigné une action dans le procès-verbal <strong>${data.pvTitre}</strong> :</p>
+            <div style="background:white;border-left:4px solid #0f766e;padding:12px;margin:16px 0;border-radius:4px">
+              <p style="margin:0;font-weight:bold;color:#0f766e">📝 ${data.actionLabel}</p>
+            </div>
+            <a href="${lien}" style="display:inline-block;background:#0f766e;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Ouvrir le PV →</a>
+          </div></div>`,
+      });
+    } catch (err) {
+      console.error('[NOTIF] Erreur email action PV:', err);
+    }
+  }
+
   async notifierDocumentUploade(data: {
     tacheId: string; tacheNom: string; documentNom: string;
     destinataires: { id: string; email: string; nom: string }[];
