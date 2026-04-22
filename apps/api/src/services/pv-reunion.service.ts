@@ -134,12 +134,29 @@ function extractAssignedActionRowsFromHtml(
   const source = String(html || '');
   if (!source.trim()) return [];
   const rows: Array<{ userId: string; actionLabel: string }> = [];
-  const trRegex = /<tr\b[^>]*data-user-id="([^"]*)"[^>]*>([\s\S]*?)<\/tr>/gi;
+  const trRegex = /<tr\b([^>]*)>([\s\S]*?)<\/tr>/gi;
   let m: RegExpExecArray | null;
   while ((m = trRegex.exec(source)) !== null) {
-    const userId = String(m[1] || '').trim();
-    if (!userId) continue;
+    const attrs = m[1] || '';
     const inner = m[2] || '';
+    const notifyMatch = /data-notify="([^"]*)"/i.exec(attrs);
+    const isNotifyEnabled = String(notifyMatch?.[1] || '').trim() === '1';
+    if (!isNotifyEnabled) continue;
+    const userIdsAttr = /data-user-ids="([^"]*)"/i.exec(attrs)?.[1] || '';
+    const legacyUserId = /data-user-id="([^"]*)"/i.exec(attrs)?.[1] || '';
+    let userIds: string[] = [];
+    if (userIdsAttr) {
+      try {
+        const parsed = JSON.parse(decodeHtmlEntities(userIdsAttr));
+        if (Array.isArray(parsed)) {
+          userIds = parsed.map((x) => String(x || '').trim()).filter(Boolean);
+        }
+      } catch {
+        userIds = [];
+      }
+    }
+    if (!userIds.length && legacyUserId) userIds = [String(legacyUserId).trim()];
+    if (!userIds.length) continue;
     const td = /<td\b[^>]*>([\s\S]*?)<\/td>/i.exec(inner);
     const actionLabel = decodeHtmlEntities(
       String(td?.[1] || '')
@@ -148,7 +165,9 @@ function extractAssignedActionRowsFromHtml(
         .trim()
     );
     if (!actionLabel || actionLabel === '—') continue;
-    rows.push({ userId, actionLabel });
+    for (const userId of userIds) {
+      rows.push({ userId, actionLabel });
+    }
   }
   return rows;
 }

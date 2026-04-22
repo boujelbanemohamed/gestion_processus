@@ -52,22 +52,24 @@ uploadApi.interceptors.request.use((config) => {
 type PvActionInput = {
   id: string;
   action: string;
-  userId: string;
+  userIds: string[];
   entiteId: string;
   clientFournisseurId: string;
   dateLimite: string;
   responsableLibre: string;
+  notifyAssigned: boolean;
 };
 
 function makeActionRow(): PvActionInput {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     action: '',
-    userId: '',
+    userIds: [],
     entiteId: '',
     clientFournisseurId: '',
     dateLimite: '',
     responsableLibre: '',
+    notifyAssigned: false,
   };
 }
 
@@ -171,17 +173,34 @@ function parsePvStructuredFieldsFromHtml(html: string): {
       const responsable = (cells[1]?.textContent || '').trim();
       const dateLimite = toInputDate((cells[2]?.textContent || '').trim());
       const userIdAttr = (tr as HTMLTableRowElement).getAttribute('data-user-id') || '';
+      const userIdsAttr = (tr as HTMLTableRowElement).getAttribute('data-user-ids') || '';
       const entiteIdAttr = (tr as HTMLTableRowElement).getAttribute('data-entite-id') || '';
       const cfIdAttr = (tr as HTMLTableRowElement).getAttribute('data-cf-id') || '';
+      const notifyAttr = (tr as HTMLTableRowElement).getAttribute('data-notify') || '';
+      let userIdsParsed: string[] = [];
+      if (userIdsAttr) {
+        try {
+          const raw = JSON.parse(userIdsAttr);
+          if (Array.isArray(raw)) {
+            userIdsParsed = raw.map((x) => String(x || '').trim()).filter(Boolean);
+          }
+        } catch {
+          userIdsParsed = [];
+        }
+      }
+      if (!userIdsParsed.length && userIdAttr.trim()) {
+        userIdsParsed = [userIdAttr.trim()];
+      }
       if (!action && !responsable && !dateLimite) continue;
       actionRows.push({
         ...makeActionRow(),
         action,
         dateLimite,
-        userId: userIdAttr.trim(),
+        userIds: userIdsParsed,
         entiteId: entiteIdAttr.trim(),
         clientFournisseurId: cfIdAttr.trim(),
         responsableLibre: responsable,
+        notifyAssigned: notifyAttr === '1',
       });
     }
   }
@@ -327,10 +346,10 @@ export default function PvReunionDetail() {
   const canEdit = !!(pv?.capabilities?.canModify && canModule);
   const inferResponsableSelection = (
     row: PvActionInput
-  ): { userId: string; entiteId: string; clientFournisseurId: string } => {
-    if (row.userId || row.entiteId || row.clientFournisseurId) {
+  ): { userIds: string[]; entiteId: string; clientFournisseurId: string } => {
+    if ((row.userIds && row.userIds.length) || row.entiteId || row.clientFournisseurId) {
       return {
-        userId: row.userId,
+        userIds: row.userIds || [],
         entiteId: row.entiteId,
         clientFournisseurId: row.clientFournisseurId,
       };
@@ -338,19 +357,19 @@ export default function PvReunionDetail() {
     const key = normalizeKey(row.responsableLibre);
     if (!key) {
       return {
-        userId: row.userId,
+        userIds: row.userIds || [],
         entiteId: row.entiteId,
         clientFournisseurId: row.clientFournisseurId,
       };
     }
     const matchedUser = users.find((u: any) => normalizeKey(`${u.prenom} ${u.nom}`) === key);
-    if (matchedUser) return { userId: String(matchedUser.id), entiteId: '', clientFournisseurId: '' };
+    if (matchedUser) return { userIds: [String(matchedUser.id)], entiteId: '', clientFournisseurId: '' };
     const matchedEntite = entites.find((e: any) => normalizeKey(e.nom || '') === key);
-    if (matchedEntite) return { userId: '', entiteId: String(matchedEntite.id), clientFournisseurId: '' };
+    if (matchedEntite) return { userIds: [], entiteId: String(matchedEntite.id), clientFournisseurId: '' };
     const matchedCf = clientsFournisseurs.find((cf: any) => normalizeKey(clientFournisseurLabel(cf)) === key);
-    if (matchedCf) return { userId: '', entiteId: '', clientFournisseurId: String(matchedCf.id) };
+    if (matchedCf) return { userIds: [], entiteId: '', clientFournisseurId: String(matchedCf.id) };
     return {
-      userId: row.userId,
+      userIds: row.userIds || [],
       entiteId: row.entiteId,
       clientFournisseurId: row.clientFournisseurId,
     };
@@ -516,9 +535,9 @@ export default function PvReunionDetail() {
     setActionsInput((prev) => {
       let changed = false;
       const next = prev.map((row) => {
-        if (row.userId || row.entiteId || row.clientFournisseurId || !row.responsableLibre) return row;
+        if ((row.userIds && row.userIds.length) || row.entiteId || row.clientFournisseurId || !row.responsableLibre) return row;
         const inferred = inferResponsableSelection(row);
-        if (inferred.userId || inferred.entiteId || inferred.clientFournisseurId) {
+        if ((inferred.userIds && inferred.userIds.length) || inferred.entiteId || inferred.clientFournisseurId) {
           changed = true;
           return { ...row, ...inferred };
         }
@@ -572,10 +591,11 @@ export default function PvReunionDetail() {
       .filter(Boolean);
     const actionsRows = actionsInput
       .map((a) => {
-        const u = users.find((x: any) => x.id === a.userId);
+        const selectedUsers = users.filter((x: any) => (a.userIds || []).includes(String(x.id)));
         const en = entites.find((x: any) => x.id === a.entiteId);
         const cf = clientsFournisseurs.find((x: any) => x.id === a.clientFournisseurId);
-        const responsableAuto = [u ? `${u.prenom} ${u.nom}` : '', en ? en.nom : '', cf ? clientFournisseurLabel(cf) : '']
+        const usersLabel = selectedUsers.map((u: any) => `${u.prenom} ${u.nom}`).join(', ');
+        const responsableAuto = [usersLabel, en ? en.nom : '', cf ? clientFournisseurLabel(cf) : '']
           .filter(Boolean)
           .join(' / ');
         const responsable = responsableAuto || String(a.responsableLibre || '').trim();
@@ -583,9 +603,10 @@ export default function PvReunionDetail() {
           action: a.action.trim(),
           responsable,
           dateLimite: a.dateLimite ? toFrDateLabel(a.dateLimite) : '',
-          userId: a.userId,
+          userIds: a.userIds || [],
           entiteId: a.entiteId,
           clientFournisseurId: a.clientFournisseurId,
+          notifyAssigned: !!a.notifyAssigned,
         };
       })
       .filter((a) => a.action || a.responsable || a.dateLimite);
@@ -1136,24 +1157,38 @@ export default function PvReunionDetail() {
                             </option>
                           ))}
                         </select>
+                        <div className="lg:col-span-3 border border-gray-200 rounded-md px-2 py-1.5 text-sm bg-white max-h-28 overflow-y-auto">
+                          <p className="text-[11px] text-gray-500 mb-1">Utilisateurs (multi)</p>
+                          <div className="space-y-1">
+                            {users.map((u: any) => (
+                              <label key={u.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={(row.userIds || []).includes(String(u.id))}
+                                  onChange={(e) =>
+                                    setActionsInput((prev) =>
+                                      prev.map((x) =>
+                                        x.id === row.id
+                                          ? {
+                                              ...x,
+                                              userIds: e.target.checked
+                                                ? [...new Set([...(x.userIds || []), String(u.id)])]
+                                                : (x.userIds || []).filter((id) => id !== String(u.id)),
+                                            }
+                                          : x
+                                      )
+                                    )
+                                  }
+                                />
+                                <span>
+                                  {u.prenom} {u.nom}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
                         <select
                           className="lg:col-span-2 border border-gray-200 rounded-md px-2 py-1.5 text-sm"
-                          value={row.userId}
-                          onChange={(e) =>
-                            setActionsInput((prev) =>
-                              prev.map((x) => (x.id === row.id ? { ...x, userId: e.target.value } : x))
-                            )
-                          }
-                        >
-                          <option value="">Utilisateur (optionnel)</option>
-                          {users.map((u: any) => (
-                            <option key={u.id} value={u.id}>
-                              {u.prenom} {u.nom}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          className="lg:col-span-3 border border-gray-200 rounded-md px-2 py-1.5 text-sm"
                           value={row.clientFournisseurId}
                           onChange={(e) =>
                             setActionsInput((prev) =>
@@ -1181,6 +1216,20 @@ export default function PvReunionDetail() {
                               )
                             }
                           />
+                          <label className="inline-flex items-center gap-1 text-xs text-gray-700 px-2 border border-gray-200 rounded-md bg-white">
+                            <input
+                              type="checkbox"
+                              checked={!!row.notifyAssigned}
+                              onChange={(e) =>
+                                setActionsInput((prev) =>
+                                  prev.map((x) =>
+                                    x.id === row.id ? { ...x, notifyAssigned: e.target.checked } : x
+                                  )
+                                )
+                              }
+                            />
+                            Notifier
+                          </label>
                           <button
                             type="button"
                             onClick={() =>

@@ -36,9 +36,11 @@ export type PvTemplateContext = {
     action: string;
     responsable: string;
     dateLimite: string;
+    userIds?: string[];
     userId?: string;
     entiteId?: string;
     clientFournisseurId?: string;
+    notifyAssigned?: boolean;
   }>;
 };
 
@@ -55,9 +57,13 @@ export function buildStructuredPvHtml(ctx: PvTemplateContext): string {
       action: String(x?.action || '').trim(),
       responsable: String(x?.responsable || '').trim(),
       dateLimite: String(x?.dateLimite || '').trim(),
+      userIds: Array.isArray(x?.userIds)
+        ? x.userIds.map((id) => String(id || '').trim()).filter(Boolean)
+        : [],
       userId: String(x?.userId || '').trim(),
       entiteId: String(x?.entiteId || '').trim(),
       clientFournisseurId: String(x?.clientFournisseurId || '').trim(),
+      notifyAssigned: !!x?.notifyAssigned,
     }))
     .filter((x) => x.action || x.responsable || x.dateLimite);
 
@@ -96,8 +102,11 @@ export function buildStructuredPvHtml(ctx: PvTemplateContext): string {
 <tbody>
 ${actions
   .map(
-    (a) =>
-      `<tr data-user-id="${escapeHtml(a.userId)}" data-entite-id="${escapeHtml(a.entiteId)}" data-cf-id="${escapeHtml(a.clientFournisseurId)}"><td>${escapeHtml(a.action || '—')}</td><td>${escapeHtml(a.responsable || '—')}</td><td>${escapeHtml(a.dateLimite || '—')}</td></tr>`
+    (a) => {
+      const mergedUserIds = Array.from(new Set([...(a.userIds || []), a.userId].filter(Boolean)));
+      const firstUserId = mergedUserIds[0] || '';
+      return `<tr data-user-id="${escapeHtml(firstUserId)}" data-user-ids="${escapeHtml(JSON.stringify(mergedUserIds))}" data-entite-id="${escapeHtml(a.entiteId)}" data-cf-id="${escapeHtml(a.clientFournisseurId)}" data-notify="${a.notifyAssigned ? '1' : '0'}"><td>${escapeHtml(a.action || '—')}</td><td>${escapeHtml(a.responsable || '—')}</td><td>${escapeHtml(a.dateLimite || '—')}</td></tr>`;
+    }
   )
   .join('')}
 </tbody>
