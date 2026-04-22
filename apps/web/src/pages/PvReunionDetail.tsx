@@ -55,6 +55,7 @@ type PvActionInput = {
   userId: string;
   entiteId: string;
   dateLimite: string;
+  responsableLibre: string;
 };
 
 function makeActionRow(): PvActionInput {
@@ -64,6 +65,7 @@ function makeActionRow(): PvActionInput {
     userId: '',
     entiteId: '',
     dateLimite: '',
+    responsableLibre: '',
   };
 }
 
@@ -158,7 +160,14 @@ function parsePvStructuredFieldsFromHtml(html: string): {
       const responsable = (cells[1]?.textContent || '').trim();
       const dateLimite = toInputDate((cells[2]?.textContent || '').trim());
       if (!action && !responsable && !dateLimite) continue;
-      actionRows.push({ ...makeActionRow(), action, dateLimite, userId: '', entiteId: '' });
+      actionRows.push({
+        ...makeActionRow(),
+        action,
+        dateLimite,
+        userId: '',
+        entiteId: '',
+        responsableLibre: responsable,
+      });
     }
   }
 
@@ -503,7 +512,8 @@ export default function PvReunionDetail() {
       .map((a) => {
         const u = users.find((x: any) => x.id === a.userId);
         const en = entites.find((x: any) => x.id === a.entiteId);
-        const responsable = [u ? `${u.prenom} ${u.nom}` : '', en ? en.nom : ''].filter(Boolean).join(' / ');
+        const responsableAuto = [u ? `${u.prenom} ${u.nom}` : '', en ? en.nom : ''].filter(Boolean).join(' / ');
+        const responsable = responsableAuto || String(a.responsableLibre || '').trim();
         return {
           action: a.action.trim(),
           responsable,
@@ -1504,28 +1514,23 @@ export default function PvReunionDetail() {
       >
         <header className="border-b border-gray-200 pb-3 mb-4">
           {companyInfo?.logoFilename ? (
-            <div className="flex items-center justify-between mb-2">
+            <div className="mb-3 text-center">
               <img
                 src={`${API_BASE_URL}/company-info/logo?token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
                 alt="Logo entreprise"
-                className="h-10 object-contain"
+                className="h-16 object-contain mx-auto"
               />
-              <span className="text-[11px] text-gray-500">
-                {[companyInfo?.nomEntreprise, companyInfo?.formatEntreprise, companyInfo?.tailleEntreprise]
-                  .filter((x: string) => String(x || '').trim())
-                  .join(' • ')}
-              </span>
+              {String(companyInfo?.nomEntreprise || '').trim() ? (
+                <p className="text-[13px] font-semibold text-gray-700 mt-1">{companyInfo.nomEntreprise}</p>
+              ) : null}
             </div>
           ) : null}
-          <p className="text-xs uppercase tracking-wide text-gray-500">Procès-verbal de réunion</p>
-          <h1 className="text-xl font-bold text-gray-900 mt-1">{titre.trim() || pv.titre}</h1>
-          <p className="text-xs text-gray-500 mt-2">
-            Aperçu — {new Date().toLocaleString('fr-FR')} —{' '}
-            {PV_STATUTS.find((s) => s.value === statutPv)?.label || statutPv}
-            {dateReunion
-              ? ` — date réunion : ${new Date(dateReunion).toLocaleDateString('fr-FR')}`
-              : ''}
-          </p>
+          <h1 className="text-3xl font-extrabold text-gray-900 mt-1 text-center">PROCÈS-VERBAL DE RÉUNION</h1>
+          <h2 className="text-2xl font-bold text-gray-900 mt-2 text-center">{titre.trim() || pv.titre}</h2>
+          <div className="text-sm text-gray-600 mt-2 flex items-center justify-between">
+            <span>Statut : {PV_STATUTS.find((s) => s.value === statutPv)?.label || statutPv}</span>
+            <span>{dateReunion ? `Date réunion : ${new Date(dateReunion).toLocaleDateString('fr-FR')}` : 'Date réunion : —'}</span>
+          </div>
         </header>
         <div className="prose-pv-preview" dangerouslySetInnerHTML={{ __html: contenuHtml || '<p></p>' }} />
         {String(companyInfo?.adresseEntreprise || '').trim() ? (
