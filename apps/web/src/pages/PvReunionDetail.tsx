@@ -837,14 +837,39 @@ export default function PvReunionDetail() {
     }
   };
 
-  const handleOpenStoredPdfDetail = () => {
+  const handleOpenStoredPdfDetail = async () => {
     if (!pv?.document?.id) {
       alert('Document PDF du PV introuvable.');
       return;
     }
-    const token = localStorage.getItem('token');
-    const url = `${API_BASE_URL}/documents/${pv.document.id}/view${token ? `?token=${token}` : ''}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    if (!previewPvRef.current || !contenuHtmlHasText(contenuHtml)) {
+      alert('Rédigez d’abord le contenu du PV.');
+      return;
+    }
+    setPdfPreviewDetailLoading(true);
+    try {
+      // Génère le PDF avec le rendu "aperçu", puis l’enregistre comme nouvelle version
+      // du document principal afin que la page Documents affiche exactement le même format.
+      const blob = await htmlElementToPdfBlob(previewPvRef.current, {
+        footerAddress: String(companyInfo?.adresseEntreprise || '').trim(),
+      });
+      const fileName = `${(pv.titre || 'PV').replace(/[^\w.-]+/g, '_')}.pdf`;
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+      const fd = new FormData();
+      fd.append('fichier', file);
+      fd.append('commentaireVersion', 'Synchronisation depuis aperçu PDF (détail PV)');
+      await uploadApi.post(`/documents/${pv.document.id}/versions`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      await load();
+      const token = localStorage.getItem('token');
+      const url = `${API_BASE_URL}/documents/${pv.document.id}/view${token ? `?token=${token}` : ''}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch {
+      alert('Impossible de synchroniser le PDF du document avec le rendu aperçu.');
+    } finally {
+      setPdfPreviewDetailLoading(false);
+    }
   };
 
   if (loading) {
