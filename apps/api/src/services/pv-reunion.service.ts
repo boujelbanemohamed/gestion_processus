@@ -974,6 +974,7 @@ export class PvReunionService {
       where: { id, deletedAt: null },
       select: {
         id: true,
+        documentId: true,
         createdById: true,
         liensExplicites: true,
         contenuHtml: true,
