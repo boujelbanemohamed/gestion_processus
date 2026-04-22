@@ -129,6 +129,9 @@ function buildPrintableHtml(meta: PvPdfMeta): string {
   const bodyJoined = bodyParts.join('\n');
 
   const footerText = `Généré le ${meta.generatedAt.toLocaleString('fr-FR')}`;
+  const hasLogo = !!meta.companyLogoDataUrl;
+  const hasAddress = !!meta.companyAddress?.trim();
+  const companyTopLine = [meta.companyName, meta.companyFormat, meta.companySize].filter((x) => String(x || '').trim()).join(' • ');
 
   return `<!DOCTYPE html>
 <html lang="fr">
@@ -136,7 +139,7 @@ function buildPrintableHtml(meta: PvPdfMeta): string {
   <meta charset="utf-8" />
   <title>${escapeHtml(meta.titre)}</title>
   <style>
-    @page { size: A4; margin: 16mm 14mm; }
+    @page { size: A4; margin: 20mm 14mm 18mm; }
     * { box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -144,6 +147,47 @@ function buildPrintableHtml(meta: PvPdfMeta): string {
       line-height: 1.45;
       color: #111827;
       margin: 0;
+      padding-top: ${hasLogo ? '48px' : '0'};
+      padding-bottom: ${hasAddress ? '26px' : '0'};
+    }
+    .company-header {
+      position: fixed;
+      top: -2mm;
+      left: 0;
+      right: 0;
+      height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 6px;
+      z-index: 10;
+      background: white;
+    }
+    .company-header img {
+      max-height: 34px;
+      width: auto;
+      object-fit: contain;
+      display: block;
+    }
+    .company-meta {
+      font-size: 8pt;
+      color: #4b5563;
+      text-align: right;
+      margin-left: 10px;
+    }
+    .company-footer {
+      position: fixed;
+      bottom: -4mm;
+      left: 0;
+      right: 0;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 5px;
+      text-align: center;
+      font-size: 8pt;
+      color: #6b7280;
+      background: white;
+      z-index: 10;
     }
     h1.pv-main-title {
       text-align: center;
@@ -171,6 +215,8 @@ function buildPrintableHtml(meta: PvPdfMeta): string {
   </style>
 </head>
 <body>
+  ${hasLogo ? `<div class="company-header"><img src="${meta.companyLogoDataUrl}" alt="Logo entreprise" />${companyTopLine ? `<div class="company-meta">${escapeHtml(companyTopLine)}</div>` : ''}</div>` : ''}
+  ${hasAddress ? `<div class="company-footer">${escapeHtml(meta.companyAddress || '')}</div>` : ''}
   <h1 class="pv-main-title">PROCÈS-VERBAL DE RÉUNION</h1>
   <h2 class="block-title">Informations générales</h2>
   <table class="meta" role="presentation">

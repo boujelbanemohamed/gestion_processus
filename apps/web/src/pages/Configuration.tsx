@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api } from '../services/api';
+import { api, API_BASE_URL } from '../services/api';
 
 type TabType =
   | 'categories'
   | 'smtp'
+  | 'entreprise'
   | 'typesSociete'
   | 'typesEntite'
   | 'typesLicence'
@@ -16,6 +17,7 @@ type TabType =
 const VALID_TABS: TabType[] = [
   'categories',
   'smtp',
+  'entreprise',
   'typesSociete',
   'typesEntite',
   'typesLicence',
@@ -315,6 +317,20 @@ export default function Configuration() {
   const [smtpError, setSmtpError] = useState('');
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testEmail, setTestEmail] = useState('');
+  const [companyLoading, setCompanyLoading] = useState(false);
+  const [companySaving, setCompanySaving] = useState(false);
+  const [companyError, setCompanyError] = useState('');
+  const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null);
+  const [companyRemoveLogo, setCompanyRemoveLogo] = useState(false);
+  const [companyInfo, setCompanyInfo] = useState({
+    nomEntreprise: '',
+    formatEntreprise: '',
+    tailleEntreprise: '',
+    adresseEntreprise: '',
+    logoFilename: '',
+    updatedAt: '',
+    updatedBy: null as null | { prenom?: string; nom?: string; email?: string },
+  });
 
   useEffect(() => {
     if (activeTab === 'categories') {
@@ -331,8 +347,65 @@ export default function Configuration() {
       loadDevises();
     } else if (activeTab === 'smtp') {
       loadSmtpConfigs();
+    } else if (activeTab === 'entreprise') {
+      loadCompanyInfo();
     }
   }, [activeTab]);
+
+  const loadCompanyInfo = async () => {
+    try {
+      setCompanyLoading(true);
+      const { data } = await api.get('/company-info');
+      setCompanyInfo({
+        nomEntreprise: data?.nomEntreprise || '',
+        formatEntreprise: data?.formatEntreprise || '',
+        tailleEntreprise: data?.tailleEntreprise || '',
+        adresseEntreprise: data?.adresseEntreprise || '',
+        logoFilename: data?.logoFilename || '',
+        updatedAt: data?.updatedAt || '',
+        updatedBy: data?.updatedBy || null,
+      });
+      setCompanyLogoFile(null);
+      setCompanyRemoveLogo(false);
+    } catch (e: any) {
+      setCompanyError(e?.response?.data?.error || 'Impossible de charger les informations entreprise.');
+    } finally {
+      setCompanyLoading(false);
+    }
+  };
+
+  const saveCompanyInfo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setCompanySaving(true);
+      setCompanyError('');
+      const fd = new FormData();
+      fd.append('nomEntreprise', companyInfo.nomEntreprise || '');
+      fd.append('formatEntreprise', companyInfo.formatEntreprise || '');
+      fd.append('tailleEntreprise', companyInfo.tailleEntreprise || '');
+      fd.append('adresseEntreprise', companyInfo.adresseEntreprise || '');
+      if (companyLogoFile) fd.append('logo', companyLogoFile);
+      if (companyRemoveLogo) fd.append('removeLogo', 'true');
+      const { data } = await api.put('/company-info', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setCompanyInfo({
+        nomEntreprise: data?.nomEntreprise || '',
+        formatEntreprise: data?.formatEntreprise || '',
+        tailleEntreprise: data?.tailleEntreprise || '',
+        adresseEntreprise: data?.adresseEntreprise || '',
+        logoFilename: data?.logoFilename || '',
+        updatedAt: data?.updatedAt || '',
+        updatedBy: data?.updatedBy || null,
+      });
+      setCompanyLogoFile(null);
+      setCompanyRemoveLogo(false);
+    } catch (err: any) {
+      setCompanyError(err?.response?.data?.error || 'Erreur lors de l’enregistrement.');
+    } finally {
+      setCompanySaving(false);
+    }
+  };
 
   const loadTypesSociete = async () => {
     setTsLoading(true);
@@ -712,6 +785,16 @@ export default function Configuration() {
             }`}
           >
             Configuration SMTP
+          </button>
+          <button
+            onClick={() => selectTab('entreprise')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'entreprise'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Informations entreprise
           </button>
           <button
             onClick={() => selectTab('typesSociete')}
@@ -1357,6 +1440,105 @@ export default function Configuration() {
             )}
           </div>
         </>
+      )}
+      {activeTab === 'entreprise' && (
+        <div className="bg-white rounded-lg shadow p-6 border border-gray-200">
+          <h2 className="text-xl font-semibold mb-1">Informations Entreprise</h2>
+          <p className="text-sm text-gray-500 mb-5">
+            Ces informations sont utilisées dans le PDF des PV de réunion : logo en en-tête et adresse en pied de page.
+          </p>
+          {companyLoading ? (
+            <p className="text-sm text-gray-500">Chargement...</p>
+          ) : (
+            <form onSubmit={saveCompanyInfo} className="space-y-4">
+              {companyError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded">{companyError}</div>
+              )}
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nom de l'entreprise</label>
+                  <input
+                    value={companyInfo.nomEntreprise}
+                    onChange={(e) => setCompanyInfo((p) => ({ ...p, nomEntreprise: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Format de l'entreprise</label>
+                  <input
+                    value={companyInfo.formatEntreprise}
+                    onChange={(e) => setCompanyInfo((p) => ({ ...p, formatEntreprise: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                    placeholder="Ex: SARL, SA..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Taille de l'entreprise</label>
+                  <input
+                    value={companyInfo.tailleEntreprise}
+                    onChange={(e) => setCompanyInfo((p) => ({ ...p, tailleEntreprise: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                    placeholder="Ex: 250 employés"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Logo</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setCompanyLogoFile(e.target.files?.[0] || null)}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  />
+                  {(companyInfo.logoFilename || companyLogoFile) && (
+                    <label className="mt-2 inline-flex items-center gap-2 text-xs text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={companyRemoveLogo}
+                        onChange={(e) => setCompanyRemoveLogo(e.target.checked)}
+                      />
+                      Supprimer le logo actuel
+                    </label>
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Adresse de l'entreprise</label>
+                <textarea
+                  value={companyInfo.adresseEntreprise}
+                  onChange={(e) => setCompanyInfo((p) => ({ ...p, adresseEntreprise: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm min-h-[80px]"
+                  placeholder="Adresse affichée en pied de page du PDF"
+                />
+              </div>
+              {companyInfo.logoFilename && !companyRemoveLogo && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-2">Aperçu du logo actuel</p>
+                  <img
+                    src={`${API_BASE_URL}/company-info/logo?token=${localStorage.getItem('token') || ''}`}
+                    alt="Logo entreprise"
+                    className="max-h-16 object-contain border border-gray-200 rounded p-2 bg-white"
+                  />
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-400">
+                  {companyInfo.updatedAt
+                    ? `Dernière mise à jour: ${new Date(companyInfo.updatedAt).toLocaleString('fr-FR')}${
+                        companyInfo.updatedBy ? ` par ${companyInfo.updatedBy.prenom || ''} ${companyInfo.updatedBy.nom || ''}` : ''
+                      }`
+                    : 'Aucune mise à jour enregistrée.'}
+                </p>
+                <button
+                  type="submit"
+                  disabled={companySaving}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {companySaving ? 'Enregistrement...' : 'Enregistrer'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       )}
       {activeTab === 'typesSociete' && (
         <div>

@@ -124,6 +124,16 @@ function generatePvPdfBufferPdfKit(meta: PvPdfMeta): Promise<Buffer> {
     const lineHeight = 12;
 
     const drawFooter = (pageIndex: number, totalPages: number) => {
+      const footerTop = meta.companyAddress?.trim()
+        ? `${meta.companyAddress.trim()}`
+        : '';
+      if (footerTop) {
+        doc
+          .fontSize(8)
+          .fillColor('#6b7280')
+          .font('Helvetica')
+          .text(footerTop, margin, footerY - 10, { width: contentWidth, align: 'center' });
+      }
       doc
         .fontSize(8)
         .fillColor('#666666')
@@ -131,7 +141,7 @@ function generatePvPdfBufferPdfKit(meta: PvPdfMeta): Promise<Buffer> {
         .text(
           `Généré le ${meta.generatedAt.toLocaleString('fr-FR')} — page ${pageIndex}/${totalPages}`,
           margin,
-          footerY,
+          footerY + 2,
           { width: contentWidth, align: 'center' }
         );
     };
@@ -143,6 +153,16 @@ function generatePvPdfBufferPdfKit(meta: PvPdfMeta): Promise<Buffer> {
     const moveDownGap = (u = 0.35) => doc.moveDown(u);
 
     doc.y = margin;
+    if (meta.companyName?.trim() || meta.companyFormat?.trim() || meta.companySize?.trim()) {
+      const head = [meta.companyName, meta.companyFormat, meta.companySize]
+        .filter((x) => String(x || '').trim())
+        .join(' • ');
+      doc.font('Helvetica').fontSize(8.5).fillColor('#4b5563').text(head, margin, doc.y, {
+        width: contentWidth,
+        align: 'right',
+      });
+      moveDownGap(0.2);
+    }
     doc
       .font('Helvetica-Bold')
       .fontSize(14)

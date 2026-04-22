@@ -6,6 +6,7 @@ import * as path from 'path';
 import { Readable } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
 import { generatePvPdfBuffer, type PvPdfMeta } from '../utils/pv-pdf-from-html';
+import { CompanyInfoService } from './company-info.service';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 
@@ -413,6 +414,15 @@ async function replaceLiens(pvReunionId: string, expanded: LiensExplicites) {
 
 export class PvReunionService {
   private notificationService = new NotificationService();
+  private companyInfoService = new CompanyInfoService();
+
+  private logoExtToContentType(filename: string): string {
+    const ext = path.extname(filename || '').toLowerCase();
+    if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+    if (ext === '.webp') return 'image/webp';
+    if (ext === '.svg') return 'image/svg+xml';
+    return 'image/png';
+  }
 
   /** Aligne les lignes PvReunionPermission sur les délégués « modification » du formulaire. */
   private async syncDeleguesToPermissionRows(
@@ -574,6 +584,17 @@ export class PvReunionService {
       ? uss.map((u) => (u.description || '').replace(/\s+/g, ' ').slice(0, 120)).join(' ; ')
       : undefined;
     const liensEpics = eps.length ? eps.map((e) => e.nom).join(' ; ') : undefined;
+    const companyInfo = await this.companyInfoService.get();
+    let companyLogoDataUrl: string | undefined;
+    if (companyInfo.logoFilename) {
+      try {
+        const logo = await this.companyInfoService.readLogoBuffer(companyInfo.logoFilename);
+        const mime = this.logoExtToContentType(companyInfo.logoFilename);
+        companyLogoDataUrl = `data:${mime};base64,${logo.toString('base64')}`;
+      } catch {
+        companyLogoDataUrl = undefined;
+      }
+    }
 
     return {
       titre: data.titre.trim(),
@@ -581,6 +602,11 @@ export class PvReunionService {
       dateReunionLabel: data.dateReunion
         ? data.dateReunion.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
         : '—',
+      ...(companyInfo.nomEntreprise ? { companyName: companyInfo.nomEntreprise } : {}),
+      ...(companyInfo.adresseEntreprise ? { companyAddress: companyInfo.adresseEntreprise } : {}),
+      ...(companyInfo.formatEntreprise ? { companyFormat: companyInfo.formatEntreprise } : {}),
+      ...(companyInfo.tailleEntreprise ? { companySize: companyInfo.tailleEntreprise } : {}),
+      ...(companyLogoDataUrl ? { companyLogoDataUrl } : {}),
       participantUserLines: users.map((u) => `${u.prenom} ${u.nom}`.trim()),
       participantClientLines: cfs.map((c) => `${c.nom} (${c.type === 'fournisseur' ? 'Fournisseur' : 'Client'})`),
       ...(liensProjets ? { liensProjets } : {}),

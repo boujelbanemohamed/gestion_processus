@@ -4,6 +4,11 @@ export type PvPdfMeta = {
   titre: string;
   statutLabel: string;
   dateReunionLabel: string;
+  companyName?: string;
+  companyAddress?: string;
+  companyFormat?: string;
+  companySize?: string;
+  companyLogoDataUrl?: string;
   participantUserLines: string[];
   participantClientLines: string[];
   liensProjets?: string;

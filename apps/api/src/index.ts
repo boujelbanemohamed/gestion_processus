@@ -16,6 +16,7 @@ import * as dashboardController from "./controllers/dashboard.controller";
 import * as journalController from "./controllers/journal.controller";
 import * as categorieController from "./controllers/categorie.controller";
 import * as smtpController from "./controllers/smtp.controller";
+import * as companyInfoController from "./controllers/company-info.controller";
 import * as projetController from "./controllers/projet.controller";
 import * as corbeilleController from "./controllers/corbeille.controller";
 import * as favorisController from "./controllers/favoris.controller";
@@ -259,6 +260,15 @@ app.put("/api/v1/smtp/:id", smtpController.updateSMTPConfig);
 app.delete("/api/v1/smtp/:id", smtpController.deleteSMTPConfig);
 app.post("/api/v1/smtp/:id/test", smtpController.testSMTPConfig);
 app.post("/api/v1/smtp/test-notification", authenticate, smtpController.testNotification);
+
+// Informations entreprise (logo + adresse pour PDF PV)
+app.get("/api/v1/company-info", companyInfoController.getCompanyInfo);
+app.get("/api/v1/company-info/logo", companyInfoController.getCompanyLogo);
+app.put(
+  "/api/v1/company-info",
+  companyInfoController.uploadCompanyLogo,
+  companyInfoController.saveCompanyInfo
+);
 
 // Corbeille (accessible uniquement au super admin)
 app.get("/api/v1/corbeille", corbeilleController.getCorbeille);
