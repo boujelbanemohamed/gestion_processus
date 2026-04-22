@@ -25,6 +25,7 @@ export type PvTemplateContext = {
   pointsDiscutesText?: string;
   decisionsPrisesLines?: string[];
   risquesBlocagesText?: string;
+  conclusionText?: string;
   actionsRows?: Array<{ action: string; responsable: string; dateLimite: string }>;
 };
 
@@ -35,6 +36,7 @@ export function buildStructuredPvHtml(ctx: PvTemplateContext): string {
   const decisions = (ctx.decisionsPrisesLines || []).map((x) => String(x || '').trim()).filter(Boolean);
   const points = String(ctx.pointsDiscutesText || '').trim();
   const risques = String(ctx.risquesBlocagesText || '').trim();
+  const conclusion = String(ctx.conclusionText || '').trim();
   const actions = (ctx.actionsRows || [])
     .map((x) => ({
       action: String(x?.action || '').trim(),
@@ -53,6 +55,14 @@ export function buildStructuredPvHtml(ctx: PvTemplateContext): string {
     : '';
   const risquesHtml = risques
     ? risques
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => `<p>${escapeHtml(line)}</p>`)
+        .join('')
+    : '';
+  const conclusionHtml = conclusion
+    ? conclusion
         .split(/\n+/)
         .map((line) => line.trim())
         .filter(Boolean)
@@ -94,10 +104,8 @@ ${ordre.length ? `<h2>Ordre du jour</h2><ol>${linesToUl(ordre)}</ol>` : ''}
 ${pointsHtml ? `<h2>Points discutés</h2>${pointsHtml}` : ''}
 ${decisions.length ? `<h2>Décisions prises</h2><ol>${linesToUl(decisions)}</ol>` : ''}
 ${actionsHtml}
-${risquesHtml ? `<h2>7. Risques / blocages</h2>${risquesHtml}` : ''}
-
-<h2>8. Conclusion</h2>
-<p><em>À compléter…</em></p>
+${risquesHtml ? `<h2>Risques / blocages</h2>${risquesHtml}` : ''}
+${conclusionHtml ? `<h2>Conclusion</h2>${conclusionHtml}` : ''}
 ${(() => {
   const parts: string[] = [];
   if (ctx.projetsLines.length)

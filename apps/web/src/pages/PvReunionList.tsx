@@ -7,7 +7,6 @@ import { canModifyModule } from '../utils/uiModuleRoute';
 import { getPaginationPageNumbers } from '../utils/pagination';
 import { PvReunionAccesModal } from '../components/PvReunionAccesModal';
 import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
-import { PvReunionTiptapEditor } from '../components/PvReunionTiptapEditor';
 import { buildStructuredPvHtml } from '../utils/pv-reunion-html-template';
 import { htmlElementToPdfBlob } from '../utils/pv-reunion-pdf-preview';
 
@@ -155,6 +154,24 @@ function IdChips({
   );
 }
 
+type PvActionInput = {
+  id: string;
+  action: string;
+  userId: string;
+  entiteId: string;
+  dateLimite: string;
+};
+
+function makeActionRow(): PvActionInput {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    action: '',
+    userId: '',
+    entiteId: '',
+    dateLimite: '',
+  };
+}
+
 export default function PvReunionList() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -171,6 +188,8 @@ export default function PvReunionList() {
   const [epics, setEpics] = useState<any[]>([]);
   const [contrats, setContrats] = useState<any[]>([]);
   const [processusList, setProcessusList] = useState<any[]>([]);
+  const [entites, setEntites] = useState<any[]>([]);
+  const [companyInfo, setCompanyInfo] = useState<any>(null);
 
   const [titre, setTitre] = useState('');
   const [statutForm, setStatutForm] = useState('brouillon');
@@ -188,7 +207,12 @@ export default function PvReunionList() {
 
   const [sourceMode, setSourceMode] = useState<'fichier' | 'redaction'>('fichier');
   const [contenuHtml, setContenuHtml] = useState('');
-  const [editorMountKey, setEditorMountKey] = useState(0);
+  const [ordreDuJourInput, setOrdreDuJourInput] = useState('');
+  const [pointsDiscutesInput, setPointsDiscutesInput] = useState('');
+  const [decisionsInput, setDecisionsInput] = useState('');
+  const [risquesBlocagesInput, setRisquesBlocagesInput] = useState('');
+  const [conclusionInput, setConclusionInput] = useState('');
+  const [actionsInput, setActionsInput] = useState<PvActionInput[]>([]);
   const previewPdfRootRef = useRef<HTMLDivElement | null>(null);
   const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
 
@@ -246,7 +270,7 @@ export default function PvReunionList() {
 
   const loadRefs = async () => {
     try {
-      const [u, cf, p, t, us, e, c, pr] = await Promise.all([
+      const [u, cf, p, t, us, e, c, pr, ent, comp] = await Promise.all([
         api.get('/users'),
         api.get('/clients-fournisseurs'),
         api.get('/projets'),
@@ -255,6 +279,8 @@ export default function PvReunionList() {
         api.get('/epics'),
         api.get('/contrats'),
         api.get('/processus'),
+        api.get('/entites').catch(() => ({ data: [] })),
+        api.get('/company-info').catch(() => ({ data: null })),
       ]);
       setUsers(u.data || []);
       setClientsFournisseurs(cf.data || []);
@@ -264,6 +290,8 @@ export default function PvReunionList() {
       setEpics((e.data || []).filter((x: any) => !x.deletedAt));
       setContrats(c.data || []);
       setProcessusList(pr.data || []);
+      setEntites(ent.data || []);
+      setCompanyInfo(comp.data || null);
     } catch {
       /* silencieux */
     }
@@ -375,6 +403,12 @@ export default function PvReunionList() {
     setModificationDelegueIds([]);
     setSourceMode('fichier');
     setContenuHtml('');
+    setOrdreDuJourInput('');
+    setPointsDiscutesInput('');
+    setDecisionsInput('');
+    setRisquesBlocagesInput('');
+    setConclusionInput('');
+    setActionsInput([]);
   };
 
   const openForm = () => {
@@ -399,12 +433,29 @@ export default function PvReunionList() {
             setModificationDelegueIds(d.modificationDelegueIds.filter((x) => typeof x === 'string'));
           if (d.sourceMode === 'redaction' || d.sourceMode === 'fichier') setSourceMode(d.sourceMode);
           if (typeof d.contenuHtml === 'string') setContenuHtml(d.contenuHtml);
+          if (typeof d.ordreDuJourInput === 'string') setOrdreDuJourInput(d.ordreDuJourInput);
+          if (typeof d.pointsDiscutesInput === 'string') setPointsDiscutesInput(d.pointsDiscutesInput);
+          if (typeof d.decisionsInput === 'string') setDecisionsInput(d.decisionsInput);
+          if (typeof d.risquesBlocagesInput === 'string') setRisquesBlocagesInput(d.risquesBlocagesInput);
+          if (typeof d.conclusionInput === 'string') setConclusionInput(d.conclusionInput);
+          if (Array.isArray(d.actionsInput)) {
+            setActionsInput(
+              d.actionsInput
+                .filter((x) => x && typeof x === 'object')
+                .map((x: any) => ({
+                  id: String(x.id || makeActionRow().id),
+                  action: String(x.action || ''),
+                  userId: String(x.userId || ''),
+                  entiteId: String(x.entiteId || ''),
+                  dateLimite: String(x.dateLimite || ''),
+                }))
+            );
+          }
         }
       }
     } catch {
       /* brouillon illisible */
     }
-    setEditorMountKey((k) => k + 1);
     setShowForm(true);
   };
 
@@ -429,6 +480,12 @@ export default function PvReunionList() {
             modificationDelegueIds,
             sourceMode,
             contenuHtml,
+            ordreDuJourInput,
+            pointsDiscutesInput,
+            decisionsInput,
+            risquesBlocagesInput,
+            conclusionInput,
+            actionsInput,
             savedAt: new Date().toISOString(),
           })
         );
@@ -453,22 +510,42 @@ export default function PvReunionList() {
     modificationDelegueIds,
     sourceMode,
     contenuHtml,
+    ordreDuJourInput,
+    pointsDiscutesInput,
+    decisionsInput,
+    risquesBlocagesInput,
+    conclusionInput,
+    actionsInput,
   ]);
 
   const contenuHtmlHasText = useMemo(() => {
     const t = contenuHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     return t.length > 0;
   }, [contenuHtml]);
+  const parseLines = (s: string) =>
+    String(s || '')
+      .split(/\n+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+  const toFrDateLabel = (value: string): string => {
+    const v = String(value || '').trim();
+    const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return v;
+    const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (Number.isNaN(dt.getTime())) return v;
+    return dt.toLocaleDateString('fr-FR');
+  };
 
-  const handleGeneratePvTemplate = () => {
+  useEffect(() => {
+    if (sourceMode !== 'redaction') return;
     const st = PV_STATUTS.find((s) => s.value === statutForm)?.label || statutForm;
     const dateLabel = dateReunion
       ? new Date(dateReunion).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
       : '—';
     const uLines = presentUserIds
-      .map((id) => {
-        const u = users.find((x: any) => x.id === id);
-        return u ? `${u.prenom} ${u.nom}` : id;
+      .map((uid) => {
+        const u = users.find((x: any) => x.id === uid);
+        return u ? `${u.prenom} ${u.nom}` : uid;
       })
       .filter(Boolean);
     const cfLines = presentCfIds
@@ -502,6 +579,18 @@ export default function PvReunionList() {
         return ep ? String(ep.nom || id) : id;
       })
       .filter(Boolean);
+    const actionsRows = actionsInput
+      .map((a) => {
+        const u = users.find((x: any) => x.id === a.userId);
+        const en = entites.find((x: any) => x.id === a.entiteId);
+        const responsable = [u ? `${u.prenom} ${u.nom}` : '', en ? en.nom : ''].filter(Boolean).join(' / ');
+        return {
+          action: a.action.trim(),
+          responsable,
+          dateLimite: a.dateLimite ? toFrDateLabel(a.dateLimite) : '',
+        };
+      })
+      .filter((a) => a.action || a.responsable || a.dateLimite);
 
     setContenuHtml(
       buildStructuredPvHtml({
@@ -509,16 +598,46 @@ export default function PvReunionList() {
         statutLabel: st,
         dateReunionLabel: dateLabel,
         usersLines: uLines,
-        cfLines: cfLines,
+        cfLines,
         projetsLines: projLines,
         tachesLines: tacheLines,
         userStoriesLines: usLines,
         epicsLines: epicLines,
+        ordreDuJourLines: parseLines(ordreDuJourInput),
+        pointsDiscutesText: pointsDiscutesInput,
+        decisionsPrisesLines: parseLines(decisionsInput),
+        risquesBlocagesText: risquesBlocagesInput,
+        conclusionText: conclusionInput,
+        actionsRows,
       })
     );
-    setSourceMode('redaction');
-    setEditorMountKey((k) => k + 1);
-  };
+  }, [
+    sourceMode,
+    titre,
+    statutForm,
+    dateReunion,
+    presentUserIds,
+    presentCfIds,
+    projetIds,
+    tacheIds,
+    userStoryIds,
+    epicIds,
+    ordreDuJourInput,
+    pointsDiscutesInput,
+    decisionsInput,
+    risquesBlocagesInput,
+    conclusionInput,
+    actionsInput,
+    users,
+    entites,
+    clientsFournisseurs,
+    projets,
+    taches,
+    userStories,
+    epics,
+  ]);
+
+  const handleGeneratePvTemplate = () => setSourceMode('redaction');
 
   const handlePreviewPdf = async () => {
     if (!previewPdfRootRef.current || !contenuHtmlHasText) {
@@ -1460,10 +1579,7 @@ export default function PvReunionList() {
                       type="radio"
                       name="pv-source"
                       checked={sourceMode === 'fichier'}
-                      onChange={() => {
-                        setSourceMode('fichier');
-                        setEditorMountKey((k) => k + 1);
-                      }}
+                      onChange={() => setSourceMode('fichier')}
                     />
                     Importer un fichier
                   </label>
@@ -1472,10 +1588,7 @@ export default function PvReunionList() {
                       type="radio"
                       name="pv-source"
                       checked={sourceMode === 'redaction'}
-                      onChange={() => {
-                        setSourceMode('redaction');
-                        setEditorMountKey((k) => k + 1);
-                      }}
+                      onChange={() => setSourceMode('redaction')}
                     />
                     Rédiger dans l’application
                   </label>
@@ -1490,7 +1603,7 @@ export default function PvReunionList() {
                     />
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -1508,16 +1621,133 @@ export default function PvReunionList() {
                         {pdfPreviewLoading ? 'Aperçu…' : 'Aperçu PDF'}
                       </button>
                     </div>
-                    <label className="block text-xs font-medium text-gray-600">Contenu du PV *</label>
-                    <PvReunionTiptapEditor
-                      key={editorMountKey}
-                      initialHtml={contenuHtml}
-                      onChange={setContenuHtml}
-                    />
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Ordre du jour</label>
+                      <textarea
+                        className="w-full border border-gray-200 rounded-md px-3 py-2 min-h-[90px]"
+                        value={ordreDuJourInput}
+                        onChange={(e) => setOrdreDuJourInput(e.target.value)}
+                        placeholder="Une ligne par point."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Points discutés</label>
+                      <textarea
+                        className="w-full border border-gray-200 rounded-md px-3 py-2 min-h-[110px]"
+                        value={pointsDiscutesInput}
+                        onChange={(e) => setPointsDiscutesInput(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Décisions prises</label>
+                      <textarea
+                        className="w-full border border-gray-200 rounded-md px-3 py-2 min-h-[90px]"
+                        value={decisionsInput}
+                        onChange={(e) => setDecisionsInput(e.target.value)}
+                        placeholder="Une ligne par décision."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Risques / blocages</label>
+                      <textarea
+                        className="w-full border border-gray-200 rounded-md px-3 py-2 min-h-[90px]"
+                        value={risquesBlocagesInput}
+                        onChange={(e) => setRisquesBlocagesInput(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-medium text-gray-600">Actions à réaliser</label>
+                        <button
+                          type="button"
+                          onClick={() => setActionsInput((prev) => [...prev, makeActionRow()])}
+                          className="px-2 py-1 text-xs rounded border border-gray-300 hover:bg-gray-50"
+                        >
+                          + Ajouter une action
+                        </button>
+                      </div>
+                      {actionsInput.length === 0 ? (
+                        <p className="text-xs text-gray-500">Aucune action pour le moment.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {actionsInput.map((a, idx) => (
+                            <div key={a.id} className="grid grid-cols-1 md:grid-cols-5 gap-2 border border-gray-200 rounded-md p-2 bg-white">
+                              <input
+                                className="md:col-span-2 border border-gray-200 rounded px-2 py-1.5 text-sm"
+                                placeholder={`Action ${idx + 1}`}
+                                value={a.action}
+                                onChange={(e) =>
+                                  setActionsInput((prev) =>
+                                    prev.map((x) => (x.id === a.id ? { ...x, action: e.target.value } : x))
+                                  )
+                                }
+                              />
+                              <select
+                                className="border border-gray-200 rounded px-2 py-1.5 text-sm"
+                                value={a.entiteId}
+                                onChange={(e) =>
+                                  setActionsInput((prev) =>
+                                    prev.map((x) => (x.id === a.id ? { ...x, entiteId: e.target.value } : x))
+                                  )
+                                }
+                              >
+                                <option value="">Entité</option>
+                                {entites.map((en: any) => (
+                                  <option key={en.id} value={en.id}>
+                                    {en.nom || en.id}
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                className="border border-gray-200 rounded px-2 py-1.5 text-sm"
+                                value={a.userId}
+                                onChange={(e) =>
+                                  setActionsInput((prev) =>
+                                    prev.map((x) => (x.id === a.id ? { ...x, userId: e.target.value } : x))
+                                  )
+                                }
+                              >
+                                <option value="">Utilisateur</option>
+                                {users.map((u: any) => (
+                                  <option key={u.id} value={u.id}>
+                                    {u.prenom} {u.nom}
+                                  </option>
+                                ))}
+                              </select>
+                              <div className="flex gap-2">
+                                <input
+                                  type="date"
+                                  className="border border-gray-200 rounded px-2 py-1.5 text-sm flex-1"
+                                  value={a.dateLimite}
+                                  onChange={(e) =>
+                                    setActionsInput((prev) =>
+                                      prev.map((x) => (x.id === a.id ? { ...x, dateLimite: e.target.value } : x))
+                                    )
+                                  }
+                                />
+                                <button
+                                  type="button"
+                                  className="px-2 py-1 text-xs rounded border border-red-200 text-red-700 hover:bg-red-50"
+                                  onClick={() => setActionsInput((prev) => prev.filter((x) => x.id !== a.id))}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Conclusion</label>
+                      <textarea
+                        className="w-full border border-gray-200 rounded-md px-3 py-2 min-h-[90px]"
+                        value={conclusionInput}
+                        onChange={(e) => setConclusionInput(e.target.value)}
+                      />
+                    </div>
                     <p className="text-[11px] text-gray-500">
-                      Titres, listes, tableau des actions, gras / italique. Le PDF serveur reprend aussi les
-                      métadonnées (participants, rattachements) ; l’aperçu local reflète davantage la mise en forme
-                      du navigateur.
+                      Les sections vides ne seront pas affichées dans le PDF final.
                     </p>
                   </div>
                 )}
@@ -1529,6 +1759,20 @@ export default function PvReunionList() {
                 aria-hidden
               >
                 <header className="border-b border-gray-200 pb-3 mb-4">
+                  {companyInfo?.logoFilename ? (
+                    <div className="flex items-center justify-between mb-2">
+                      <img
+                        src={`${API_BASE_URL}/company-info/logo${tokenQs()}`}
+                        alt="Logo entreprise"
+                        className="h-10 object-contain"
+                      />
+                      <span className="text-[11px] text-gray-500">
+                        {[companyInfo?.nomEntreprise, companyInfo?.formatEntreprise, companyInfo?.tailleEntreprise]
+                          .filter((x: string) => String(x || '').trim())
+                          .join(' • ')}
+                      </span>
+                    </div>
+                  ) : null}
                   <p className="text-xs uppercase tracking-wide text-gray-500">Procès-verbal de réunion</p>
                   <h1 className="text-xl font-bold text-gray-900 mt-1">{titre.trim() || '—'}</h1>
                   <p className="text-xs text-gray-500 mt-2">
@@ -1543,6 +1787,11 @@ export default function PvReunionList() {
                   className="prose-pv-preview"
                   dangerouslySetInnerHTML={{ __html: contenuHtml || '<p></p>' }}
                 />
+                {String(companyInfo?.adresseEntreprise || '').trim() ? (
+                  <footer className="border-t border-gray-200 mt-6 pt-2 text-center text-[11px] text-gray-500">
+                    {companyInfo.adresseEntreprise}
+                  </footer>
+                ) : null}
                 <style>{`
                   .prose-pv-preview h2 { font-size: 1.05rem; font-weight: 700; margin: 0.65rem 0 0.3rem; }
                   .prose-pv-preview h3 { font-size: 0.95rem; font-weight: 600; margin: 0.5rem 0 0.25rem; }
