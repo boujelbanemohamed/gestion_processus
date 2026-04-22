@@ -6,7 +6,6 @@ import { useAuth } from '../store/auth';
 import { canModifyModule } from '../utils/uiModuleRoute';
 import { PvReunionAccesModal, type PvReunionAccesDetail } from '../components/PvReunionAccesModal';
 import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
-import { PvReunionTiptapEditor } from '../components/PvReunionTiptapEditor';
 import { buildStructuredPvHtml } from '../utils/pv-reunion-html-template';
 import { htmlElementToPdfBlob } from '../utils/pv-reunion-pdf-preview';
 
@@ -49,6 +48,105 @@ uploadApi.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
+
+type PvActionInput = {
+  id: string;
+  action: string;
+  userId: string;
+  entiteId: string;
+  dateLimite: string;
+};
+
+function makeActionRow(): PvActionInput {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    action: '',
+    userId: '',
+    entiteId: '',
+    dateLimite: '',
+  };
+}
+
+function normalizeSectionTitle(s: string): string {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parsePvStructuredFieldsFromHtml(html: string): {
+  ordreDuJour: string;
+  pointsDiscutes: string;
+  decisions: string;
+  risquesBlocages: string;
+  actions: PvActionInput[];
+} {
+  if (!html || typeof window === 'undefined') {
+    return { ordreDuJour: '', pointsDiscutes: '', decisions: '', risquesBlocages: '', actions: [] };
+  }
+  const doc = new DOMParser().parseFromString(`<div id="pv-root">${html}</div>`, 'text/html');
+  const root = doc.getElementById('pv-root');
+  if (!root) return { ordreDuJour: '', pointsDiscutes: '', decisions: '', risquesBlocages: '', actions: [] };
+
+  const sections = new Map<string, Element[]>();
+  let current = '';
+  for (const node of Array.from(root.children)) {
+    if (node.tagName.toLowerCase() === 'h2') {
+      current = normalizeSectionTitle(node.textContent || '');
+      if (!sections.has(current)) sections.set(current, []);
+      continue;
+    }
+    if (!current) continue;
+    sections.get(current)!.push(node);
+  }
+
+  const pick = (matcher: (k: string) => boolean): Element[] => {
+    for (const [k, nodes] of sections.entries()) {
+      if (matcher(k)) return nodes;
+    }
+    return [];
+  };
+  const textFromNodes = (nodes: Element[]) =>
+    nodes
+      .map((n) => (n.textContent || '').trim())
+      .filter(Boolean)
+      .join('\n');
+  const listTextFromNodes = (nodes: Element[]) => {
+    const lis = nodes.flatMap((n) => Array.from(n.querySelectorAll('li')));
+    if (lis.length) return lis.map((li) => (li.textContent || '').trim()).filter(Boolean).join('\n');
+    return textFromNodes(nodes);
+  };
+
+  const ordreNodes = pick((k) => k.includes('ordre du jour'));
+  const pointsNodes = pick((k) => k.includes('points discutes'));
+  const decisionsNodes = pick((k) => k.includes('decisions prises'));
+  const risquesNodes = pick((k) => k.includes('risques / blocages') || k.includes('risques / blocage'));
+  const actionsNodes = pick((k) => k.includes('actions a realiser'));
+  const table = actionsNodes.find((n) => n.tagName.toLowerCase() === 'table') || actionsNodes[0]?.querySelector('table');
+  const actionRows: PvActionInput[] = [];
+  if (table) {
+    const rows = Array.from(table.querySelectorAll('tbody tr, tr'));
+    for (const tr of rows) {
+      const cells = Array.from(tr.querySelectorAll('td'));
+      if (!cells.length) continue;
+      const action = (cells[0]?.textContent || '').trim();
+      const responsable = (cells[1]?.textContent || '').trim();
+      const dateLimite = (cells[2]?.textContent || '').trim();
+      if (!action && !responsable && !dateLimite) continue;
+      actionRows.push({ ...makeActionRow(), action, dateLimite, userId: '', entiteId: '' });
+    }
+  }
+
+  return {
+    ordreDuJour: listTextFromNodes(ordreNodes),
+    pointsDiscutes: textFromNodes(pointsNodes),
+    decisions: listTextFromNodes(decisionsNodes),
+    risquesBlocages: textFromNodes(risquesNodes),
+    actions: actionRows,
+  };
+}
 
 function IdChips({
   label,
@@ -133,6 +231,7 @@ export default function PvReunionDetail() {
   const [epics, setEpics] = useState<any[]>([]);
   const [contrats, setContrats] = useState<any[]>([]);
   const [processusList, setProcessusList] = useState<any[]>([]);
+  const [entites, setEntites] = useState<any[]>([]);
 
   const [titre, setTitre] = useState('');
   const [statutPv, setStatutPv] = useState('brouillon');
@@ -160,7 +259,11 @@ export default function PvReunionDetail() {
   const [histoLoading, setHistoLoading] = useState(false);
 
   const [contenuHtml, setContenuHtml] = useState('');
-  const [editorContentKey, setEditorContentKey] = useState(0);
+  const [ordreDuJourInput, setOrdreDuJourInput] = useState('');
+  const [pointsDiscutesInput, setPointsDiscutesInput] = useState('');
+  const [decisionsInput, setDecisionsInput] = useState('');
+  const [risquesBlocagesInput, setRisquesBlocagesInput] = useState('');
+  const [actionsInput, setActionsInput] = useState<PvActionInput[]>([]);
   const previewPvRef = useRef<HTMLDivElement | null>(null);
   const [pdfPreviewDetailLoading, setPdfPreviewDetailLoading] = useState(false);
   const [contenuVersionsOpen, setContenuVersionsOpen] = useState(false);
@@ -172,6 +275,11 @@ export default function PvReunionDetail() {
 
   const canModule = canModifyModule(user?.uiModules, 'pv_reunion');
   const canEdit = !!(pv?.capabilities?.canModify && canModule);
+  const parseLines = (s: string) =>
+    String(s || '')
+      .split(/\n+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
 
   const projectScopedTaskIds = useMemo(() => {
     if (!projetIds.length) return new Set<string>();
@@ -235,7 +343,7 @@ export default function PvReunionDetail() {
 
   const loadRefs = async () => {
     try {
-      const [u, cf, p, t, us, e, c, pr] = await Promise.all([
+      const [u, cf, p, t, us, e, c, pr, ent] = await Promise.all([
         api.get('/users'),
         api.get('/clients-fournisseurs'),
         api.get('/projets'),
@@ -244,6 +352,7 @@ export default function PvReunionDetail() {
         api.get('/epics'),
         api.get('/contrats'),
         api.get('/processus'),
+        api.get('/entites').catch(() => ({ data: [] })),
       ]);
       setUsers(u.data || []);
       setClientsFournisseurs(cf.data || []);
@@ -253,6 +362,7 @@ export default function PvReunionDetail() {
       setEpics((e.data || []).filter((x: any) => !x.deletedAt));
       setContrats(c.data || []);
       setProcessusList(pr.data || []);
+      setEntites(ent.data || []);
     } catch {
       /* */
     }
@@ -298,7 +408,113 @@ export default function PvReunionDetail() {
     setProcessusIds(le.processusIds || []);
     setModificationDelegueIds(pv.modificationDelegues?.map((x: any) => x.userId || x.user?.id) || []);
     setContenuHtml(pv.contenuHtml || '');
+    const parsed = parsePvStructuredFieldsFromHtml(pv.contenuHtml || '');
+    setOrdreDuJourInput(parsed.ordreDuJour || '');
+    setPointsDiscutesInput(parsed.pointsDiscutes || '');
+    setDecisionsInput(parsed.decisions || '');
+    setRisquesBlocagesInput(parsed.risquesBlocages || '');
+    setActionsInput(parsed.actions || []);
   }, [pv]);
+
+  useEffect(() => {
+    const statutLabel = PV_STATUTS.find((s) => s.value === statutPv)?.label || statutPv;
+    const dateLabel = dateReunion
+      ? new Date(dateReunion).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
+      : '—';
+    const usersLines = presentUserIds
+      .map((uid) => {
+        const u = users.find((x: any) => x.id === uid);
+        return u ? `${u.prenom} ${u.nom}` : uid;
+      })
+      .filter(Boolean);
+    const cfLines = presentCfIds
+      .map((cid) => {
+        const c = clientsFournisseurs.find((x: any) => x.id === cid);
+        return c ? clientFournisseurLabel(c) : cid;
+      })
+      .filter(Boolean);
+    const projetsLines = projetIds
+      .map((pid) => {
+        const p = projets.find((x: any) => x.id === pid);
+        return p ? String(p.nom || p.codeProjet || pid) : pid;
+      })
+      .filter(Boolean);
+    const tachesLines = tacheIds
+      .map((tid) => {
+        const t = taches.find((x: any) => x.id === tid);
+        return t ? String(t.nom || tid) : tid;
+      })
+      .filter(Boolean);
+    const usLines = userStoryIds
+      .map((sid) => {
+        const us = userStories.find((x: any) => x.id === sid);
+        const d = String(us?.description || '').trim();
+        return d ? (d.length > 120 ? `${d.slice(0, 120)}…` : d) : sid;
+      })
+      .filter(Boolean);
+    const epicLines = epicIds
+      .map((eid) => {
+        const ep = epics.find((x: any) => x.id === eid);
+        return ep ? String(ep.nom || eid) : eid;
+      })
+      .filter(Boolean);
+    const actionsRows = actionsInput
+      .map((a) => {
+        const u = users.find((x: any) => x.id === a.userId);
+        const en = entites.find((x: any) => x.id === a.entiteId);
+        const responsable = [u ? `${u.prenom} ${u.nom}` : '', en ? en.nom : ''].filter(Boolean).join(' / ');
+        return {
+          action: a.action.trim(),
+          responsable,
+          dateLimite: a.dateLimite
+            ? new Date(`${a.dateLimite}T00:00:00`).toLocaleDateString('fr-FR')
+            : '',
+        };
+      })
+      .filter((a) => a.action || a.responsable || a.dateLimite);
+
+    setContenuHtml(
+      buildStructuredPvHtml({
+        titre: titre.trim() || pv?.titre || 'Réunion',
+        statutLabel,
+        dateReunionLabel: dateLabel,
+        usersLines,
+        cfLines,
+        projetsLines,
+        tachesLines,
+        userStoriesLines: usLines,
+        epicsLines: epicLines,
+        ordreDuJourLines: parseLines(ordreDuJourInput),
+        pointsDiscutesText: pointsDiscutesInput,
+        decisionsPrisesLines: parseLines(decisionsInput),
+        risquesBlocagesText: risquesBlocagesInput,
+        actionsRows,
+      })
+    );
+  }, [
+    titre,
+    statutPv,
+    dateReunion,
+    presentUserIds,
+    presentCfIds,
+    projetIds,
+    tacheIds,
+    userStoryIds,
+    epicIds,
+    ordreDuJourInput,
+    pointsDiscutesInput,
+    decisionsInput,
+    risquesBlocagesInput,
+    actionsInput,
+    users,
+    entites,
+    clientsFournisseurs,
+    projets,
+    taches,
+    userStories,
+    epics,
+    pv?.titre,
+  ]);
 
   useEffect(() => {
     if (editMode) loadRefs();
@@ -414,65 +630,6 @@ export default function PvReunionDetail() {
   const contenuHtmlHasText = (html: string) =>
     html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length > 0;
 
-  const handleGeneratePvTemplateDetail = () => {
-    const st = PV_STATUTS.find((s) => s.value === statutPv)?.label || statutPv;
-    const dateLabel = dateReunion
-      ? new Date(dateReunion).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
-      : '—';
-    const uLines = presentUserIds
-      .map((uid) => {
-        const u = users.find((x: any) => x.id === uid);
-        return u ? `${u.prenom} ${u.nom}` : uid;
-      })
-      .filter(Boolean);
-    const cfLines = presentCfIds
-      .map((cid) => {
-        const c = clientsFournisseurs.find((x: any) => x.id === cid);
-        return c ? clientFournisseurLabel(c) : cid;
-      })
-      .filter(Boolean);
-    const projLines = projetIds
-      .map((pid) => {
-        const p = projets.find((x: any) => x.id === pid);
-        return p ? String(p.nom || p.codeProjet || pid) : pid;
-      })
-      .filter(Boolean);
-    const tacheLines = tacheIds
-      .map((tid) => {
-        const t = taches.find((x: any) => x.id === tid);
-        return t ? String(t.nom || tid) : tid;
-      })
-      .filter(Boolean);
-    const usLines = userStoryIds
-      .map((sid) => {
-        const us = userStories.find((x: any) => x.id === sid);
-        const d = String(us?.description || '').trim();
-        return d ? (d.length > 120 ? `${d.slice(0, 120)}…` : d) : sid;
-      })
-      .filter(Boolean);
-    const epicLines = epicIds
-      .map((eid) => {
-        const ep = epics.find((x: any) => x.id === eid);
-        return ep ? String(ep.nom || eid) : eid;
-      })
-      .filter(Boolean);
-
-    setContenuHtml(
-      buildStructuredPvHtml({
-        titre: titre.trim() || pv?.titre || 'Réunion',
-        statutLabel: st,
-        dateReunionLabel: dateLabel,
-        usersLines: uLines,
-        cfLines,
-        projetsLines: projLines,
-        tachesLines: tacheLines,
-        userStoriesLines: usLines,
-        epicsLines: epicLines,
-      })
-    );
-    setEditorContentKey((k) => k + 1);
-  };
-
   const openContenuVersions = async () => {
     if (!id) return;
     setContenuVersionsOpen(true);
@@ -493,7 +650,6 @@ export default function PvReunionDetail() {
     try {
       const { data } = await api.get(`/pv-reunions/${id}/contenu-versions/${versionId}`);
       setContenuHtml(data.contenuHtml || '');
-      setEditorContentKey((k) => k + 1);
       setContenuVersionsOpen(false);
     } catch {
       alert('Impossible de charger cette version.');
@@ -743,15 +899,8 @@ export default function PvReunionDetail() {
             />
 
             <div className="border-t border-gray-100 pt-4 space-y-3">
-              <h3 className="text-sm font-semibold text-gray-800">Contenu du PV</h3>
+              <h3 className="text-sm font-semibold text-gray-800">Points discutés</h3>
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={handleGeneratePvTemplateDetail}
-                  className="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
-                >
-                  Générer le modèle structuré
-                </button>
                 <button
                   type="button"
                   onClick={() => void saveContenuVersionSnapshot()}
@@ -775,14 +924,130 @@ export default function PvReunionDetail() {
                   {pdfPreviewDetailLoading ? 'Aperçu…' : 'Aperçu PDF'}
                 </button>
               </div>
-              <PvReunionTiptapEditor
-                key={editorContentKey}
-                initialHtml={contenuHtml}
-                onChange={setContenuHtml}
-              />
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Ordre du jour</label>
+                  <textarea
+                    className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm min-h-[84px]"
+                    placeholder="Une ligne par point..."
+                    value={ordreDuJourInput}
+                    onChange={(e) => setOrdreDuJourInput(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Points discutés</label>
+                  <textarea
+                    className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm min-h-[110px]"
+                    value={pointsDiscutesInput}
+                    onChange={(e) => setPointsDiscutesInput(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Décisions prises</label>
+                  <textarea
+                    className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm min-h-[84px]"
+                    placeholder="Une ligne par décision..."
+                    value={decisionsInput}
+                    onChange={(e) => setDecisionsInput(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Risques / Blocages</label>
+                  <textarea
+                    className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm min-h-[84px]"
+                    value={risquesBlocagesInput}
+                    onChange={(e) => setRisquesBlocagesInput(e.target.value)}
+                  />
+                </div>
+                <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold text-gray-700">Actions à réaliser</p>
+                    <button
+                      type="button"
+                      onClick={() => setActionsInput((prev) => [...prev, makeActionRow()])}
+                      className="px-2 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700"
+                    >
+                      + Ajouter une action
+                    </button>
+                  </div>
+                  {!actionsInput.length && (
+                    <p className="text-xs text-gray-400 italic">Aucune action.</p>
+                  )}
+                  <div className="space-y-2">
+                    {actionsInput.map((row) => (
+                      <div key={row.id} className="grid lg:grid-cols-12 gap-2 items-start">
+                        <input
+                          className="lg:col-span-4 border border-gray-200 rounded-md px-2 py-1.5 text-sm"
+                          placeholder="Action"
+                          value={row.action}
+                          onChange={(e) =>
+                            setActionsInput((prev) =>
+                              prev.map((x) => (x.id === row.id ? { ...x, action: e.target.value } : x))
+                            )
+                          }
+                        />
+                        <select
+                          className="lg:col-span-3 border border-gray-200 rounded-md px-2 py-1.5 text-sm"
+                          value={row.entiteId}
+                          onChange={(e) =>
+                            setActionsInput((prev) =>
+                              prev.map((x) => (x.id === row.id ? { ...x, entiteId: e.target.value } : x))
+                            )
+                          }
+                        >
+                          <option value="">Entité (optionnel)</option>
+                          {entites.map((en: any) => (
+                            <option key={en.id} value={en.id}>
+                              {en.nom}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          className="lg:col-span-3 border border-gray-200 rounded-md px-2 py-1.5 text-sm"
+                          value={row.userId}
+                          onChange={(e) =>
+                            setActionsInput((prev) =>
+                              prev.map((x) => (x.id === row.id ? { ...x, userId: e.target.value } : x))
+                            )
+                          }
+                        >
+                          <option value="">Utilisateur (optionnel)</option>
+                          {users.map((u: any) => (
+                            <option key={u.id} value={u.id}>
+                              {u.prenom} {u.nom}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="lg:col-span-2 flex gap-2">
+                          <input
+                            type="date"
+                            className="flex-1 border border-gray-200 rounded-md px-2 py-1.5 text-sm"
+                            value={row.dateLimite}
+                            onChange={(e) =>
+                              setActionsInput((prev) =>
+                                prev.map((x) => (x.id === row.id ? { ...x, dateLimite: e.target.value } : x))
+                              )
+                            }
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setActionsInput((prev) => prev.filter((x) => x.id !== row.id))
+                            }
+                            className="px-2 text-xs rounded border border-red-200 text-red-700 hover:bg-red-50"
+                            title="Supprimer la ligne"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
               <p className="text-[11px] text-gray-500">
-                « Enregistrer » ci-dessus enregistre aussi le contenu courant. « Sauvegarder une version » crée une
-                entrée dans l’historique des contenus.
+                Les sections vides (ordre du jour, décisions, risques/blocages, actions) ne seront pas affichées
+                dans le PDF généré.
               </p>
             </div>
           </div>
@@ -823,7 +1088,6 @@ export default function PvReunionDetail() {
                 type="button"
                 onClick={() => {
                   setContenuHtml(pv.contenuHtml || '');
-                  setEditorContentKey((k) => k + 1);
                   setEditMode(true);
                 }}
                 className="px-3 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"

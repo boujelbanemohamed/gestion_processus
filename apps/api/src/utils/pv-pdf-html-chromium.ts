@@ -181,7 +181,7 @@ function buildPrintableHtml(meta: PvPdfMeta): string {
   <h2 class="block-title">Participants</h2>
   <div class="participants"><ol>${participantsOl}</ol></div>
   ${rattHtml}
-  <h2 class="block-title contenu-title">Contenu du procès-verbal</h2>
+  <h2 class="block-title contenu-title">Points discutés</h2>
   ${bodyJoined}
   <p style="font-size:8pt;color:#6b7280;margin-top:1.2em;text-align:center;">${escapeHtml(footerText)}</p>
 </body>
