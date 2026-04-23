@@ -5565,6 +5565,11 @@ export default function Taches() {
                 }))}
                 users={users}
                 clientsFournisseurs={clientsFournisseursOptions}
+                onCloseAfterImport={(shouldRefresh) => {
+                  if (shouldRefresh) {
+                    void loadAll({ silent: true });
+                  }
+                }}
               />
               <button
                 type="button"

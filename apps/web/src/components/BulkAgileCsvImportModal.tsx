@@ -118,10 +118,12 @@ export default function BulkAgileCsvImportModal({
   projects,
   users,
   clientsFournisseurs,
+  onCloseAfterImport,
 }: {
   projects: ProjectOption[];
   users: UserOption[];
   clientsFournisseurs: ClientFournisseurOption[];
+  onCloseAfterImport?: (shouldRefresh: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [fileName, setFileName] = useState('');
@@ -129,6 +131,13 @@ export default function BulkAgileCsvImportModal({
   const [errors, setErrors] = useState<ImportError[]>([]);
   const [running, setRunning] = useState(false);
   const [report, setReport] = useState<ImportReport | null>(null);
+  const [didRunImport, setDidRunImport] = useState(false);
+
+  const closeModal = () => {
+    const shouldRefresh = !!report && didRunImport && report.successRows > 0;
+    setOpen(false);
+    onCloseAfterImport?.(shouldRefresh);
+  };
 
   const projectMap = useMemo(() => {
     const m = new Map<string, ProjectOption[]>();
@@ -321,6 +330,7 @@ export default function BulkAgileCsvImportModal({
   };
 
   const runImport = async () => {
+    setDidRunImport(true);
     const preErrors = validateRows(rows);
     setErrors(preErrors);
     if (preErrors.length > 0) return;
@@ -531,7 +541,7 @@ export default function BulkAgileCsvImportModal({
           <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="px-5 py-3 border-b flex items-center justify-between">
               <h3 className="font-semibold text-gray-800">Import massif (Epic / User Story / Tâches)</h3>
-              <button className="text-gray-500 hover:text-gray-700" onClick={() => setOpen(false)}>
+              <button className="text-gray-500 hover:text-gray-700" onClick={closeModal}>
                 ✕
               </button>
             </div>
@@ -610,7 +620,7 @@ export default function BulkAgileCsvImportModal({
               <button
                 type="button"
                 className="px-3 py-2 rounded border border-gray-300 text-sm"
-                onClick={() => setOpen(false)}
+                onClick={closeModal}
               >
                 Fermer
               </button>
