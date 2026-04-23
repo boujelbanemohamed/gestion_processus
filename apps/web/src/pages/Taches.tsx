@@ -21,6 +21,7 @@ import { PvReunionsLieesBlock } from '../components/PvReunionsLieesBlock';
 import { AccessContratLikeAdminLines } from '../components/AccessContratLikeAdminLines';
 import { DocumentAccesNatifModal } from '../components/DocumentAccesNatifModal';
 import { AgileDocumentsUserStorySection } from '../components/AgileDocumentsUserStorySection';
+import BulkAgileCsvImportModal from '../components/BulkAgileCsvImportModal';
 import { api, API_BASE_URL } from '../services/api';
 import { useAuth } from '../store/auth';
 import { isNativeAuthorControlledUploadDoc, normalizeDocumentAclFields } from '../utils/documentNativeAcces';
@@ -5556,6 +5557,15 @@ export default function Taches() {
           )}
           {canCreate && (
             <>
+              <BulkAgileCsvImportModal
+                projects={projets.map((p: any) => ({
+                  id: p.id,
+                  nom: p.nom,
+                  codeProjet: p.codeProjet || null,
+                }))}
+                users={users}
+                clientsFournisseurs={clientsFournisseursOptions}
+              />
               <button
                 type="button"
                 onClick={() => setShowEpicCreateModal(true)}
