@@ -60,6 +60,11 @@ function csvTemplate(): string {
     'projet,epic,user_story,tache,tache_description,statut,priorite,complexite,date_debut,date_fin_prevue,assignes_utilisateurs,assignes_clients_fournisseurs',
     'Migration ERP,Epic Facturation,US Saisie facture,Tâche Créer écran facture,"Créer l ecran de saisie facture",a_faire,haute,moyenne,2026-05-01,2026-05-10,"prenom1 nom1;prenom2 nom2","Client ABC;Fournisseur XYZ"',
     'Migration ERP,Epic Facturation,US Saisie facture,Tâche Validation facture,"Ajouter les regles de validation",en_cours,moyenne,moyenne,2026-05-03,2026-05-12,"user-id-1","client-id-1;client-id-2"',
+    'Migration ERP,Epic Facturation,US Saisie facture,Tâche Initialisation,,cree,moyenne,basse,,,,',
+    'Migration ERP,Epic Facturation,US Saisie facture,Tâche En attente,,en_attente,moyenne,moyenne,,,,',
+    'Migration ERP,Epic Facturation,US Saisie facture,Tâche Bloquée,,bloque,haute,haute,,,,',
+    'Migration ERP,Epic Facturation,US Saisie facture,Tâche Finalisée,,termine,basse,basse,,,,',
+    'Migration ERP,Epic Facturation,US Saisie facture,Tâche Archivée,,archive,basse,basse,,,,',
     'Migration ERP,Epic Facturation,US Export facture,,,basse,basse,,,,',
     'Migration ERP,Epic Reporting,,,,,,,,,',
   ].join('\n');
