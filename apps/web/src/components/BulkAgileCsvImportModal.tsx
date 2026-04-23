@@ -37,16 +37,43 @@ function detectDelimiter(sample: string): string {
   return best;
 }
 
+function parseCsvLine(line: string, delimiter: string): string[] {
+  const cells: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      // CSV escaping: two consecutive quotes inside quoted value => one quote.
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (ch === delimiter && !inQuotes) {
+      cells.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  cells.push(current);
+  return cells;
+}
+
 function parseCsv(content: string): CsvRow[] {
   const delimiter = detectDelimiter(content);
   const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   if (lines.length === 0) return [];
-  const headers = lines[0].split(delimiter).map((h) => norm(h).toLowerCase());
+  const headers = parseCsvLine(lines[0], delimiter).map((h) => norm(h).toLowerCase().replace(/^\uFEFF/, ''));
   const rows: CsvRow[] = [];
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     if (!line || !line.trim()) continue;
-    const cells = line.split(delimiter);
+    const cells = parseCsvLine(line, delimiter);
     const row: CsvRow = {};
     headers.forEach((h, idx) => {
       row[h] = norm(cells[idx] ?? '');
