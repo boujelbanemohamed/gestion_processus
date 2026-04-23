@@ -52,14 +52,17 @@ function UnsentEmailNotificationsSection() {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const { data } = await api.get('/admin/notification-email-failures');
       setRows(Array.isArray(data) ? data : []);
-    } catch {
+    } catch (e: any) {
       setRows([]);
+      setLoadError(e?.response?.data?.error || 'Impossible de charger les notifications non envoyées.');
     } finally {
       setLoading(false);
     }
@@ -114,7 +117,11 @@ function UnsentEmailNotificationsSection() {
         </button>
       </div>
 
-      {loading && rows.length === 0 ? (
+      {loadError ? (
+        <div className="text-sm text-red-700 py-4 border border-red-200 rounded-lg px-4 bg-red-50">
+          {loadError}
+        </div>
+      ) : loading && rows.length === 0 ? (
         <p className="text-sm text-gray-500 py-6">Chargement…</p>
       ) : rows.length === 0 ? (
         <p className="text-sm text-gray-600 py-4 border border-dashed border-gray-200 rounded-lg px-4 bg-gray-50">

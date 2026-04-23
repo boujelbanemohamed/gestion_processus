@@ -56,7 +56,8 @@ function handleErr(res: Response, e: unknown) {
     msg.startsWith('Le créateur') ||
     msg.startsWith('Seuls les comptes administrateur') ||
     msg.startsWith('Statut PV') ||
-    msg === 'Utilisateur introuvable'
+    msg === 'Utilisateur introuvable' ||
+    msg === 'Utilisateur assigné introuvable'
   ) {
     return res.status(400).json({ error: msg });
   }

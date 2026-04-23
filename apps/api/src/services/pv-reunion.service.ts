@@ -1322,12 +1322,17 @@ export class PvReunionService {
     const auteurNom = auteurUser ? `${auteurUser.prenom} ${auteurUser.nom}` : 'Un utilisateur';
 
     const destinataires: { id: string; email: string; nom: string }[] = [];
-    if (assigneAId && assigneAId !== auteurId) {
+    if (assigneAId) {
       const u = await prisma.user.findUnique({
         where: { id: assigneAId },
         select: { id: true, email: true, nom: true, prenom: true },
       });
-      if (u) destinataires.push({ id: u.id, email: u.email, nom: `${u.prenom} ${u.nom}` });
+      if (!u) {
+        throw new Error('Utilisateur assigné introuvable');
+      }
+      if (u.id !== auteurId) {
+        destinataires.push({ id: u.id, email: u.email, nom: `${u.prenom} ${u.nom}` });
+      }
     } else {
       if (pv.createdById && pv.createdById !== auteurId) {
         destinataires.push({
@@ -1371,6 +1376,12 @@ export class PvReunionService {
           estAssignation,
         })
         .catch((err: unknown) => console.error('[PV] Notification commentaire:', err));
+    } else if (assigneAId && assigneAId === auteurId) {
+      console.warn('[PV] Commentaire assigné à soi-même: aucune notification envoyée.', {
+        pvId,
+        auteurId,
+        assigneAId,
+      });
     }
 
     return c;
