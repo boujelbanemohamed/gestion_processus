@@ -75,6 +75,18 @@ export default function NotificationBell() {
       navigate('/taches');
     } else if (notif.lienType === 'pvReunion' && notif.lienId) {
       navigate(`/pv-reunion/${notif.lienId}`);
+    } else if (notif.lienType === 'processus' && notif.lienId) {
+      navigate(`/processus/${notif.lienId}`);
+    } else if (notif.lienType === 'projet' && notif.lienId) {
+      navigate(`/projets/${notif.lienId}`);
+    } else if (notif.lienType === 'licence') {
+      navigate('/licences');
+    } else if (notif.lienType === 'document') {
+      navigate('/documents');
+    } else if (notif.lienType === 'contrat') {
+      navigate('/contrats');
+    } else if (notif.lienType === 'epic' || notif.lienType === 'userStory') {
+      navigate('/taches');
     }
     setOpen(false);
   };

@@ -36,6 +36,9 @@ const NOTIFICATION_EMAIL_KIND_LABELS: Record<string, string> = {
   mention_pv: 'Mention (PV de réunion)',
   mention_document: 'Mention (document)',
   mention_licence: 'Mention (licence)',
+  mention_processus: 'Mention (processus)',
+  mention_projet: 'Mention (projet)',
+  mention_contrat: 'Mention (contrat)',
   assignation: 'Assignation (tâche)',
   statut: 'Changement de statut',
   retard: 'Tâche en retard',
@@ -271,11 +274,38 @@ function NotificationsTab() {
   };
 
   const notifications = [
-    { id: 'mention', icon: '📌', pages: ['Tâches', 'Epics', 'User stories', 'Processus', 'Projets', 'Documents', 'Contrats'], titre: 'Mention dans un commentaire', description: 'Envoye lorsque un utilisateur est mentionne via @Prenom Nom dans un commentaire sur une tache, un epic ou une user story.', destinataire: 'La personne mentionnee', declencheur: 'Ajout commentaire avec @mention', sujet: 'Mention (tache / epic / user story) : [Titre]', template: `Bonjour [Prenom Nom],
+    { id: 'mention', icon: '📌', pages: ['Tâches', 'Epics', 'User stories'], titre: 'Mention dans un commentaire Tâches', description: 'Envoye lorsque un utilisateur est mentionne via @Prenom Nom dans un commentaire sur une tache, un epic ou une user story.', destinataire: 'La personne mentionnee', declencheur: 'Ajout commentaire avec @mention', sujet: 'Mention (tache / epic / user story) : [Titre]', template: `Bonjour [Prenom Nom],
 
 [Auteur] vous a mentionne dans un commentaire (tache, epic ou user story) :
 
 [Titre]
+
+"[Contenu du commentaire]"
+
+PMO Hub` },
+    { id: 'mention_processus', icon: '📌', pages: ['Processus'], titre: 'Mention dans un commentaire Processus', description: 'Envoyee lorsqu un utilisateur est mentionne via @Prenom Nom dans un commentaire lie a un document reference par un processus.', destinataire: 'La personne mentionnee', declencheur: 'Ajout commentaire document lie a un processus avec @mention', sujet: 'Mention (processus) : [Nom processus]', template: `Bonjour [Prenom Nom],
+
+[Auteur] vous a mentionne dans un commentaire lie au processus :
+
+[Nom processus]
+
+"[Contenu du commentaire]"
+
+PMO Hub` },
+    { id: 'mention_projet', icon: '📌', pages: ['Projets'], titre: 'Mention dans un commentaire Projets', description: 'Envoyee lorsqu un utilisateur est mentionne via @Prenom Nom dans un commentaire lie a un document reference par un projet.', destinataire: 'La personne mentionnee', declencheur: 'Ajout commentaire document lie a un projet avec @mention', sujet: 'Mention (projet) : [Nom projet]', template: `Bonjour [Prenom Nom],
+
+[Auteur] vous a mentionne dans un commentaire lie au projet :
+
+[Nom projet]
+
+"[Contenu du commentaire]"
+
+PMO Hub` },
+    { id: 'mention_contrat', icon: '📌', pages: ['Contrats'], titre: 'Mention dans un commentaire Contrats', description: 'Envoyee lorsqu un utilisateur est mentionne via @Prenom Nom dans un commentaire lie a un document rattache a un contrat.', destinataire: 'La personne mentionnee', declencheur: 'Ajout commentaire document lie a un contrat avec @mention', sujet: 'Mention (contrat) : [Nom contrat]', template: `Bonjour [Prenom Nom],
+
+[Auteur] vous a mentionne dans un commentaire lie au contrat :
+
+[Nom contrat]
 
 "[Contenu du commentaire]"
 

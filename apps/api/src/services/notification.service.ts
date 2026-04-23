@@ -131,7 +131,7 @@ export class NotificationService {
   }
 
   // ── Envoyer email de mention ──────────────────────────────────────────────
-  private libelleContexte(type: 'tache' | 'epic' | 'userStory' | 'pvReunion' | 'document' | 'licence'): { sujet: string; intro: string; libelle: string; cta: string } {
+  private libelleContexte(type: 'tache' | 'epic' | 'userStory' | 'pvReunion' | 'document' | 'licence' | 'processus' | 'projet' | 'contrat'): { sujet: string; intro: string; libelle: string; cta: string } {
     if (type === 'epic') {
       return {
         sujet: 'epic',
@@ -172,6 +172,30 @@ export class NotificationService {
         cta: 'Voir les licences →',
       };
     }
+    if (type === 'processus') {
+      return {
+        sujet: 'processus',
+        intro: 'vous a mentionné dans un commentaire lié au processus :',
+        libelle: '⚙️ Processus',
+        cta: 'Voir le processus →',
+      };
+    }
+    if (type === 'projet') {
+      return {
+        sujet: 'projet',
+        intro: 'vous a mentionné dans un commentaire lié au projet :',
+        libelle: '📁 Projet',
+        cta: 'Voir le projet →',
+      };
+    }
+    if (type === 'contrat') {
+      return {
+        sujet: 'contrat',
+        intro: 'vous a mentionné dans un commentaire lié au contrat :',
+        libelle: '📑 Contrat',
+        cta: 'Voir les contrats →',
+      };
+    }
     return {
       sujet: 'tâche',
       intro: 'vous a mentionné dans un commentaire de la tâche :',
@@ -187,12 +211,18 @@ export class NotificationService {
     auteurNom: string;
     commentaireContenu: string;
     appUrl: string;
-    context: { type: 'tache' | 'epic' | 'userStory' | 'pvReunion' | 'document' | 'licence'; id: string; titre: string };
+    context: { type: 'tache' | 'epic' | 'userStory' | 'pvReunion' | 'document' | 'licence' | 'processus' | 'projet' | 'contrat'; id: string; titre: string };
     notificationKind?: string;
   }) {
     const lien =
       data.context.type === 'pvReunion'
         ? `${data.appUrl}/pv-reunion/${data.context.id}`
+        : data.context.type === 'processus'
+          ? `${data.appUrl}/processus/${data.context.id}`
+          : data.context.type === 'projet'
+            ? `${data.appUrl}/projets/${data.context.id}`
+            : data.context.type === 'contrat'
+              ? `${data.appUrl}/contrats`
         : data.context.type === 'licence'
           ? `${data.appUrl}/licences`
           : data.context.type === 'document'
@@ -236,7 +266,7 @@ export class NotificationService {
     auteurId: string;
     auteurNom: string;
     appUrl: string;
-    context: { type: 'tache' | 'epic' | 'userStory' | 'pvReunion' | 'document' | 'licence'; id: string; titre: string };
+    context: { type: 'tache' | 'epic' | 'userStory' | 'pvReunion' | 'document' | 'licence' | 'processus' | 'projet' | 'contrat'; id: string; titre: string };
   }) {
     // Extraire les mentions @Prénom Nom (2 mots après @)
     const mentionRegex = /@([A-Za-zÀ-ÿ]+\s+[A-Za-zÀ-ÿ]+)/g;
@@ -260,6 +290,12 @@ export class NotificationService {
           ? 'mention_document'
           : data.context.type === 'licence'
             ? 'mention_licence'
+            : data.context.type === 'processus'
+              ? 'mention_processus'
+              : data.context.type === 'projet'
+                ? 'mention_projet'
+                : data.context.type === 'contrat'
+                  ? 'mention_contrat'
             : 'mention';
     for (const mention of mentions) {
       // Trouver l'utilisateur correspondant (insensible à la casse)
