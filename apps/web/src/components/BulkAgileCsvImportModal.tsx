@@ -239,7 +239,11 @@ export default function BulkAgileCsvImportModal({
             description: row.epic_description || null,
             projetId: project.id,
           });
-          epicId = data.id;
+          const createdEpicId = norm(data?.id);
+          if (!createdEpicId) {
+            throw new Error("Création d'epic échouée: id manquant dans la réponse API.");
+          }
+          epicId = createdEpicId;
           epicMap.set(epicKey, epicId);
           createdEpics++;
         }
@@ -253,7 +257,11 @@ export default function BulkAgileCsvImportModal({
               description: usDesc,
               epicId,
             });
-            usId = data.id;
+            const createdUsId = norm(data?.id);
+            if (!createdUsId) {
+              throw new Error("Création de user story échouée: id manquant dans la réponse API.");
+            }
+            usId = createdUsId;
             usMap.set(usKey, usId);
             createdUs++;
           }
