@@ -8,7 +8,7 @@ type ClientFournisseurOption = { id: string; nom: string; type: string };
 type CsvRow = Record<string, string>;
 type ImportError = { line: number; field: string; message: string };
 
-function norm(v: string) {
+function norm(v: unknown) {
   return String(v || '').trim();
 }
 
@@ -57,16 +57,16 @@ function splitList(value: string): string[] {
 
 function csvTemplate(): string {
   return [
-    'projet,epic,user_story,tache,tache_description,statut,priorite,complexite,date_debut,date_fin_prevue,assignes_utilisateurs,assignes_clients_fournisseurs',
-    'Migration ERP,Epic Facturation,US Saisie facture,Tâche Créer écran facture,"Créer l ecran de saisie facture",a_faire,haute,moyenne,2026-05-01,2026-05-10,"prenom1 nom1;prenom2 nom2","Client ABC;Fournisseur XYZ"',
-    'Migration ERP,Epic Facturation,US Saisie facture,Tâche Validation facture,"Ajouter les regles de validation",en_cours,moyenne,moyenne,2026-05-03,2026-05-12,"user-id-1","client-id-1;client-id-2"',
-    'Migration ERP,Epic Facturation,US Saisie facture,Tâche Initialisation,,cree,moyenne,basse,,,,',
-    'Migration ERP,Epic Facturation,US Saisie facture,Tâche En attente,,en_attente,moyenne,moyenne,,,,',
-    'Migration ERP,Epic Facturation,US Saisie facture,Tâche Bloquée,,bloque,haute,haute,,,,',
-    'Migration ERP,Epic Facturation,US Saisie facture,Tâche Finalisée,,termine,basse,basse,,,,',
-    'Migration ERP,Epic Facturation,US Saisie facture,Tâche Archivée,,archive,basse,basse,,,,',
-    'Migration ERP,Epic Facturation,US Export facture,,,basse,basse,,,,',
-    'Migration ERP,Epic Reporting,,,,,,,,,',
+    'projet,epic,epic_description,user_story,tache,tache_description,statut,priorite,complexite,date_debut,date_fin_prevue,assignes_utilisateurs,assignes_clients_fournisseurs',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Créer écran facture,"Créer l ecran de saisie facture",a_faire,haute,moyenne,2026-05-01,2026-05-10,"prenom1 nom1;prenom2 nom2","Client ABC;Fournisseur XYZ"',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Validation facture,"Ajouter les regles de validation",en_cours,moyenne,moyenne,2026-05-03,2026-05-12,"user-id-1","client-id-1;client-id-2"',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Initialisation,,cree,moyenne,basse,,,,',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche En attente,,en_attente,moyenne,moyenne,,,,',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Bloquée,,bloque,haute,haute,,,,',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Finalisée,,termine,basse,basse,,,,',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Archivée,,archive,basse,basse,,,,',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Export facture,,,basse,basse,,,,',
+    'Migration ERP,Epic Reporting,"Regrouper les KPIs et tableaux de bord",,,,,,,,,',
   ].join('\n');
 }
 
@@ -87,14 +87,36 @@ export default function BulkAgileCsvImportModal({
   const [result, setResult] = useState<{ epics: number; userStories: number; taches: number } | null>(null);
 
   const projectMap = useMemo(() => {
-    const m = new Map<string, ProjectOption>();
+    const m = new Map<string, ProjectOption[]>();
     projects.forEach((p) => {
-      m.set(norm(p.nom).toLowerCase(), p);
-      if (p.codeProjet) m.set(norm(p.codeProjet).toLowerCase(), p);
-      m.set(p.id.toLowerCase(), p);
+      const keys = [norm(p.nom).toLowerCase(), p.id.toLowerCase()];
+      if (p.codeProjet) keys.push(norm(p.codeProjet).toLowerCase());
+      keys.forEach((k) => {
+        const prev = m.get(k) || [];
+        prev.push(p);
+        m.set(k, prev);
+      });
     });
     return m;
   }, [projects]);
+
+  const resolveProject = (rawValue: string): { project: ProjectOption | null; error?: string } => {
+    const token = norm(rawValue).toLowerCase();
+    if (!token) return { project: null, error: 'Projet requis.' };
+    const matches = projectMap.get(token) || [];
+    if (matches.length === 0) {
+      return { project: null, error: `Projet introuvable: "${rawValue}" (nom, code ou id attendu).` };
+    }
+    if (matches.length > 1) {
+      return {
+        project: null,
+        error:
+          `Projet ambigu pour "${rawValue}" (${matches.length} correspondances). ` +
+          'Utilisez un identifiant projet unique (id ou code projet unique).',
+      };
+    }
+    return { project: matches[0] };
+  };
 
   const userMap = useMemo(() => {
     const m = new Map<string, UserOption>();
@@ -147,12 +169,12 @@ export default function BulkAgileCsvImportModal({
       const us = norm(row.user_story || '');
       const tache = norm(row.tache || '');
 
-      if (!projetRaw) errs.push({ line, field: 'projet', message: 'Projet requis.' });
-      if (projetRaw && !projectMap.get(projetRaw.toLowerCase())) {
+      const projectResolution = resolveProject(projetRaw);
+      if (!projectResolution.project) {
         errs.push({
           line,
           field: 'projet',
-          message: `Projet introuvable: "${projetRaw}" (nom, code ou id attendu).`,
+          message: projectResolution.error || 'Projet invalide.',
         });
       }
       if (!epic) errs.push({ line, field: 'epic', message: 'Epic requis.' });
@@ -216,17 +238,72 @@ export default function BulkAgileCsvImportModal({
     let createdTaches = 0;
     const importErrors: ImportError[] = [];
 
+    // Précharger les epics / user stories existants pour éviter les doublons globaux.
+    const projectIds = [...new Set(
+      rows
+        .map((row) => {
+          const projetRaw = norm(row.projet || row.projet_id || '');
+          const resolved = resolveProject(projetRaw);
+          return resolved.project?.id || '';
+        })
+        .filter(Boolean)
+    )];
+    for (const projetId of projectIds) {
+      try {
+        const [epicsRes, usRes] = await Promise.all([
+          api.get('/epics', { params: { projetId } }),
+          api.get('/user-stories', { params: { projetId } }),
+        ]);
+        const epics = Array.isArray(epicsRes.data) ? epicsRes.data : [];
+        epics.forEach((e: any) => {
+          const epicId = norm(e?.id);
+          const epicNom = norm(e?.nom).toLowerCase();
+          if (epicId && epicNom) {
+            epicMap.set(`${projetId}::${epicNom}`, epicId);
+          }
+        });
+        const userStories = Array.isArray(usRes.data) ? usRes.data : [];
+        userStories.forEach((us: any) => {
+          const usId = norm(us?.id);
+          const usDesc = norm(us?.description).toLowerCase();
+          const epicId = norm(us?.epicId || us?.epic?.id);
+          if (usId && usDesc && epicId) {
+            usMap.set(`${epicId}::${usDesc}`, usId);
+          }
+        });
+      } catch (e: any) {
+        importErrors.push({
+          line: 1,
+          field: 'api',
+          message:
+            `Préchargement des epics/user stories impossible pour le projet ${projetId}: ` +
+            (e?.response?.data?.error || e?.message || 'Erreur API'),
+        });
+      }
+    }
+    if (importErrors.length > 0) {
+      setErrors(importErrors);
+      setRunning(false);
+      return;
+    }
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const line = i + 2;
       try {
         const projetRaw = norm(row.projet || row.projet_id || '');
-        const project = projectMap.get(projetRaw.toLowerCase());
+        const projectResolution = resolveProject(projetRaw);
+        const project = projectResolution.project;
         if (!project) {
-          importErrors.push({ line, field: 'projet', message: `Projet introuvable: ${projetRaw}` });
+          importErrors.push({
+            line,
+            field: 'projet',
+            message: projectResolution.error || `Projet introuvable: ${projetRaw}`,
+          });
           continue;
         }
         const epicName = norm(row.epic);
+        const epicDescription = row.epic_description || row.description_epic || null;
         const usDesc = norm(row.user_story);
         const tacheNom = norm(row.tache);
         const assignesUtilisateurIds = splitList(row.assignes_utilisateurs || '')
@@ -241,7 +318,7 @@ export default function BulkAgileCsvImportModal({
         if (!epicId) {
           const { data } = await api.post('/epics', {
             nom: epicName,
-            description: row.epic_description || null,
+            description: epicDescription,
             projetId: project.id,
           });
           const createdEpicId = norm(data?.id);
