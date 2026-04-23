@@ -37,15 +37,21 @@ function detectDelimiter(sample: string): string {
   return best;
 }
 
-function parseCsvLine(line: string, delimiter: string): string[] {
-  const cells: string[] = [];
+function parseCsv(content: string): CsvRow[] {
+  const delimiter = detectDelimiter(content);
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (!normalized.trim()) return [];
+
+  const records: string[][] = [];
+  let row: string[] = [];
   let current = '';
   let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+
+  for (let i = 0; i < normalized.length; i++) {
+    const ch = normalized[i];
     if (ch === '"') {
       // CSV escaping: two consecutive quotes inside quoted value => one quote.
-      if (inQuotes && line[i + 1] === '"') {
+      if (inQuotes && normalized[i + 1] === '"') {
         current += '"';
         i++;
       } else {
@@ -54,26 +60,27 @@ function parseCsvLine(line: string, delimiter: string): string[] {
       continue;
     }
     if (ch === delimiter && !inQuotes) {
-      cells.push(current);
+      row.push(current);
       current = '';
+      continue;
+    }
+    if (ch === '\n' && !inQuotes) {
+      row.push(current);
+      current = '';
+      if (row.some((c) => norm(c) !== '')) records.push(row);
+      row = [];
       continue;
     }
     current += ch;
   }
-  cells.push(current);
-  return cells;
-}
+  row.push(current);
+  if (row.some((c) => norm(c) !== '')) records.push(row);
+  if (records.length === 0) return [];
 
-function parseCsv(content: string): CsvRow[] {
-  const delimiter = detectDelimiter(content);
-  const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-  if (lines.length === 0) return [];
-  const headers = parseCsvLine(lines[0], delimiter).map((h) => norm(h).toLowerCase().replace(/^\uFEFF/, ''));
+  const headers = records[0].map((h) => norm(h).toLowerCase().replace(/^\uFEFF/, ''));
   const rows: CsvRow[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line || !line.trim()) continue;
-    const cells = parseCsvLine(line, delimiter);
+  for (let i = 1; i < records.length; i++) {
+    const cells = records[i];
     const row: CsvRow = {};
     headers.forEach((h, idx) => {
       row[h] = norm(cells[idx] ?? '');
