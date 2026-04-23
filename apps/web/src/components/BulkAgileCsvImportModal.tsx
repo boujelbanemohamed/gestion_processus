@@ -7,6 +7,16 @@ type ClientFournisseurOption = { id: string; nom: string; type: string };
 
 type CsvRow = Record<string, string>;
 type ImportError = { line: number; field: string; message: string };
+type ImportReport = {
+  totalRows: number;
+  successRows: number;
+  failedRows: number;
+  createdEpics: number;
+  reusedEpics: number;
+  createdUserStories: number;
+  reusedUserStories: number;
+  createdTaches: number;
+};
 
 function norm(v: unknown) {
   return String(v || '').trim();
@@ -84,7 +94,7 @@ export default function BulkAgileCsvImportModal({
   const [rows, setRows] = useState<CsvRow[]>([]);
   const [errors, setErrors] = useState<ImportError[]>([]);
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<{ epics: number; userStories: number; taches: number } | null>(null);
+  const [report, setReport] = useState<ImportReport | null>(null);
 
   const projectMap = useMemo(() => {
     const m = new Map<string, ProjectOption[]>();
@@ -119,26 +129,76 @@ export default function BulkAgileCsvImportModal({
   };
 
   const userMap = useMemo(() => {
-    const m = new Map<string, UserOption>();
+    const m = new Map<string, UserOption[]>();
     users.forEach((u) => {
-      m.set(u.id.toLowerCase(), u);
+      const keys = [u.id.toLowerCase()];
       const fullA = `${norm(u.prenom)} ${norm(u.nom)}`.toLowerCase();
       const fullB = `${norm(u.nom)} ${norm(u.prenom)}`.toLowerCase();
-      if (fullA) m.set(fullA, u);
-      if (fullB) m.set(fullB, u);
-      if (u.email) m.set(norm(u.email).toLowerCase(), u);
+      if (fullA) keys.push(fullA);
+      if (fullB) keys.push(fullB);
+      if (u.email) keys.push(norm(u.email).toLowerCase());
+      keys.forEach((k) => {
+        const prev = m.get(k) || [];
+        prev.push(u);
+        m.set(k, prev);
+      });
     });
     return m;
   }, [users]);
 
   const clientFournisseurMap = useMemo(() => {
-    const m = new Map<string, ClientFournisseurOption>();
+    const m = new Map<string, ClientFournisseurOption[]>();
     clientsFournisseurs.forEach((c) => {
-      m.set(c.id.toLowerCase(), c);
-      m.set(norm(c.nom).toLowerCase(), c);
+      const keys = [c.id.toLowerCase(), norm(c.nom).toLowerCase()];
+      keys.forEach((k) => {
+        const prev = m.get(k) || [];
+        prev.push(c);
+        m.set(k, prev);
+      });
     });
     return m;
   }, [clientsFournisseurs]);
+
+  const resolveUser = (rawValue: string): { user: UserOption | null; error?: string } => {
+    const token = norm(rawValue).toLowerCase();
+    if (!token) return { user: null, error: 'Utilisateur vide.' };
+    const matches = userMap.get(token) || [];
+    if (matches.length === 0) {
+      return { user: null, error: `Utilisateur introuvable: "${rawValue}" (id, nom prenom ou email).` };
+    }
+    if (matches.length > 1) {
+      return {
+        user: null,
+        error:
+          `Utilisateur ambigu pour "${rawValue}" (${matches.length} correspondances). ` +
+          'Utilisez un identifiant unique (id ou email).',
+      };
+    }
+    return { user: matches[0] };
+  };
+
+  const resolveClientFournisseur = (
+    rawValue: string
+  ): { clientFournisseur: ClientFournisseurOption | null; error?: string } => {
+    const token = norm(rawValue).toLowerCase();
+    if (!token) return { clientFournisseur: null, error: 'Client/Fournisseur vide.' };
+    const matches = clientFournisseurMap.get(token) || [];
+    if (matches.length === 0) {
+      return {
+        clientFournisseur: null,
+        error: `Client/Fournisseur introuvable: "${rawValue}" (id ou nom).`,
+      };
+    }
+    if (matches.length > 1) {
+      return {
+        clientFournisseur: null,
+        error:
+          `Client/Fournisseur ambigu pour "${rawValue}" (${matches.length} correspondances). ` +
+          'Utilisez un identifiant unique (id).',
+      };
+    }
+    return { clientFournisseur: matches[0] };
+  };
 
   const downloadTemplate = () => {
     const blob = new Blob([csvTemplate()], { type: 'text/csv;charset=utf-8;' });
@@ -187,21 +247,23 @@ export default function BulkAgileCsvImportModal({
       }
       const rawUsers = splitList(row.assignes_utilisateurs || '');
       rawUsers.forEach((token) => {
-        if (!userMap.get(token.toLowerCase())) {
+        const r = resolveUser(token);
+        if (!r.user) {
           errs.push({
             line,
             field: 'assignes_utilisateurs',
-            message: `Utilisateur introuvable: "${token}" (id, nom prenom ou email).`,
+            message: r.error || `Utilisateur invalide: "${token}".`,
           });
         }
       });
       const rawClients = splitList(row.assignes_clients_fournisseurs || '');
       rawClients.forEach((token) => {
-        if (!clientFournisseurMap.get(token.toLowerCase())) {
+        const r = resolveClientFournisseur(token);
+        if (!r.clientFournisseur) {
           errs.push({
             line,
             field: 'assignes_clients_fournisseurs',
-            message: `Client/Fournisseur introuvable: "${token}" (id ou nom).`,
+            message: r.error || `Client/Fournisseur invalide: "${token}".`,
           });
         }
       });
@@ -210,7 +272,7 @@ export default function BulkAgileCsvImportModal({
   };
 
   const onFileChange = async (file?: File | null) => {
-    setResult(null);
+    setReport(null);
     setErrors([]);
     setRows([]);
     if (!file) {
@@ -229,13 +291,15 @@ export default function BulkAgileCsvImportModal({
     setErrors(preErrors);
     if (preErrors.length > 0) return;
     setRunning(true);
-    setResult(null);
+    setReport(null);
 
     const epicMap = new Map<string, string>();
     const usMap = new Map<string, string>();
     let createdEpics = 0;
     let createdUs = 0;
     let createdTaches = 0;
+    const reusedEpicIds = new Set<string>();
+    const reusedUsIds = new Set<string>();
     const importErrors: ImportError[] = [];
 
     // Précharger les epics / user stories existants pour éviter les doublons globaux.
@@ -283,6 +347,16 @@ export default function BulkAgileCsvImportModal({
     }
     if (importErrors.length > 0) {
       setErrors(importErrors);
+      setReport({
+        totalRows: rows.length,
+        successRows: 0,
+        failedRows: rows.length,
+        createdEpics,
+        reusedEpics: reusedEpicIds.size,
+        createdUserStories: createdUs,
+        reusedUserStories: reusedUsIds.size,
+        createdTaches,
+      });
       setRunning(false);
       return;
     }
@@ -306,12 +380,16 @@ export default function BulkAgileCsvImportModal({
         const epicDescription = row.epic_description || row.description_epic || null;
         const usDesc = norm(row.user_story);
         const tacheNom = norm(row.tache);
-        const assignesUtilisateurIds = splitList(row.assignes_utilisateurs || '')
-          .map((token) => userMap.get(token.toLowerCase())?.id || '')
-          .filter(Boolean);
-        const assignesClientFournisseurIds = splitList(row.assignes_clients_fournisseurs || '')
-          .map((token) => clientFournisseurMap.get(token.toLowerCase())?.id || '')
-          .filter(Boolean);
+        const assignesUtilisateurIds = [...new Set(
+          splitList(row.assignes_utilisateurs || '')
+            .map((token) => resolveUser(token).user?.id || '')
+            .filter(Boolean)
+        )];
+        const assignesClientFournisseurIds = [...new Set(
+          splitList(row.assignes_clients_fournisseurs || '')
+            .map((token) => resolveClientFournisseur(token).clientFournisseur?.id || '')
+            .filter(Boolean)
+        )];
 
         const epicKey = `${project.id}::${epicName.toLowerCase()}`;
         let epicId = epicMap.get(epicKey);
@@ -328,6 +406,8 @@ export default function BulkAgileCsvImportModal({
           epicId = createdEpicId;
           epicMap.set(epicKey, epicId);
           createdEpics++;
+        } else {
+          reusedEpicIds.add(epicId);
         }
 
         let usId: string | null = null;
@@ -346,6 +426,8 @@ export default function BulkAgileCsvImportModal({
             usId = createdUsId;
             usMap.set(usKey, usId);
             createdUs++;
+          } else {
+            reusedUsIds.add(usId);
           }
         }
 
@@ -383,7 +465,17 @@ export default function BulkAgileCsvImportModal({
     }
 
     setErrors(importErrors);
-    setResult({ epics: createdEpics, userStories: createdUs, taches: createdTaches });
+    const failedLines = new Set(importErrors.filter((e) => e.line >= 2).map((e) => e.line));
+    setReport({
+      totalRows: rows.length,
+      successRows: Math.max(rows.length - failedLines.size, 0),
+      failedRows: failedLines.size,
+      createdEpics,
+      reusedEpics: reusedEpicIds.size,
+      createdUserStories: createdUs,
+      reusedUserStories: reusedUsIds.size,
+      createdTaches,
+    });
     setRunning(false);
   };
 
@@ -433,9 +525,19 @@ export default function BulkAgileCsvImportModal({
                 </div>
               )}
 
-              {result && (
+              {report && (
                 <div className="text-sm border border-green-200 bg-green-50 text-green-800 rounded p-3">
-                  Import terminé. Créés: {result.epics} epic(s), {result.userStories} user story(ies), {result.taches} tâche(s).
+                  <p className="font-semibold mb-2">Rapport d&apos;upload</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-1 gap-x-4">
+                    <p>Lignes totales: {report.totalRows}</p>
+                    <p>Lignes réussies: {report.successRows}</p>
+                    <p>Lignes en erreur: {report.failedRows}</p>
+                    <p>Tâches créées: {report.createdTaches}</p>
+                    <p>Epics créés: {report.createdEpics}</p>
+                    <p>Epics réutilisés: {report.reusedEpics}</p>
+                    <p>User stories créées: {report.createdUserStories}</p>
+                    <p>User stories réutilisées: {report.reusedUserStories}</p>
+                  </div>
                 </div>
               )}
 
