@@ -4,6 +4,8 @@ import { prisma } from '../utils/prisma';
 export const NOTIFICATION_SETTING_KEYS = [
   'mention',
   'mention_pv',
+  'mention_document',
+  'mention_licence',
   'assignation',
   'statut',
   'retard',

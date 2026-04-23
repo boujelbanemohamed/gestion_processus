@@ -34,6 +34,8 @@ function isTabType(s: string): s is TabType {
 const NOTIFICATION_EMAIL_KIND_LABELS: Record<string, string> = {
   mention: 'Mention',
   mention_pv: 'Mention (PV de réunion)',
+  mention_document: 'Mention (document)',
+  mention_licence: 'Mention (licence)',
   assignation: 'Assignation (tâche)',
   statut: 'Changement de statut',
   retard: 'Tâche en retard',
@@ -283,6 +285,24 @@ PMO Hub` },
 [Auteur] vous a mentionne dans un commentaire sur le PV :
 
 [Titre PV]
+
+"[Contenu du commentaire]"
+
+PMO Hub` },
+    { id: 'mention_document', icon: '📌', pages: ['Documents'], titre: 'Mention dans un commentaire Document', description: 'Envoyee lorsqu un utilisateur est mentionne via @Prenom Nom dans un commentaire de document.', destinataire: 'La personne mentionnee', declencheur: 'Ajout commentaire document avec @mention', sujet: 'Mention (document) : [Titre document]', template: `Bonjour [Prenom Nom],
+
+[Auteur] vous a mentionne dans un commentaire sur le document :
+
+[Titre document]
+
+"[Contenu du commentaire]"
+
+PMO Hub` },
+    { id: 'mention_licence', icon: '📌', pages: ['Licences'], titre: 'Mention dans un commentaire Licence', description: 'Envoyee lorsqu un utilisateur est mentionne via @Prenom Nom dans un commentaire de licence.', destinataire: 'La personne mentionnee', declencheur: 'Ajout commentaire licence avec @mention', sujet: 'Mention (licence) : [Nom licence]', template: `Bonjour [Prenom Nom],
+
+[Auteur] vous a mentionne dans un commentaire sur la licence :
+
+[Nom licence]
 
 "[Contenu du commentaire]"
 

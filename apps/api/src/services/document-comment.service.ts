@@ -2,11 +2,14 @@ import { prisma } from '../utils/prisma';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { NotificationService } from './notification.service';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 const COMMENTS_DIR = path.join(UPLOAD_DIR, 'comments');
 
 export class DocumentCommentService {
+  private notificationService = new NotificationService();
+
   async ensureCommentsDir() {
     try {
       await fs.access(COMMENTS_DIR);
@@ -52,7 +55,7 @@ export class DocumentCommentService {
       pieceJointeTaille = file.size;
     }
 
-    return prisma.documentComment.create({
+    const created = await prisma.documentComment.create({
       data: {
         documentId,
         userId,
@@ -64,6 +67,32 @@ export class DocumentCommentService {
       },
       include: { user: { select: { id: true, nom: true, prenom: true, email: true } } },
     });
+
+    const [doc, auteur] = await Promise.all([
+      prisma.document.findUnique({
+        where: { id: documentId },
+        select: { id: true, nom: true, fichierNomOriginal: true },
+      }),
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { nom: true, prenom: true },
+      }),
+    ]);
+    const auteurNom = auteur ? `${auteur.prenom} ${auteur.nom}` : 'Un utilisateur';
+    const contextTitre = String(doc?.nom || doc?.fichierNomOriginal || 'Document').trim();
+    const appUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+    this.notificationService
+      .traiterMentions({
+        contenu: contenu.trim(),
+        auteurId: userId,
+        auteurNom,
+        appUrl,
+        context: { type: 'document', id: documentId, titre: contextTitre },
+      })
+      .catch((err: unknown) => console.error('[DOCUMENT] Mentions commentaire:', err));
+
+    return created;
   }
 
   async downloadAttachment(commentId: string) {

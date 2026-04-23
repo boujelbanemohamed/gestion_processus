@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prisma';
+import { NotificationService } from './notification.service';
 import { Prisma } from '../generated/prisma/client';
 import { promises as fs } from 'fs';
 import * as path from 'path';
@@ -252,6 +253,8 @@ async function maybeExcludeAdminAfterLicencePermissionRemoved(
 }
 
 export class LicenceService {
+  private notificationService = new NotificationService();
+
   private async mapLicenceWithCaps(raw: any, userId: string, role: string) {
     const full = await formatLicenceFull(raw);
     const caps = capabilitiesLicence(raw as LicenceAcl, userId, role);
@@ -661,6 +664,23 @@ export class LicenceService {
         assigneAId: assigneA || null,
       },
     });
+
+    const auteur = await prisma.user.findUnique({
+      where: { id: auteurId },
+      select: { nom: true, prenom: true },
+    });
+    const auteurNom = auteur ? `${auteur.prenom} ${auteur.nom}` : 'Un utilisateur';
+    const appUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    this.notificationService
+      .traiterMentions({
+        contenu: contenu.trim(),
+        auteurId,
+        auteurNom,
+        appUrl,
+        context: { type: 'licence', id: licenceId, titre: licence.nom },
+      })
+      .catch((err: unknown) => console.error('[LICENCE] Mentions commentaire:', err));
+
     return this.findOne(licenceId, auteurId, role);
   }
 
