@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma';
 /** Clés gérées (alignées sur Configuration → Notifications). */
 export const NOTIFICATION_SETTING_KEYS = [
   'mention',
+  'mention_pv',
   'assignation',
   'statut',
   'retard',

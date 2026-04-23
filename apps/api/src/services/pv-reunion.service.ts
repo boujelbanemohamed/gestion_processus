@@ -1384,6 +1384,17 @@ export class PvReunionService {
       });
     }
 
+    // Mentions @Prénom Nom dans les commentaires de PV
+    this.notificationService
+      .traiterMentions({
+        contenu: contenu.trim(),
+        auteurId,
+        auteurNom,
+        appUrl,
+        context: { type: 'pvReunion', id: pvId, titre: pv.titre },
+      })
+      .catch((err: unknown) => console.error('[PV] Mentions commentaire:', err));
+
     return c;
   }
 

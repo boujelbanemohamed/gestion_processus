@@ -131,7 +131,7 @@ export class NotificationService {
   }
 
   // ── Envoyer email de mention ──────────────────────────────────────────────
-  private libelleContexte(type: 'tache' | 'epic' | 'userStory'): { sujet: string; intro: string; libelle: string; cta: string } {
+  private libelleContexte(type: 'tache' | 'epic' | 'userStory' | 'pvReunion'): { sujet: string; intro: string; libelle: string; cta: string } {
     if (type === 'epic') {
       return {
         sujet: 'epic',
@@ -146,6 +146,14 @@ export class NotificationService {
         intro: 'vous a mentionné dans un commentaire sur la user story :',
         libelle: '📘 User story',
         cta: 'Voir les tâches →',
+      };
+    }
+    if (type === 'pvReunion') {
+      return {
+        sujet: 'PV de réunion',
+        intro: 'vous a mentionné dans un commentaire sur le PV de réunion :',
+        libelle: '📝 PV',
+        cta: 'Voir le PV →',
       };
     }
     return {
@@ -163,9 +171,13 @@ export class NotificationService {
     auteurNom: string;
     commentaireContenu: string;
     appUrl: string;
-    context: { type: 'tache' | 'epic' | 'userStory'; titre: string };
+    context: { type: 'tache' | 'epic' | 'userStory' | 'pvReunion'; id: string; titre: string };
+    notificationKind?: string;
   }) {
-    const lien = `${data.appUrl}/taches`;
+    const lien =
+      data.context.type === 'pvReunion'
+        ? `${data.appUrl}/pv-reunion/${data.context.id}`
+        : `${data.appUrl}/taches`;
     const L = this.libelleContexte(data.context.type);
     const subject = `📌 Mention (${L.sujet}) : ${data.context.titre}`;
     const html = `
@@ -188,7 +200,7 @@ export class NotificationService {
           </div>
         `;
     await this.sendNotificationEmail({
-      kind: 'mention',
+      kind: data.notificationKind || 'mention',
       toEmail: data.destinataireEmail,
       toUserId: data.destinataireUserId,
       subject,
@@ -204,7 +216,7 @@ export class NotificationService {
     auteurId: string;
     auteurNom: string;
     appUrl: string;
-    context: { type: 'tache' | 'epic' | 'userStory'; id: string; titre: string };
+    context: { type: 'tache' | 'epic' | 'userStory' | 'pvReunion'; id: string; titre: string };
   }) {
     // Extraire les mentions @Prénom Nom (2 mots après @)
     const mentionRegex = /@([A-Za-zÀ-ÿ]+\s+[A-Za-zÀ-ÿ]+)/g;
@@ -221,6 +233,7 @@ export class NotificationService {
       select: { id: true, nom: true, prenom: true, email: true },
     });
 
+    const mentionSettingKey = data.context.type === 'pvReunion' ? 'mention_pv' : 'mention';
     for (const mention of mentions) {
       // Trouver l'utilisateur correspondant (insensible à la casse)
       const user = users.find(u =>
@@ -230,7 +243,7 @@ export class NotificationService {
 
       if (!user || user.id === data.auteurId) continue;
 
-      await this.createInAppIfEnabled('mention', {
+      await this.createInAppIfEnabled(mentionSettingKey, {
         userId: user.id,
         type: 'mention',
         titre: `Mention : "${data.context.titre}"`,
@@ -247,7 +260,8 @@ export class NotificationService {
         auteurNom: data.auteurNom,
         commentaireContenu: data.contenu,
         appUrl: data.appUrl,
-        context: { type: data.context.type, titre: data.context.titre },
+        context: { type: data.context.type, id: data.context.id, titre: data.context.titre },
+        notificationKind: mentionSettingKey,
       });
     }
   }
