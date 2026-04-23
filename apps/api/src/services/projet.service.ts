@@ -4,6 +4,7 @@ import { Prisma } from '../generated/prisma/client';
 import { PermissionType } from '../generated/prisma/enums';
 import { fetchProjetAdminExcludedByProjetIds, fetchProjetAdminExcludedForUser } from '../utils/resourceAdminSansAcces';
 import { TacheService } from './tache.service';
+import { NotificationService } from './notification.service';
 
 const TACHE_TERMINEES = ['termine', 'archive'] as const;
 const SCORING_PRODUCTIVITE_WINDOW_DAYS = 30;
@@ -566,6 +567,79 @@ function extractStatusTransitions(historyRows: any[]): TaskStatusTransition[] {
 }
 
 export class ProjetService {
+  private notificationService = new NotificationService();
+
+  private buildProjetAssignmentMap(data: {
+    responsableId?: string | null;
+    gestionnaireId?: string | null;
+    sponsorIds?: string[];
+    chefProjetIds?: string[];
+    techLeadIds?: string[];
+    equipeIds?: string[];
+  }): Map<string, Set<string>> {
+    const map = new Map<string, Set<string>>();
+    const add = (userId: string | null | undefined, roleLabel: string) => {
+      if (!userId) return;
+      const cur = map.get(userId) || new Set<string>();
+      cur.add(roleLabel);
+      map.set(userId, cur);
+    };
+    add(data.responsableId, 'Responsable');
+    add(data.gestionnaireId, 'Gestionnaire');
+    for (const id of data.sponsorIds || []) add(id, 'Sponsor');
+    for (const id of data.chefProjetIds || []) add(id, 'Chef de projet');
+    for (const id of data.techLeadIds || []) add(id, 'Tech lead');
+    for (const id of data.equipeIds || []) add(id, 'Équipe projet');
+    return map;
+  }
+
+  private async notifyProjetAssignmentsDelta(params: {
+    projetId: string;
+    projetNom: string;
+    actorId: string;
+    prevMap: Map<string, Set<string>>;
+    nextMap: Map<string, Set<string>>;
+  }) {
+    const appUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const actor = await prisma.user.findUnique({
+      where: { id: params.actorId },
+      select: { nom: true, prenom: true },
+    });
+    const auteurNom = actor ? `${actor.prenom} ${actor.nom}` : 'Un utilisateur';
+
+    const targets: Array<{ userId: string; roles: string[] }> = [];
+    for (const [userId, nextRoles] of params.nextMap.entries()) {
+      if (userId === params.actorId) continue;
+      const prevRoles = params.prevMap.get(userId) || new Set<string>();
+      const addedRoles = [...nextRoles].filter((r) => !prevRoles.has(r));
+      if (addedRoles.length > 0) targets.push({ userId, roles: addedRoles });
+    }
+    if (targets.length === 0) return;
+
+    const users = await prisma.user.findMany({
+      where: { id: { in: targets.map((t) => t.userId) } },
+      select: { id: true, email: true, nom: true, prenom: true },
+    });
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    await Promise.all(
+      targets.map(async (t) => {
+        const u = userMap.get(t.userId);
+        if (!u) return;
+        await this.notificationService.notifierAssignationProjet({
+          projetId: params.projetId,
+          projetNom: params.projetNom,
+          assigneUserId: u.id,
+          assigneEmail: u.email,
+          assigneNom: `${u.prenom} ${u.nom}`,
+          auteurNom,
+          appUrl,
+          roles: t.roles,
+        });
+      })
+    );
+  }
+
   private async collectDerivedProjetIntervenantUserIds(
     tx: Prisma.TransactionClient,
     projetId: string
@@ -1331,7 +1405,7 @@ export class ProjetService {
       }
     }
 
-    return prisma.$transaction(async (tx) => {
+    const created = await prisma.$transaction(async (tx) => {
       const projet = await tx.projet.create({
         data: {
           ...projetData,
@@ -1392,6 +1466,24 @@ export class ProjetService {
         include: projetListInclude,
       });
     });
+
+    const nextMap = this.buildProjetAssignmentMap({
+      responsableId: created.responsableId,
+      gestionnaireId: created.gestionnaireId,
+      sponsorIds: (created.sponsors || []).map((x: any) => x.userId),
+      chefProjetIds: (created.chefsProjet || []).map((x: any) => x.userId),
+      techLeadIds: (created.techLeads || []).map((x: any) => x.userId),
+      equipeIds: (created.equipe || []).map((x: any) => x.userId),
+    });
+    await this.notifyProjetAssignmentsDelta({
+      projetId: created.id,
+      projetNom: created.nom,
+      actorId: auth.userId,
+      prevMap: new Map<string, Set<string>>(),
+      nextMap,
+    });
+
+    return created;
   }
 
   async update(
@@ -1511,7 +1603,7 @@ export class ProjetService {
       pickProjetScalarUpdateData(updateData as Record<string, unknown>)
     );
 
-    return prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx) => {
       const updated = await tx.projet.update({
         where: { id },
         data: {
@@ -1527,6 +1619,32 @@ export class ProjetService {
       await this.syncDerivedGovernanceAndEntites(tx, id);
       return tx.projet.findUniqueOrThrow({ where: { id: updated.id }, include: projetListInclude });
     });
+
+    const prevMap = this.buildProjetAssignmentMap({
+      responsableId: existing.responsableId,
+      gestionnaireId: existing.gestionnaireId,
+      sponsorIds: existing.sponsors.map((x) => x.userId),
+      chefProjetIds: existing.chefsProjet.map((x) => x.userId),
+      techLeadIds: existing.techLeads.map((x) => x.userId),
+      equipeIds: existing.equipe.map((x) => x.userId),
+    });
+    const nextMap = this.buildProjetAssignmentMap({
+      responsableId: updated.responsableId,
+      gestionnaireId: updated.gestionnaireId,
+      sponsorIds: (updated.sponsors || []).map((x: any) => x.userId),
+      chefProjetIds: (updated.chefsProjet || []).map((x: any) => x.userId),
+      techLeadIds: (updated.techLeads || []).map((x: any) => x.userId),
+      equipeIds: (updated.equipe || []).map((x: any) => x.userId),
+    });
+    await this.notifyProjetAssignmentsDelta({
+      projetId: updated.id,
+      projetNom: updated.nom,
+      actorId: auth.userId,
+      prevMap,
+      nextMap,
+    });
+
+    return updated;
   }
 
   /** @deprecated Utiliser softDelete — conservé pour compat éventuelle */

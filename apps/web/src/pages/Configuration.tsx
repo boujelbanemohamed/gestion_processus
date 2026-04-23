@@ -40,6 +40,7 @@ const NOTIFICATION_EMAIL_KIND_LABELS: Record<string, string> = {
   mention_projet: 'Mention (projet)',
   mention_contrat: 'Mention (contrat)',
   assignation: 'Assignation (tâche)',
+  assignation_projet: 'Assignation (projet)',
   statut: 'Changement de statut',
   retard: 'Tâche en retard',
   nouvelle_tache: 'Nouvelle tâche (projet)',
@@ -337,11 +338,20 @@ PMO Hub` },
 "[Contenu du commentaire]"
 
 PMO Hub` },
-    { id: 'assignation', icon: '✅', pages: ['Tâches', 'Projets'], titre: 'Assignation a une tache', description: 'Envoye lorsque un utilisateur est assigne a une tache.', destinataire: 'Utilisateur assigne', declencheur: 'Creation ou modification avec assignation', sujet: 'Nouvelle assignation : [Nom tache]', template: `Bonjour [Prenom Nom],
+    { id: 'assignation', icon: '✅', pages: ['Tâches'], titre: 'Assignation a une tache', description: 'Envoye lorsque un utilisateur est assigne a une tache.', destinataire: 'Utilisateur assigne', declencheur: 'Creation ou modification avec assignation', sujet: 'Nouvelle assignation : [Nom tache]', template: `Bonjour [Prenom Nom],
 
 [Auteur] vous a assigne a la tache :
 
 [Nom de la tache]
+
+PMO Hub` },
+    { id: 'assignation_projet', icon: '✅', pages: ['Projets'], titre: 'Assignation à un Projet', description: 'Envoyee lorsqu un utilisateur est nouvellement assigne sur un projet (responsable, gestionnaire, sponsor, chef de projet, tech lead, equipe projet).', destinataire: 'Utilisateur assigne sur le projet', declencheur: 'Creation / modification du projet avec ajout d un role', sujet: 'Assignation projet : [Nom projet]', template: `Bonjour [Prenom Nom],
+
+[Auteur] vous a assigné au projet :
+
+[Nom projet]
+
+Rôle(s) : [Roles]
 
 PMO Hub` },
     { id: 'statut', icon: '🔄', pages: ['Tâches', 'Processus', 'Projets'], titre: 'Changement de statut', description: 'Envoye lorsque le statut est modifie.', destinataire: 'Createur et utilisateurs assignes', declencheur: 'Modification du statut', sujet: 'Statut modifie : [Nom tache]', template: `Bonjour [Prenom Nom],

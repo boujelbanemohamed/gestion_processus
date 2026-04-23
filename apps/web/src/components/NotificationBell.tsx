@@ -157,6 +157,8 @@ export default function NotificationBell() {
                     <span className="text-lg mt-0.5">
                       {n.type === 'mention'
                         ? '📌'
+                        : n.type === 'assignation_projet'
+                          ? '📁'
                         : n.type === 'commentaire_pv_assigne'
                           ? '✅'
                           : n.type === 'commentaire_pv'

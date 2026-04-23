@@ -10,6 +10,7 @@ export const NOTIFICATION_SETTING_KEYS = [
   'mention_projet',
   'mention_contrat',
   'assignation',
+  'assignation_projet',
   'statut',
   'retard',
   'nouvelle_tache',

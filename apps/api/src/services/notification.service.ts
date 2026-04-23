@@ -366,6 +366,47 @@ export class NotificationService {
     });
   }
 
+  // ── Assignation à un projet ──────────────────────────────────────────────
+  async notifierAssignationProjet(data: {
+    projetId: string;
+    projetNom: string;
+    assigneUserId: string;
+    assigneEmail: string;
+    assigneNom: string;
+    auteurNom: string;
+    appUrl: string;
+    roles: string[];
+  }) {
+    const rolesLabel = data.roles.length ? data.roles.join(', ') : 'membre du projet';
+    await this.createInAppIfEnabled('assignation_projet', {
+      userId: data.assigneUserId,
+      type: 'assignation_projet',
+      titre: `Vous avez été assigné au projet "${data.projetNom}"`,
+      contenu: `${data.auteurNom} vous a assigné (${rolesLabel}).`,
+      lienType: 'projet',
+      lienId: data.projetId,
+    });
+    await this.sendNotificationEmail({
+      kind: 'assignation_projet',
+      toEmail: data.assigneEmail,
+      toUserId: data.assigneUserId,
+      subject: `✅ Assignation projet : ${data.projetNom}`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+          <div style="background:#0b5fff;color:white;padding:20px;border-radius:8px 8px 0 0"><h2 style="margin:0">✅ Assignation à un projet</h2></div>
+          <div style="background:#f9fafb;padding:20px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
+            <p>Bonjour <strong>${data.assigneNom}</strong>,</p>
+            <p><strong>${data.auteurNom}</strong> vous a assigné au projet :</p>
+            <div style="background:white;border-left:4px solid #0b5fff;padding:12px;margin:16px 0;border-radius:4px">
+              <p style="margin:0;font-weight:bold;color:#0b5fff">📁 ${data.projetNom}</p>
+              <p style="margin:6px 0 0;color:#374151">Rôle(s) : <strong>${rolesLabel}</strong></p>
+            </div>
+            <a href="${data.appUrl}/projets/${data.projetId}" style="display:inline-block;background:#0b5fff;color:white;padding:10px 20px;border-radius:6px;text-decoration:none">Voir le projet →</a>
+            <p style="color:#9ca3af;font-size:12px;margin-top:20px">PMO Hub — Notification automatique</p>
+          </div></div>`,
+      metadata: { projetId: data.projetId, roles: data.roles },
+    });
+  }
+
   // ── Changement de statut ──────────────────────────────────────────────────
   async notifierChangementStatut(data: {
     tacheId: string; tacheNom: string; ancienStatut: string; nouveauStatut: string;
