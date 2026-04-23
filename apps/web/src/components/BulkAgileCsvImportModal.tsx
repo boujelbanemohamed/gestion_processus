@@ -67,16 +67,16 @@ function splitList(value: string): string[] {
 
 function csvTemplate(): string {
   return [
-    'projet,epic,epic_description,user_story,tache,tache_description,statut,priorite,complexite,date_debut,date_fin_prevue,assignes_utilisateurs,assignes_clients_fournisseurs',
-    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Créer écran facture,"Créer l ecran de saisie facture",a_faire,haute,moyenne,2026-05-01,2026-05-10,"prenom1 nom1;prenom2 nom2","Client ABC;Fournisseur XYZ"',
-    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Validation facture,"Ajouter les regles de validation",en_cours,moyenne,moyenne,2026-05-03,2026-05-12,"user-id-1","client-id-1;client-id-2"',
-    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Initialisation,,cree,moyenne,basse,,,,',
-    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche En attente,,en_attente,moyenne,moyenne,,,,',
-    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Bloquée,,bloque,haute,haute,,,,',
-    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Finalisée,,termine,basse,basse,,,,',
-    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Archivée,,archive,basse,basse,,,,',
-    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Export facture,,,basse,basse,,,,',
-    'Migration ERP,Epic Reporting,"Regrouper les KPIs et tableaux de bord",,,,,,,,,',
+    'projet,epic,epic_description,user_story,tache,tache_description,scenario_execution,critere_acceptation,statut,priorite,complexite,date_debut,date_fin_prevue,assignes_utilisateurs,assignes_clients_fournisseurs',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Créer écran facture,"Créer l ecran de saisie facture","L utilisateur saisit les champs et enregistre","La facture est sauvegardee sans erreur",a_faire,haute,moyenne,2026-05-01,2026-05-10,"prenom1 nom1;prenom2 nom2","Client ABC;Fournisseur XYZ"',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Validation facture,"Ajouter les regles de validation","L utilisateur soumet une facture incomplete","Un message clair s affiche pour chaque champ invalide",en_cours,moyenne,moyenne,2026-05-03,2026-05-12,"user-id-1","client-id-1;client-id-2"',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Initialisation,,,"",cree,moyenne,basse,,,,',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche En attente,,,"",en_attente,moyenne,moyenne,,,,',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Bloquée,,,"",bloque,haute,haute,,,,',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Finalisée,,,"",termine,basse,basse,,,,',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Saisie facture,Tâche Archivée,,,"",archive,basse,basse,,,,',
+    'Migration ERP,Epic Facturation,"Refonte complete du flux de facturation",US Export facture,,,,basse,basse,,,,',
+    'Migration ERP,Epic Reporting,"Regrouper les KPIs et tableaux de bord",,,,,,,,,,,',
   ].join('\n');
 }
 
@@ -443,6 +443,9 @@ export default function BulkAgileCsvImportModal({
           await api.post('/taches', {
             nom: tacheNom,
             description: row.tache_description || null,
+            scenarioExecution: row.scenario_execution || row.scenarioexecution || null,
+            critereAcceptation:
+              row.critere_acceptation || row.critereacceptation || row['critère_acceptation'] || null,
             statut: row.statut || 'cree',
             priorite: row.priorite || 'basse',
             complexite: row.complexite || 'basse',
