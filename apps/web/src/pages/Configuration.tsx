@@ -56,10 +56,24 @@ const NOTIFICATION_EMAIL_KIND_LABELS: Record<string, string> = {
 };
 
 function UnsentEmailNotificationsSection() {
+  const PAGE_SIZE = 15;
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyBulk, setBusyBulk] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageRows = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return rows.slice(start, start + PAGE_SIZE);
+  }, [rows, currentPage]);
+  const pageIds = pageRows.map((r) => r.id);
+  const selectedOnPageCount = pageIds.filter((id) => selectedIds.includes(id)).length;
+  const allPageSelected = pageIds.length > 0 && selectedOnPageCount === pageIds.length;
 
   const load = async () => {
     setLoading(true);
@@ -67,6 +81,8 @@ function UnsentEmailNotificationsSection() {
     try {
       const { data } = await api.get('/admin/notification-email-failures');
       setRows(Array.isArray(data) ? data : []);
+      setPage(1);
+      setSelectedIds([]);
     } catch (e: any) {
       setRows([]);
       setLoadError(e?.response?.data?.error || 'Impossible de charger les notifications non envoyées.');
@@ -88,6 +104,58 @@ function UnsentEmailNotificationsSection() {
       alert(e?.response?.data?.error || 'Renvoi impossible');
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleSelectPage = () => {
+    setSelectedIds((prev) => {
+      if (allPageSelected) {
+        return prev.filter((id) => !pageIds.includes(id));
+      }
+      const set = new Set(prev);
+      pageIds.forEach((id) => set.add(id));
+      return [...set];
+    });
+  };
+
+  const bulkResend = async () => {
+    if (selectedIds.length === 0) return;
+    setBusyBulk(true);
+    try {
+      const results = await Promise.allSettled(
+        selectedIds.map((id) => api.post(`/admin/notification-email-failures/${id}/resend`))
+      );
+      const ok = results.filter((r) => r.status === 'fulfilled').length;
+      const ko = results.length - ok;
+      alert(`Renvoi en masse terminé: ${ok} succès${ko ? `, ${ko} échec(s)` : ''}.`);
+      await load();
+    } catch {
+      alert('Renvoi en masse impossible');
+    } finally {
+      setBusyBulk(false);
+    }
+  };
+
+  const bulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Supprimer ${selectedIds.length} entrée(s) sélectionnée(s) ?`)) return;
+    setBusyBulk(true);
+    try {
+      const results = await Promise.allSettled(
+        selectedIds.map((id) => api.delete(`/admin/notification-email-failures/${id}`))
+      );
+      const ok = results.filter((r) => r.status === 'fulfilled').length;
+      const ko = results.length - ok;
+      alert(`Suppression en masse terminée: ${ok} succès${ko ? `, ${ko} échec(s)` : ''}.`);
+      await load();
+    } catch {
+      alert('Suppression en masse impossible');
+    } finally {
+      setBusyBulk(false);
     }
   };
 
@@ -135,10 +203,43 @@ function UnsentEmailNotificationsSection() {
           Aucun échec d’envoi enregistré. Les prochains échecs (après déploiement de cette version) apparaîtront ici.
         </p>
       ) : (
-        <div className="overflow-x-auto border border-gray-200 rounded-lg">
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void bulkResend()}
+                disabled={busyBulk || selectedIds.length === 0}
+                className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+              >
+                {busyBulk ? '…' : `Renvoyer la sélection (${selectedIds.length})`}
+              </button>
+              <button
+                type="button"
+                onClick={() => void bulkDelete()}
+                disabled={busyBulk || selectedIds.length === 0}
+                className="px-3 py-1.5 text-xs border border-red-200 text-red-700 rounded-md hover:bg-red-50 disabled:opacity-50"
+              >
+                Supprimer la sélection
+              </button>
+            </div>
+            <div className="text-xs text-gray-600">
+              {rows.length} entrée(s) • Page {currentPage}/{totalPages} • 15 lignes/page
+            </div>
+          </div>
+
+          <div className="overflow-x-auto border border-gray-200 rounded-lg">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 text-gray-600 text-left">
               <tr>
+                <th className="px-3 py-2 font-medium w-10">
+                  <input
+                    type="checkbox"
+                    checked={allPageSelected}
+                    onChange={toggleSelectPage}
+                    aria-label="Sélectionner la page"
+                  />
+                </th>
                 <th className="px-3 py-2 font-medium">Date</th>
                 <th className="px-3 py-2 font-medium">Type</th>
                 <th className="px-3 py-2 font-medium">Destinataire</th>
@@ -148,7 +249,7 @@ function UnsentEmailNotificationsSection() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {rows.map((r) => {
+              {pageRows.map((r) => {
                 const destLabel =
                   r.toUser?.prenom != null
                     ? `${r.toUser.prenom} ${r.toUser.nom} · ${r.toEmail}`
@@ -159,6 +260,14 @@ function UnsentEmailNotificationsSection() {
                     : r.errorMessage;
                 return (
                   <tr key={r.id} className="hover:bg-gray-50/80 align-top">
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(r.id)}
+                        onChange={() => toggleSelectOne(r.id)}
+                        aria-label={`Sélectionner ${r.id}`}
+                      />
+                    </td>
                     <td className="px-3 py-2 whitespace-nowrap text-gray-700">
                       {r.createdAt ? new Date(r.createdAt).toLocaleString('fr-FR') : '—'}
                     </td>
@@ -195,6 +304,26 @@ function UnsentEmailNotificationsSection() {
               })}
             </tbody>
           </table>
+        </div>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1}
+              className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+            >
+              Précédent
+            </button>
+            <span className="text-xs text-gray-600">Page {currentPage} / {totalPages}</span>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+              className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+            >
+              Suivant
+            </button>
+          </div>
         </div>
       )}
     </div>
