@@ -757,6 +757,7 @@ model ClientFournisseur {
   id               String   @id @default(uuid())
   type             String   // 'client' | 'fournisseur'
   nom              String
+  logoUrl          String?
   typeSocieteId    String?
   typeSociete      TypeSociete? @relation(fields: [typeSocieteId], references: [id], onDelete: SetNull)
   matriculeFiscale String?

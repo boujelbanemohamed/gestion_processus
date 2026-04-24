@@ -10,6 +10,15 @@ function isoToDateInput(iso: string | null | undefined): string {
   return iso.slice(0, 10);
 }
 
+async function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Impossible de lire le fichier logo.'));
+    reader.readAsDataURL(file);
+  });
+}
+
 /** Libellés courts sur la ligne (style aperçu type Documents). */
 const LABEL_PERM_ROW: Record<string, string> = {
   lecture: 'lecture',
@@ -133,6 +142,7 @@ export default function ClientsFournisseurs() {
   const emptyForm = {
     type: 'client',
     nom: '',
+    logoUrl: '',
     typeSocieteId: '',
     matriculeFiscale: '',
     adresse: '',
@@ -203,6 +213,7 @@ export default function ClientsFournisseurs() {
     setForm({
       type: item.type,
       nom: item.nom,
+      logoUrl: item.logoUrl || '',
       typeSocieteId: item.typeSocieteId || '',
       matriculeFiscale: item.matriculeFiscale || '',
       adresse: item.adresse || '',
@@ -590,6 +601,13 @@ export default function ClientsFournisseurs() {
                   {item.type === 'client' ? '👤 Client' : '🏭 Fournisseur'}
                 </span>
                 <h2 className="text-base sm:text-lg font-semibold text-gray-900 min-w-0 flex-1 truncate">{item.nom}</h2>
+                {item.logoUrl && (
+                  <img
+                    src={item.logoUrl}
+                    alt={`Logo ${item.nom}`}
+                    className="h-8 w-8 rounded object-contain border border-gray-200 bg-white shrink-0"
+                  />
+                )}
                 <span
                   className="text-[11px] text-gray-400 font-mono shrink-0 max-w-[7rem] sm:max-w-[10rem] truncate"
                   title={item.id}
@@ -617,6 +635,16 @@ export default function ClientsFournisseurs() {
                     {item.matriculeFiscale && <div><span className="font-medium">MF/ID : </span>{item.matriculeFiscale}</div>}
                     {item.pays && <div><span className="font-medium">Pays : </span>{item.pays}</div>}
                     {item.adresse && <div><span className="font-medium">Adresse : </span>{item.adresse}</div>}
+                    {item.logoUrl && (
+                      <div className="col-span-2 lg:col-span-4 flex items-center gap-3">
+                        <span className="font-medium">Logo : </span>
+                        <img
+                          src={item.logoUrl}
+                          alt={`Logo ${item.nom}`}
+                          className="h-16 w-16 rounded border border-gray-200 object-contain bg-white"
+                        />
+                      </div>
+                    )}
                   </div>
                   {/* Représentants légaux */}
                   <div className="mt-3">
@@ -866,6 +894,67 @@ export default function ClientsFournisseurs() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nom de l'entité *</label>
                 <input type="text" value={form.nom} onChange={e => setForm({...form, nom: e.target.value})} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Logo</label>
+                <div className="flex flex-wrap items-center gap-3">
+                  {form.logoUrl ? (
+                    <img
+                      src={form.logoUrl}
+                      alt="Aperçu logo"
+                      className="h-16 w-16 rounded border border-gray-200 object-contain bg-white"
+                    />
+                  ) : (
+                    <div className="h-16 w-16 rounded border border-dashed border-gray-300 flex items-center justify-center text-[10px] text-gray-400">
+                      Aucun logo
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <label className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200 cursor-pointer">
+                      Choisir un fichier
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const allowed = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
+                          if (!allowed.includes(file.type)) {
+                            alert('Format logo non supporté. Utilisez PNG, JPG, WEBP ou SVG.');
+                            e.currentTarget.value = '';
+                            return;
+                          }
+                          if (file.size > 2 * 1024 * 1024) {
+                            alert('Logo trop volumineux (max 2 Mo).');
+                            e.currentTarget.value = '';
+                            return;
+                          }
+                          try {
+                            const dataUrl = await fileToDataUrl(file);
+                            setForm({ ...form, logoUrl: dataUrl });
+                          } catch (err: any) {
+                            alert(err?.message || 'Lecture du logo impossible');
+                          } finally {
+                            e.currentTarget.value = '';
+                          }
+                        }}
+                      />
+                    </label>
+                    {form.logoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, logoUrl: '' })}
+                        className="px-3 py-1.5 border border-red-200 text-red-700 rounded text-sm hover:bg-red-50"
+                      >
+                        Retirer
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  Recommandé: format PNG (ou SVG), taille 512x512 px (minimum 256x256), fond transparent, poids &lt; 300 Ko.
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Type de société</label>
