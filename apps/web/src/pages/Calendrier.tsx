@@ -43,6 +43,11 @@ type JourFerieItem = {
   libelle: string;
 };
 
+type ProjetItem = {
+  id: string;
+  nom: string;
+};
+
 type CalendarEvent = {
   id: string;
   sourceId: string;
@@ -124,6 +129,11 @@ function computeDurationLabel(
   return `${openDays} j ouvrés`;
 }
 
+function isWeekend(d: Date) {
+  const dow = d.getDay();
+  return dow === 0 || dow === 6;
+}
+
 export default function Calendrier() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -132,6 +142,7 @@ export default function Calendrier() {
   const [tasks, setTasks] = useState<TacheItem[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [joursFeries, setJoursFeries] = useState<JourFerieItem[]>([]);
+  const [projets, setProjets] = useState<ProjetItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<CalendarTypeFilter>('all');
   const [projectFilter, setProjectFilter] = useState<string>('all');
@@ -154,14 +165,16 @@ export default function Calendrier() {
   const load = async () => {
     setLoading(true);
     try {
-      const [tRes, nRes, jfRes] = await Promise.all([
+      const [tRes, nRes, jfRes, pRes] = await Promise.all([
         api.get('/taches'),
         api.get('/notifications'),
         api.get('/jours-feries').catch(() => ({ data: [] })),
+        api.get('/projets').catch(() => ({ data: [] })),
       ]);
       setTasks(Array.isArray(tRes.data) ? tRes.data : []);
       setNotifications(Array.isArray(nRes.data) ? nRes.data : []);
       setJoursFeries(Array.isArray(jfRes.data) ? jfRes.data : []);
+      setProjets(Array.isArray(pRes.data) ? pRes.data : []);
     } finally {
       setLoading(false);
     }
@@ -179,6 +192,23 @@ export default function Calendrier() {
       if (t.projet?.id) m.set(t.projet.id, t.projet.nom || t.projet.id);
     });
     return [...m.entries()].map(([id, nom]) => ({ id, nom })).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+  }, [tasks]);
+
+  const projectNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of tasks) {
+      if (t.projetId && t.projet?.nom) m.set(t.projetId, t.projet.nom);
+    }
+    for (const p of projets) {
+      if (p?.id && p?.nom && !m.has(p.id)) m.set(p.id, p.nom);
+    }
+    return m;
+  }, [tasks, projets]);
+
+  const taskById = useMemo(() => {
+    const m = new Map<string, TacheItem>();
+    for (const t of tasks) m.set(t.id, t);
+    return m;
   }, [tasks]);
 
   const users = useMemo(() => {
@@ -249,6 +279,16 @@ export default function Calendrier() {
       }
     }
     for (const n of notifications) {
+      let notifProjectId: string | null = null;
+      let notifProjectName: string | undefined;
+      if (n.lienType === 'projet' && n.lienId) {
+        notifProjectId = n.lienId;
+        notifProjectName = projectNameById.get(n.lienId);
+      } else if (n.lienType === 'tache' && n.lienId) {
+        const t = taskById.get(n.lienId);
+        notifProjectId = t?.projetId || null;
+        notifProjectName = t?.projet?.nom || (notifProjectId ? projectNameById.get(notifProjectId) : undefined);
+      }
       out.push({
         id: `n-${n.id}`,
         sourceId: n.id,
@@ -256,13 +296,15 @@ export default function Calendrier() {
         subType: n.type,
         title: n.titre,
         date: startOfDay(new Date(n.createdAt)),
-        tooltip: `${n.titre}\n${n.contenu}`,
+        projectId: notifProjectId,
+        projectName: notifProjectName,
+        tooltip: `${n.titre}\n${n.contenu}${notifProjectName ? `\nProjet: ${notifProjectName}` : ''}`,
       });
     }
     if (typeFilter === 'task') return out.filter((e) => e.type === 'task');
     if (typeFilter === 'notification') return out.filter((e) => e.type === 'notification');
     return out;
-  }, [tasks, notifications, typeFilter, projectFilter, statusFilter, adminUserFilter, holidayDates]);
+  }, [tasks, notifications, typeFilter, projectFilter, statusFilter, adminUserFilter, holidayDates, projectNameById, taskById]);
 
   const [rangeStart, rangeEnd] = useMemo(() => {
     const a = startOfDay(anchor);
@@ -286,6 +328,11 @@ export default function Calendrier() {
     }
     return arr;
   }, [rangeStart, rangeEnd]);
+
+  const weekBusinessDays = useMemo(() => {
+    if (view !== 'week') return daysInRange;
+    return daysInRange.filter((d) => !isWeekend(d));
+  }, [view, daysInRange]);
 
   const eventsByDay = useMemo(() => {
     const m = new Map<string, CalendarEvent[]>();
@@ -450,7 +497,7 @@ export default function Calendrier() {
             return (
               <div
                 key={dayKey(d)}
-                className={`min-h-[120px] border rounded bg-white p-2 ${inMonth ? '' : 'opacity-50'}`}
+                className={`min-h-[120px] border rounded p-2 ${inMonth ? '' : 'opacity-50'} ${isWeekend(d) ? 'bg-gray-50 border-gray-200' : 'bg-white'}`}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                   const taskId = e.dataTransfer.getData('task-id');
@@ -458,6 +505,9 @@ export default function Calendrier() {
                 }}
               >
                 <div className="text-xs font-semibold mb-1">{d.toLocaleDateString('fr-FR')}</div>
+                {isWeekend(d) && (
+                  <div className="text-[10px] text-gray-500 mb-1">Week-end</div>
+                )}
                 <div className="space-y-1">
                   {dayEvents.map((ev) => {
                     const isTask = ev.type === 'task';
@@ -500,7 +550,7 @@ export default function Calendrier() {
       ) : (
         <div className="bg-white border rounded p-3">
           <div className="grid grid-cols-1 md:grid-cols-7 gap-2">
-            {(view === 'day' ? [anchor] : daysInRange).map((d) => {
+            {(view === 'day' ? [anchor] : weekBusinessDays).map((d) => {
               const dayEvents = eventsByDay.get(dayKey(d)) || [];
               return (
                 <div
