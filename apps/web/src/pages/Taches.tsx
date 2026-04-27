@@ -197,10 +197,22 @@ function formatHistoryDetails(h: any): string[] {
   return lines;
 }
 
+function formatTempsActifDisplay(totalSeconds: number) {
+  if (totalSeconds < 24 * 3600) {
+    const hours = totalSeconds / 3600;
+    return `${hours.toFixed(1)} h`;
+  }
+  const jours = Math.floor(totalSeconds / (24 * 3600));
+  const heuresRestantes = Math.round((totalSeconds - jours * 24 * 3600) / 3600);
+  return `${jours} j ${heuresRestantes} h`;
+}
+
 export type Tache = {
   id: string;
   nom: string;
   statut: string;
+  tempsActifSecondes?: number;
+  chronoActifDepuis?: string | null;
   priorite?: 'basse' | 'moyenne' | 'haute' | string;
   complexite?: 'basse' | 'moyenne' | 'haute' | string;
   dateDebut?: string;
@@ -3047,6 +3059,14 @@ export function TacheCard({
   const tacheDureePrevisionnelle = computePlannedDurationDays(tache.dateDebut, tache.dateFinApprox);
   const tachePlanningAdministre = !!(tache.dateDebut && tache.dateFinApprox);
   const tachePriorityScore = computeTaskPriorityScore(tache);
+  const tacheTempsActifSecondes = (() => {
+    const base = tache.tempsActifSecondes || 0;
+    if (tache.statut === 'en_cours' && tache.chronoActifDepuis) {
+      const elapsed = Math.max(0, Math.floor((Date.now() - new Date(tache.chronoActifDepuis).getTime()) / 1000));
+      return base + elapsed;
+    }
+    return base;
+  })();
 
   return (
     <>
@@ -3160,6 +3180,7 @@ export function TacheCard({
                 ) : (
                   <span className="italic text-gray-400">⏳ Non administré</span>
                 )}
+                <span>⏱ Temps actif cumulé : {formatTempsActifDisplay(tacheTempsActifSecondes)}</span>
                 {tache.createur && (
                   <span>
                     👤 {tache.createur.prenom} {tache.createur.nom}

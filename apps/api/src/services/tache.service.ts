@@ -339,10 +339,13 @@ export class TacheService {
       liaisons = [],
     } = data;
 
+    const initialStatut = statut || 'cree';
     const tache = await prisma.tache.create({
       data: {
         nom,
-        statut: statut || 'cree',
+        statut: initialStatut,
+        tempsActifSecondes: 0,
+        chronoActifDepuis: initialStatut === 'en_cours' ? new Date() : null,
         priorite: priorite || 'basse',
         complexite: complexite || 'basse',
         dateDebut: dateDebut ? new Date(dateDebut) : null,
@@ -434,6 +437,25 @@ export class TacheService {
       liaisons,
     } = data;
 
+    let trackingPatch: { tempsActifSecondes?: number; chronoActifDepuis?: Date | null } = {};
+    if (statut !== undefined && statut !== cur.statut) {
+      const now = new Date();
+      let cumul = cur.tempsActifSecondes || 0;
+      let chronoActifDepuis = cur.chronoActifDepuis || null;
+      if (cur.statut === 'en_cours' && chronoActifDepuis) {
+        const elapsedSec = Math.max(0, Math.floor((now.getTime() - new Date(chronoActifDepuis).getTime()) / 1000));
+        cumul += elapsedSec;
+        chronoActifDepuis = null;
+      }
+      if (statut === 'en_cours') {
+        chronoActifDepuis = now;
+      }
+      trackingPatch = {
+        tempsActifSecondes: cumul,
+        chronoActifDepuis,
+      };
+    }
+
     // Mise à jour du champ de base
     await prisma.tache.update({
       where: { id },
@@ -449,6 +471,7 @@ export class TacheService {
         ...(critereAcceptation !== undefined && { critereAcceptation }),
         ...(projetId !== undefined && { projetId: projetId || null }),
         ...(userStoryId !== undefined && { userStoryId: userStoryId || null }),
+        ...trackingPatch,
       },
     });
 

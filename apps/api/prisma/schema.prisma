@@ -1076,6 +1076,8 @@ model Tache {
   id                  String        @id @default(uuid())
   nom                 String
   statut              TacheStatut   @default(cree)
+  tempsActifSecondes  Int           @default(0)
+  chronoActifDepuis   DateTime?
   priorite            String        @default("basse")
   complexite          String        @default("basse")
   dateDebut           DateTime?
