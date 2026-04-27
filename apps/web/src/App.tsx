@@ -23,6 +23,7 @@ import OCR from './pages/OCR';
 import Licences from './pages/Licences';
 import Projets from './pages/Projets';
 import Taches from './pages/Taches';           // ← NOUVEAU
+import Calendrier from './pages/Calendrier';
 import ProjetDetail from './pages/ProjetDetail'; // ← NOUVEAU (déjà existant, maintenant complet)
 import Corbeille from './pages/Corbeille';
 import PvReunionList from './pages/PvReunionList';
@@ -97,6 +98,7 @@ function App() {
         <Route path="/projets" element={<ProtectedRoute><Projets /></ProtectedRoute>} />
         <Route path="/projets/:id" element={<ProtectedRoute><ProjetDetail /></ProtectedRoute>} />
         <Route path="/taches" element={<ProtectedRoute><Taches /></ProtectedRoute>} />
+        <Route path="/calendrier" element={<ProtectedRoute><Calendrier /></ProtectedRoute>} />
         <Route path="/clients-fournisseurs" element={<ProtectedRoute><ClientsFournisseurs /></ProtectedRoute>} />
         <Route path="/contrats" element={<ProtectedRoute><Contrats /></ProtectedRoute>} />
               <Route path="/ocr" element={<ProtectedRoute><OCR /></ProtectedRoute>} />
