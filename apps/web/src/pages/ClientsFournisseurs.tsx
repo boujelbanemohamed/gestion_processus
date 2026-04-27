@@ -19,6 +19,77 @@ async function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+type CsvRow = Record<string, string>;
+
+function detectDelimiter(sample: string): string {
+  const first = sample.split(/\r?\n/).find((l) => l.trim().length > 0) || '';
+  const candidates = [',', ';', '\t'];
+  let best = ',';
+  let bestCount = -1;
+  for (const d of candidates) {
+    const c = first.split(d).length - 1;
+    if (c > bestCount) {
+      bestCount = c;
+      best = d;
+    }
+  }
+  return best;
+}
+
+function parseCsv(content: string): CsvRow[] {
+  const delimiter = detectDelimiter(content);
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (!normalized.trim()) return [];
+  const records: string[][] = [];
+  let row: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < normalized.length; i++) {
+    const ch = normalized[i];
+    if (ch === '"') {
+      if (inQuotes && normalized[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (ch === delimiter && !inQuotes) {
+      row.push(current);
+      current = '';
+      continue;
+    }
+    if (ch === '\n' && !inQuotes) {
+      row.push(current);
+      current = '';
+      if (row.some((c) => c.trim() !== '')) records.push(row);
+      row = [];
+      continue;
+    }
+    current += ch;
+  }
+  row.push(current);
+  if (row.some((c) => c.trim() !== '')) records.push(row);
+  if (records.length === 0) return [];
+  const headers = records[0].map((h) => String(h || '').trim().toLowerCase().replace(/^\uFEFF/, ''));
+  return records.slice(1).map((cells) => {
+    const r: CsvRow = {};
+    headers.forEach((h, i) => {
+      r[h] = String(cells[i] ?? '').trim();
+    });
+    return r;
+  });
+}
+
+function clientsFournisseursCsvTemplate(): string {
+  return [
+    'type,nom,type_societe,matricule_fiscale,adresse,pays,logo_url',
+    'client,PAYSMART,SA,MF-12345,"10 Rue de la Bourse, Tunis",Tunisie,',
+    'fournisseur,Orange Business,SARL,MF-67890,"Avenue Habib Bourguiba",Tunisie,',
+  ].join('\n');
+}
+
 /** Libellés courts sur la ligne (style aperçu type Documents). */
 const LABEL_PERM_ROW: Record<string, string> = {
   lecture: 'lecture',
@@ -127,6 +198,17 @@ export default function ClientsFournisseurs() {
   const [expandedCfIds, setExpandedCfIds] = useState<Set<string>>(() => new Set());
   const [showCorbeilleModal, setShowCorbeilleModal] = useState(false);
   const [corbeilleItems, setCorbeilleItems] = useState<any[]>([]);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFileName, setImportFileName] = useState('');
+  const [importRows, setImportRows] = useState<CsvRow[]>([]);
+  const [importErrors, setImportErrors] = useState<Array<{ line: number; field: string; message: string }>>([]);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importReport, setImportReport] = useState<{
+    totalRows: number;
+    successRows: number;
+    failedRows: number;
+    createdRows: number;
+  } | null>(null);
 
   const toggleCfRow = (id: string) => {
     setExpandedCfIds((prev) => {
@@ -472,6 +554,105 @@ export default function ClientsFournisseurs() {
     load();
   };
 
+  const typeSocieteByKey = useMemo(() => {
+    const m = new Map<string, any>();
+    (typesSociete || []).forEach((t: any) => {
+      m.set(String(t.id).toLowerCase(), t);
+      m.set(String(t.nom || '').toLowerCase(), t);
+    });
+    return m;
+  }, [typesSociete]);
+
+  const downloadImportTemplate = () => {
+    const blob = new Blob([clientsFournisseursCsvTemplate()], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'template_import_clients_fournisseurs.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const validateImportRows = (rowsToValidate: CsvRow[]) => {
+    const errs: Array<{ line: number; field: string; message: string }> = [];
+    if (rowsToValidate.length === 0) {
+      errs.push({ line: 1, field: 'fichier', message: 'Le fichier est vide.' });
+      return errs;
+    }
+    rowsToValidate.forEach((row, idx) => {
+      const line = idx + 2;
+      const type = String(row.type || '').toLowerCase();
+      const nom = String(row.nom || '').trim();
+      if (!type || (type !== 'client' && type !== 'fournisseur')) {
+        errs.push({ line, field: 'type', message: "Le type doit être 'client' ou 'fournisseur'." });
+      }
+      if (!nom) errs.push({ line, field: 'nom', message: 'Le nom est requis.' });
+      const tsRaw = String(row.type_societe || '').trim();
+      if (tsRaw && !typeSocieteByKey.get(tsRaw.toLowerCase())) {
+        errs.push({ line, field: 'type_societe', message: `Type de société introuvable: "${tsRaw}".` });
+      }
+    });
+    return errs;
+  };
+
+  const onImportFileChange = async (file?: File | null) => {
+    setImportReport(null);
+    setImportErrors([]);
+    setImportRows([]);
+    if (!file) {
+      setImportFileName('');
+      return;
+    }
+    setImportFileName(file.name);
+    const txt = await file.text();
+    const parsed = parseCsv(txt);
+    setImportRows(parsed);
+    setImportErrors(validateImportRows(parsed));
+  };
+
+  const runMassImport = async () => {
+    const pre = validateImportRows(importRows);
+    setImportErrors(pre);
+    if (pre.length > 0) return;
+    setImportBusy(true);
+    setImportReport(null);
+    const errs: Array<{ line: number; field: string; message: string }> = [];
+    let createdRows = 0;
+    for (let i = 0; i < importRows.length; i++) {
+      const row = importRows[i];
+      const line = i + 2;
+      try {
+        const typeSocieteRaw = String(row.type_societe || '').trim();
+        const ts = typeSocieteRaw ? typeSocieteByKey.get(typeSocieteRaw.toLowerCase()) : null;
+        await api.post('/clients-fournisseurs', {
+          type: String(row.type || '').toLowerCase(),
+          nom: row.nom || '',
+          typeSocieteId: ts?.id || null,
+          matriculeFiscale: row.matricule_fiscale || null,
+          adresse: row.adresse || null,
+          pays: row.pays || null,
+          logoUrl: row.logo_url || null,
+        });
+        createdRows++;
+      } catch (e: any) {
+        errs.push({
+          line,
+          field: 'api',
+          message: e?.response?.data?.error || e?.message || 'Erreur import',
+        });
+      }
+    }
+    setImportErrors(errs);
+    setImportReport({
+      totalRows: importRows.length,
+      successRows: importRows.length - errs.length,
+      failedRows: errs.length,
+      createdRows,
+    });
+    setImportBusy(false);
+    if (createdRows > 0) await load();
+  };
+
   const filteredItems = useMemo(() => {
     const needle = searchIdCf.trim().toLowerCase();
     if (!needle) return items;
@@ -498,6 +679,15 @@ export default function ClientsFournisseurs() {
           >
             🗑 Corbeille
           </button>
+          {canCreate && (
+            <button
+              type="button"
+              onClick={() => setShowImportModal(true)}
+              className="px-4 py-2 border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-50 text-sm font-medium"
+            >
+              ⬆ Import massif
+            </button>
+          )}
           {canCreate && (
             <button
               type="button"
@@ -875,6 +1065,94 @@ export default function ClientsFournisseurs() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Import massif Clients / Fournisseurs</h3>
+              <button type="button" onClick={() => setShowImportModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+            </div>
+            <div className="flex flex-wrap gap-2 items-center mb-3">
+              <button
+                type="button"
+                onClick={downloadImportTemplate}
+                className="px-3 py-2 rounded bg-slate-100 text-slate-800 text-sm hover:bg-slate-200"
+              >
+                Télécharger le template CSV
+              </button>
+              <label className="px-3 py-2 rounded border border-gray-300 text-sm cursor-pointer hover:bg-gray-50">
+                Choisir un fichier CSV
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={(e) => void onImportFileChange(e.target.files?.[0] || null)}
+                />
+              </label>
+              <span className="text-sm text-gray-600">{importFileName || 'Aucun fichier sélectionné'}</span>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              Colonnes attendues: type, nom, type_societe, matricule_fiscale, adresse, pays, logo_url
+            </p>
+
+            {importReport && (
+              <div className="text-sm border border-green-200 bg-green-50 text-green-800 rounded p-3 mb-3">
+                <p className="font-semibold mb-1">Rapport d&apos;upload</p>
+                <p>
+                  Total: {importReport.totalRows} • Succès: {importReport.successRows} • Erreurs: {importReport.failedRows} • Créés: {importReport.createdRows}
+                </p>
+              </div>
+            )}
+
+            {importErrors.length > 0 && (
+              <div className="border border-red-200 bg-red-50 rounded p-3 mb-3">
+                <p className="text-sm font-semibold text-red-800 mb-2">
+                  {importErrors.length} erreur(s) à corriger avant réimport
+                </p>
+                <div className="max-h-56 overflow-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-red-900">
+                        <th className="pr-3">Ligne</th>
+                        <th className="pr-3">Champ</th>
+                        <th>Message</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importErrors.map((e, idx) => (
+                        <tr key={`${e.line}-${idx}`} className="border-t border-red-100">
+                          <td className="pr-3 py-1">{e.line}</td>
+                          <td className="pr-3 py-1">{e.field}</td>
+                          <td className="py-1">{e.message}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => setShowImportModal(false)}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Fermer
+              </button>
+              <button
+                type="button"
+                onClick={() => void runMassImport()}
+                disabled={importBusy || importRows.length === 0}
+                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {importBusy ? 'Import en cours...' : 'Lancer l’import'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
