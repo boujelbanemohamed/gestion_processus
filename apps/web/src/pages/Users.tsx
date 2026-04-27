@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../services/api';
 import { mergeUserEntitesForDisplay, userEntitesSortLabel } from '../utils/userEntitesDisplay';
+import { useAuth } from '../store/auth';
 
 export default function Users() {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -20,6 +22,7 @@ export default function Users() {
   const [showFiltres, setShowFiltres] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [page, setPage] = useState(1);
+  const [statusBusyById, setStatusBusyById] = useState<Record<string, boolean>>({});
   const pageSize = 10;
   const [formData, setFormData] = useState({
     nom: '',
@@ -79,6 +82,21 @@ export default function Users() {
       console.error('Erreur:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const canToggleUserStatus = currentUser?.role === 'admin';
+
+  const toggleUserActivation = async (u: any, enabled: boolean) => {
+    const nextStatut = enabled ? 'actif' : 'inactif';
+    setStatusBusyById((prev) => ({ ...prev, [u.id]: true }));
+    try {
+      await api.put(`/users/${u.id}`, { statut: nextStatut });
+      await loadUsers();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Mise à jour du statut impossible');
+    } finally {
+      setStatusBusyById((prev) => ({ ...prev, [u.id]: false }));
     }
   };
 
@@ -366,6 +384,11 @@ export default function Users() {
                   )}
                 </div>
               </th>
+              {canToggleUserStatus && (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Activation
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -423,7 +446,31 @@ export default function Users() {
                   }`}>
                     {u.statut}
                   </span>
+                  {u.statut !== 'actif' && (
+                    <p className="mt-1 text-[11px] text-amber-700">
+                      Cet utilisateur ne reçoit aucune notification.
+                    </p>
+                  )}
                 </td>
+                {canToggleUserStatus && (
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <label className="inline-flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={u.statut === 'actif'}
+                        disabled={!!statusBusyById[u.id]}
+                        onChange={(e) => void toggleUserActivation(u, e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <span className="text-xs text-gray-600">Notifications & accès</span>
+                      <span className="relative inline-flex h-5 w-10 items-center rounded-full bg-gray-300 transition-colors peer-checked:bg-green-500">
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                          u.statut === 'actif' ? 'translate-x-5' : 'translate-x-1'
+                        }`} />
+                      </span>
+                    </label>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

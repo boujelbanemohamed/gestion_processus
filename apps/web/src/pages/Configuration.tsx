@@ -330,6 +330,147 @@ function UnsentEmailNotificationsSection() {
   );
 }
 
+function JoursFeriesSection() {
+  const [rows, setRows] = useState<Array<{ id: string; date: string; libelle: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ date: '', libelle: '' });
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get('/admin/jours-feries');
+      setRows(Array.isArray(data) ? data : []);
+    } catch {
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const add = async () => {
+    if (!form.date) {
+      alert('La date est obligatoire');
+      return;
+    }
+    if (!form.libelle.trim()) {
+      alert('Le libellé est obligatoire');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.post('/admin/jours-feries', {
+        date: form.date,
+        libelle: form.libelle.trim(),
+      });
+      setForm({ date: '', libelle: '' });
+      await load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Ajout impossible');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (id: string) => {
+    if (!window.confirm('Supprimer ce jour férié ?')) return;
+    setBusy(true);
+    try {
+      await api.delete(`/admin/jours-feries/${id}`);
+      await load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Suppression impossible');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-lg shadow p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Jours fériés</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Les jours fériés saisis ici sont déduits du calcul de durée des tâches (uniquement s’ils sont entre la date de début et la date de fin).
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={loading || busy}
+          className="px-3 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+        >
+          Actualiser
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-[180px_1fr_auto] gap-2 mb-4">
+        <input
+          type="date"
+          value={form.date}
+          onChange={(e) => setForm((p) => ({ ...p, date: e.target.value }))}
+          className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+        />
+        <input
+          type="text"
+          value={form.libelle}
+          onChange={(e) => setForm((p) => ({ ...p, libelle: e.target.value }))}
+          placeholder="Ex: Fête du Travail"
+          className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+        />
+        <button
+          type="button"
+          onClick={() => void add()}
+          disabled={busy}
+          className="px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+        >
+          Ajouter
+        </button>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-gray-500">Chargement…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-gray-600">Aucun jour férié configuré.</p>
+      ) : (
+        <div className="overflow-x-auto border border-gray-200 rounded-lg">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50 text-gray-600 text-left">
+              <tr>
+                <th className="px-3 py-2 font-medium w-44">Date</th>
+                <th className="px-3 py-2 font-medium">Libellé</th>
+                <th className="px-3 py-2 font-medium w-32">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="px-3 py-2 text-gray-700">{r.date}</td>
+                  <td className="px-3 py-2 text-gray-800">{r.libelle}</td>
+                  <td className="px-3 py-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void remove(r.id)}
+                      className="px-2 py-1 text-xs border border-red-200 text-red-700 rounded hover:bg-red-50 disabled:opacity-50"
+                    >
+                      Supprimer
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NotificationsTab() {
   const [openTemplate, setOpenTemplate] = useState<string | null>(null);
   const [testEmailMap, setTestEmailMap] = useState<Record<string, string>>({});
@@ -707,6 +848,7 @@ Consultez l application pour plus de details : [Lien application]
         )}
       </div>
 
+      <JoursFeriesSection />
       <UnsentEmailNotificationsSection />
     </div>
   );

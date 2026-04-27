@@ -1238,6 +1238,18 @@ model NotificationEmailFailure {
   @@index([kind])
 }
 
+/// Jours fériés configurés depuis l'écran Configuration.
+model JourFerie {
+  id        String   @id @default(uuid())
+  /// Date au format jour (UTC minuit côté DB).
+  date      DateTime @unique
+  libelle   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+}
+
 // ── TACHE DOCUMENTS ───────────────────────────────────────────────────────────
 
 model TacheDocument {

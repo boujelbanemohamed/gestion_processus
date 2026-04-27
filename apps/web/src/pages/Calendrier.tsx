@@ -37,6 +37,12 @@ type NotificationItem = {
   createdAt: string;
 };
 
+type JourFerieItem = {
+  id: string;
+  date: string;
+  libelle: string;
+};
+
 type CalendarEvent = {
   id: string;
   sourceId: string;
@@ -97,12 +103,25 @@ function diffDays(a: Date, b: Date) {
   return Math.round(ms / (24 * 3600 * 1000));
 }
 
-function computeDurationLabel(dateDebut?: string | null, dateFinApprox?: string | null) {
+function computeDurationLabel(
+  dateDebut?: string | null,
+  dateFinApprox?: string | null,
+  holidayDates: Set<string> = new Set()
+) {
   if (!dateDebut || !dateFinApprox) return '';
   const start = startOfDay(new Date(dateDebut));
   const end = startOfDay(new Date(dateFinApprox));
-  const days = Math.max(0, Math.round((end.getTime() - start.getTime()) / (24 * 3600 * 1000))) + 1;
-  return `${days} j`;
+  if (end.getTime() < start.getTime()) return '';
+  let openDays = 0;
+  let cur = new Date(start);
+  while (cur.getTime() <= end.getTime()) {
+    const dow = cur.getDay();
+    const isWeekend = dow === 0 || dow === 6;
+    const isHoliday = holidayDates.has(dayKey(cur));
+    if (!isWeekend && !isHoliday) openDays += 1;
+    cur = addDays(cur, 1);
+  }
+  return `${openDays} j ouvrés`;
 }
 
 export default function Calendrier() {
@@ -112,6 +131,7 @@ export default function Calendrier() {
   const [anchor, setAnchor] = useState<Date>(startOfDay(new Date()));
   const [tasks, setTasks] = useState<TacheItem[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [joursFeries, setJoursFeries] = useState<JourFerieItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<CalendarTypeFilter>('all');
   const [projectFilter, setProjectFilter] = useState<string>('all');
@@ -134,9 +154,14 @@ export default function Calendrier() {
   const load = async () => {
     setLoading(true);
     try {
-      const [tRes, nRes] = await Promise.all([api.get('/taches'), api.get('/notifications')]);
+      const [tRes, nRes, jfRes] = await Promise.all([
+        api.get('/taches'),
+        api.get('/notifications'),
+        api.get('/jours-feries').catch(() => ({ data: [] })),
+      ]);
       setTasks(Array.isArray(tRes.data) ? tRes.data : []);
       setNotifications(Array.isArray(nRes.data) ? nRes.data : []);
+      setJoursFeries(Array.isArray(jfRes.data) ? jfRes.data : []);
     } finally {
       setLoading(false);
     }
@@ -168,6 +193,15 @@ export default function Calendrier() {
     return [...m.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label, 'fr'));
   }, [tasks]);
 
+  const holidayDates = useMemo(() => {
+    const s = new Set<string>();
+    for (const j of joursFeries) {
+      if (!j?.date) continue;
+      s.add(String(j.date).slice(0, 10));
+    }
+    return s;
+  }, [joursFeries]);
+
   const events = useMemo<CalendarEvent[]>(() => {
     const out: CalendarEvent[] = [];
     for (const t of tasks) {
@@ -184,7 +218,7 @@ export default function Calendrier() {
       const assigneesEntites = (t.assignesEntites || []).map((e) => e.nom).filter(Boolean);
       const assigneesClientsFournisseurs = (t.assignesClientsFournisseurs || []).map((cf) => cf.nom).filter(Boolean);
       const epicName = t.userStory?.epic?.nom?.trim() || '';
-      const durationLabel = computeDurationLabel(t.dateDebut, t.dateFinApprox);
+      const durationLabel = computeDurationLabel(t.dateDebut, t.dateFinApprox, holidayDates);
       let cursor = startOfDay(start);
       const limit = startOfDay(end);
       while (cursor.getTime() <= limit.getTime()) {
@@ -228,7 +262,7 @@ export default function Calendrier() {
     if (typeFilter === 'task') return out.filter((e) => e.type === 'task');
     if (typeFilter === 'notification') return out.filter((e) => e.type === 'notification');
     return out;
-  }, [tasks, notifications, typeFilter, projectFilter, statusFilter, adminUserFilter]);
+  }, [tasks, notifications, typeFilter, projectFilter, statusFilter, adminUserFilter, holidayDates]);
 
   const [rangeStart, rangeEnd] = useMemo(() => {
     const a = startOfDay(anchor);

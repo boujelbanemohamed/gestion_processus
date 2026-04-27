@@ -4,6 +4,14 @@ import { recordNotificationEmailFailure } from './notification-email-failure.ser
 import { NotificationSettingService, resolveEmailSettingKey } from './notification-setting.service';
 
 export class NotificationService {
+  private async canUserReceiveNotifications(userId?: string | null): Promise<boolean> {
+    if (!userId) return true;
+    const row = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { statut: true },
+    });
+    return row?.statut === 'actif';
+  }
 
   // ── SMTP helper (même pattern que PasswordResetService) ───────────────────
   private async getActiveSMTP() {
@@ -29,6 +37,9 @@ export class NotificationService {
   }) {
     const settingKey = resolveEmailSettingKey(params.kind);
     if (!(await NotificationSettingService.isEmailEnabled(settingKey))) {
+      return;
+    }
+    if (!(await this.canUserReceiveNotifications(params.toUserId))) {
       return;
     }
     const smtp = await this.getActiveSMTP();
@@ -91,6 +102,7 @@ export class NotificationService {
     }
   ) {
     if (!(await NotificationSettingService.isAppEnabled(settingKey))) return;
+    if (!(await this.canUserReceiveNotifications(data.userId))) return;
     try {
       await prisma.notification.create({ data });
     } catch {

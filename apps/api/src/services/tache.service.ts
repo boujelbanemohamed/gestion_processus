@@ -169,6 +169,20 @@ const ACCES_PERM_LABELS: Record<PermissionType, string> = {
 export class TacheService {
   private notificationService = new NotificationService();
 
+  private uniqueIds(ids: string[] = []): string[] {
+    return [...new Set((ids || []).filter(Boolean))];
+  }
+
+  private async resolveAutoEntiteIdsFromUsers(userIds: string[]): Promise<string[]> {
+    const ids = this.uniqueIds(userIds);
+    if (ids.length === 0) return [];
+    const rows = await prisma.userEntite.findMany({
+      where: { userId: { in: ids } },
+      select: { entiteId: true },
+    });
+    return this.uniqueIds(rows.map((r) => r.entiteId));
+  }
+
   private permRank(p: PermissionType): number {
     return PERM_RANK[p] ?? 0;
   }
@@ -338,6 +352,9 @@ export class TacheService {
       assignesClientFournisseurIds = [],
       liaisons = [],
     } = data;
+    const finalAssigneesUtilisateurIds = this.uniqueIds(assignesUtilisateurIds);
+    const autoEntiteIdsFromUsers = await this.resolveAutoEntiteIdsFromUsers(finalAssigneesUtilisateurIds);
+    const finalAssigneesEntiteIds = this.uniqueIds([...(assignesEntiteIds || []), ...autoEntiteIdsFromUsers]);
 
     const initialStatut = statut || 'cree';
     const tache = await prisma.tache.create({
@@ -357,13 +374,13 @@ export class TacheService {
         userStoryId: userStoryId || null,
         createurId,
         assignesUtilisateurs: {
-          create: assignesUtilisateurIds.map((userId: string) => ({
+          create: finalAssigneesUtilisateurIds.map((userId: string) => ({
             userId,
             permission: PermissionType.modification,
           })),
         },
         assignesEntites: {
-          create: assignesEntiteIds.map((entiteId: string) => ({ entiteId })),
+          create: finalAssigneesEntiteIds.map((entiteId: string) => ({ entiteId })),
         },
         assignesClientsFournisseurs: {
           create: assignesClientFournisseurIds.map((clientFournisseurId: string) => ({
@@ -381,10 +398,10 @@ export class TacheService {
     // Notifier les utilisateurs assignés
     const tacheFormatted = formatTache(tache);
     const appUrl = process.env.FRONTEND_URL || 'http://172.17.5.198:5173';
-    if (assignesUtilisateurIds?.length > 0) {
+    if (finalAssigneesUtilisateurIds?.length > 0) {
       const auteur = await prisma.user.findUnique({ where: { id: createurId }, select: { nom: true, prenom: true } });
       const auteurNom = auteur ? `${auteur.prenom} ${auteur.nom}` : 'Un utilisateur';
-      const assignes = await prisma.user.findMany({ where: { id: { in: assignesUtilisateurIds } }, select: { id: true, email: true, nom: true, prenom: true } });
+      const assignes = await prisma.user.findMany({ where: { id: { in: finalAssigneesUtilisateurIds } }, select: { id: true, email: true, nom: true, prenom: true } });
       for (const u of assignes) {
         this.notificationService.notifierAssignation({
           tacheId: tache.id,
@@ -436,6 +453,36 @@ export class TacheService {
       assignesClientFournisseurIds,
       liaisons,
     } = data;
+    const shouldSyncUsers = assignesUtilisateurIds !== undefined;
+    const shouldSyncEntites = assignesEntiteIds !== undefined || shouldSyncUsers;
+
+    let finalAssigneesUtilisateurIds: string[] = [];
+    if (shouldSyncUsers) {
+      finalAssigneesUtilisateurIds = this.uniqueIds(assignesUtilisateurIds || []);
+    } else {
+      const existingUsers = await prisma.tacheUser.findMany({
+        where: { tacheId: id },
+        select: { userId: true },
+      });
+      finalAssigneesUtilisateurIds = this.uniqueIds(existingUsers.map((r) => r.userId));
+    }
+
+    let baseAssigneesEntiteIds: string[] = [];
+    if (assignesEntiteIds !== undefined) {
+      baseAssigneesEntiteIds = this.uniqueIds(assignesEntiteIds || []);
+    } else if (shouldSyncEntites) {
+      const existingEntites = await prisma.tacheEntite.findMany({
+        where: { tacheId: id },
+        select: { entiteId: true },
+      });
+      baseAssigneesEntiteIds = this.uniqueIds(existingEntites.map((r) => r.entiteId));
+    }
+    const autoEntiteIdsFromUsers = shouldSyncEntites
+      ? await this.resolveAutoEntiteIdsFromUsers(finalAssigneesUtilisateurIds)
+      : [];
+    const finalAssigneesEntiteIds = shouldSyncEntites
+      ? this.uniqueIds([...baseAssigneesEntiteIds, ...autoEntiteIdsFromUsers])
+      : [];
 
     let trackingPatch: { tempsActifSecondes?: number; chronoActifDepuis?: Date | null } = {};
     if (statut !== undefined && statut !== cur.statut) {
@@ -476,11 +523,11 @@ export class TacheService {
     });
 
     // Sync utilisateurs assignés
-    if (assignesUtilisateurIds !== undefined) {
+    if (shouldSyncUsers) {
       await prisma.tacheUser.deleteMany({ where: { tacheId: id } });
-      if (assignesUtilisateurIds.length > 0) {
+      if (finalAssigneesUtilisateurIds.length > 0) {
         await prisma.tacheUser.createMany({
-          data: assignesUtilisateurIds.map((userId: string) => ({
+          data: finalAssigneesUtilisateurIds.map((userId: string) => ({
             tacheId: id,
             userId,
             permission: PermissionType.modification,
@@ -491,11 +538,11 @@ export class TacheService {
     }
 
     // Sync entités assignées
-    if (assignesEntiteIds !== undefined) {
+    if (shouldSyncEntites) {
       await prisma.tacheEntite.deleteMany({ where: { tacheId: id } });
-      if (assignesEntiteIds.length > 0) {
+      if (finalAssigneesEntiteIds.length > 0) {
         await prisma.tacheEntite.createMany({
-          data: assignesEntiteIds.map((entiteId: string) => ({ tacheId: id, entiteId })),
+          data: finalAssigneesEntiteIds.map((entiteId: string) => ({ tacheId: id, entiteId })),
           skipDuplicates: true,
         });
       }

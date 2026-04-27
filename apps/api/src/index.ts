@@ -28,6 +28,7 @@ import * as epicController from "./controllers/epic.controller";
 import * as notificationController from "./controllers/notification.controller";
 import * as notificationEmailFailureController from "./controllers/notification-email-failure.controller";
 import * as notificationSettingController from "./controllers/notification-setting.controller";
+import * as jourFerieController from "./controllers/jour-ferie.controller";
 import * as licenceController from "./controllers/licence.controller";
 import * as typeLicenceController from "./controllers/type-licence.controller";
 import * as typeContratController from "./controllers/type-contrat.controller";
@@ -544,6 +545,25 @@ app.patch(
   "/api/v1/admin/notification-settings/:key",
   requireRole("admin"),
   notificationSettingController.patchNotificationSetting
+);
+app.get(
+  "/api/v1/jours-feries",
+  jourFerieController.listJoursFeries
+);
+app.get(
+  "/api/v1/admin/jours-feries",
+  requireRole("admin"),
+  jourFerieController.listJoursFeries
+);
+app.post(
+  "/api/v1/admin/jours-feries",
+  requireRole("admin"),
+  jourFerieController.createJourFerie
+);
+app.delete(
+  "/api/v1/admin/jours-feries/:id",
+  requireRole("admin"),
+  jourFerieController.deleteJourFerie
 );
 
 // Gestion des erreurs
