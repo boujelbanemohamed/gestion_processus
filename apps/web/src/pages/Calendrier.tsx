@@ -17,6 +17,14 @@ type TacheItem = {
   projet?: { id: string; nom: string } | null;
   assignesUtilisateurs?: Array<{ id: string; nom: string; prenom: string }>;
   assignesEntites?: Array<{ id: string; nom: string }>;
+  assignesClientsFournisseurs?: Array<{ id: string; nom: string; type?: string }>;
+  userStory?: {
+    id: string;
+    epic?: {
+      id: string;
+      nom: string;
+    } | null;
+  } | null;
 };
 
 type NotificationItem = {
@@ -39,7 +47,11 @@ type CalendarEvent = {
   endDate?: Date | null;
   projectId?: string | null;
   projectName?: string;
-  assigneesLabel?: string;
+  assigneesUsers?: string[];
+  assigneesEntites?: string[];
+  assigneesClientsFournisseurs?: string[];
+  epicName?: string;
+  durationLabel?: string;
   status?: string;
   tooltip: string;
 };
@@ -85,6 +97,14 @@ function diffDays(a: Date, b: Date) {
   return Math.round(ms / (24 * 3600 * 1000));
 }
 
+function computeDurationLabel(dateDebut?: string | null, dateFinApprox?: string | null) {
+  if (!dateDebut || !dateFinApprox) return '';
+  const start = startOfDay(new Date(dateDebut));
+  const end = startOfDay(new Date(dateFinApprox));
+  const days = Math.max(0, Math.round((end.getTime() - start.getTime()) / (24 * 3600 * 1000))) + 1;
+  return `${days} j`;
+}
+
 export default function Calendrier() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -124,7 +144,7 @@ export default function Calendrier() {
 
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), 20000);
+    const timer = setInterval(() => void load(), 60000);
     return () => clearInterval(timer);
   }, []);
 
@@ -162,7 +182,9 @@ export default function Calendrier() {
       const end = t.dateFinApprox ? endOfDay(new Date(t.dateFinApprox)) : start;
       const assigneesUsers = (t.assignesUtilisateurs || []).map((u) => `${u.prenom} ${u.nom}`.trim()).filter(Boolean);
       const assigneesEntites = (t.assignesEntites || []).map((e) => e.nom).filter(Boolean);
-      const assigneesLabel = [...assigneesUsers, ...assigneesEntites.map((n) => `Entité: ${n}`)].join(' | ');
+      const assigneesClientsFournisseurs = (t.assignesClientsFournisseurs || []).map((cf) => cf.nom).filter(Boolean);
+      const epicName = t.userStory?.epic?.nom?.trim() || '';
+      const durationLabel = computeDurationLabel(t.dateDebut, t.dateFinApprox);
       let cursor = startOfDay(start);
       const limit = startOfDay(end);
       while (cursor.getTime() <= limit.getTime()) {
@@ -175,11 +197,19 @@ export default function Calendrier() {
           endDate: end,
           projectId: t.projetId || null,
           projectName: t.projet?.nom,
-          assigneesLabel,
+          assigneesUsers,
+          assigneesEntites,
+          assigneesClientsFournisseurs,
+          epicName: epicName || undefined,
+          durationLabel,
           status: t.statut,
           tooltip:
             `${t.nom}\nProjet: ${t.projet?.nom || '—'}\nStatut: ${STATUS_LABEL[t.statut] || t.statut}` +
-            `${assigneesLabel ? `\nAssignés: ${assigneesLabel}` : ''}`,
+            `${epicName ? `\nEPIC: ${epicName}` : ''}` +
+            `${assigneesUsers.length ? `\nUtilisateurs: ${assigneesUsers.join(', ')}` : ''}` +
+            `${assigneesEntites.length ? `\nEntités: ${assigneesEntites.join(', ')}` : ''}` +
+            `${assigneesClientsFournisseurs.length ? `\nClients/Fournisseurs: ${assigneesClientsFournisseurs.join(', ')}` : ''}` +
+            `${durationLabel ? `\nTemps de réalisation: ${durationLabel}` : ''}`,
         });
         cursor = addDays(cursor, 1);
       }
@@ -290,6 +320,41 @@ export default function Calendrier() {
     return Array.from({ length: 42 }, (_, i) => addDays(gridStart, i));
   }, [view, rangeStart]);
 
+  const renderTaskMeta = (ev: CalendarEvent) => (
+    <div className="mt-1 flex flex-wrap items-center gap-1">
+      {!!ev.epicName && (
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-800 font-semibold tracking-wide">
+          EPIC: {ev.epicName}
+        </span>
+      )}
+      {!!ev.assigneesUsers?.length && (
+        <span className="text-[10px] px-1 py-0.5 rounded bg-indigo-50 text-indigo-700">
+          U: {ev.assigneesUsers.join(', ')}
+        </span>
+      )}
+      {!!ev.assigneesEntites?.length && (
+        <span className="text-[10px] px-1 py-0.5 rounded bg-teal-50 text-teal-700">
+          E: {ev.assigneesEntites.join(', ')}
+        </span>
+      )}
+      {!!ev.assigneesClientsFournisseurs?.length && (
+        <span className="text-[10px] px-1 py-0.5 rounded bg-fuchsia-50 text-fuchsia-700">
+          C/F: {ev.assigneesClientsFournisseurs.join(', ')}
+        </span>
+      )}
+      {!!ev.durationLabel && (
+        <span className="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-700">
+          Durée: {ev.durationLabel}
+        </span>
+      )}
+      {ev.status === 'bloque' && (
+        <span className="text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-700 font-semibold">
+          En retard
+        </span>
+      )}
+    </div>
+  );
+
   return (
     <div className="p-6">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -298,6 +363,7 @@ export default function Calendrier() {
           <button onClick={() => navigatePeriod(-1)} className="px-3 py-2 border rounded text-sm">Précédent</button>
           <button onClick={goToday} className="px-3 py-2 border rounded text-sm">Aujourd’hui</button>
           <button onClick={() => navigatePeriod(1)} className="px-3 py-2 border rounded text-sm">Suivant</button>
+          <button onClick={() => void load()} className="px-3 py-2 border rounded text-sm">Rafraîchir</button>
         </div>
       </div>
 
@@ -386,9 +452,9 @@ export default function Calendrier() {
                       >
                         {isTask && ev.status === 'bloque' ? 'Retard · ' : ''}
                         {isTask && ev.status === 'en_attente' ? 'En pause · ' : ''}
-                        {ev.title}
-                        {ev.projectName ? ` (${ev.projectName})` : ''}
-                        {ev.assigneesLabel ? ` • ${ev.assigneesLabel}` : ''}
+                        <span className="font-medium">{ev.title}</span>
+                        {ev.projectName ? <span className="text-[10px] text-gray-700"> ({ev.projectName})</span> : null}
+                        {isTask && renderTaskMeta(ev)}
                       </button>
                     );
                   })}
@@ -425,9 +491,9 @@ export default function Calendrier() {
                         onClick={() => openEvent(ev)}
                         className={`w-full text-left px-2 py-1 rounded text-xs ${ev.type === 'task' ? 'bg-blue-100 text-blue-900' : 'bg-orange-100 text-orange-900'} ${ev.type === 'task' && ev.status === 'termine' ? 'line-through text-gray-500' : ''}`}
                       >
-                        {ev.title}
-                        {ev.projectName ? ` (${ev.projectName})` : ''}
-                        {ev.assigneesLabel ? ` • ${ev.assigneesLabel}` : ''}
+                        <span className="font-medium">{ev.title}</span>
+                        {ev.projectName ? <span className="text-[11px] text-gray-700"> ({ev.projectName})</span> : null}
+                        {ev.type === 'task' && renderTaskMeta(ev)}
                       </button>
                     ))}
                   </div>
