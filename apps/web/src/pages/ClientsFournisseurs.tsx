@@ -82,11 +82,13 @@ function parseCsv(content: string): CsvRow[] {
   });
 }
 
-function clientsFournisseursCsvTemplate(): string {
+function clientsFournisseursCsvTemplate(typeSocieteExamples: string[]): string {
+  const exampleA = typeSocieteExamples[0] || 'SA';
+  const exampleB = typeSocieteExamples[1] || typeSocieteExamples[0] || 'SARL';
   return [
     'type,nom,type_societe,matricule_fiscale,adresse,pays,logo_url',
-    'client,PAYSMART,SA,MF-12345,"10 Rue de la Bourse, Tunis",Tunisie,',
-    'fournisseur,Orange Business,SARL,MF-67890,"Avenue Habib Bourguiba",Tunisie,',
+    `client,PAYSMART,${exampleA},MF-12345,"10 Rue de la Bourse, Tunis",Tunisie,`,
+    `fournisseur,Orange Business,${exampleB},MF-67890,"Avenue Habib Bourguiba",Tunisie,`,
   ].join('\n');
 }
 
@@ -563,8 +565,18 @@ export default function ClientsFournisseurs() {
     return m;
   }, [typesSociete]);
 
+  const latestTypeSocieteNames = useMemo(() => {
+    const rows = Array.isArray(typesSociete) ? [...typesSociete] : [];
+    rows.sort((a: any, b: any) => {
+      const ta = new Date(a?.updatedAt || a?.createdAt || 0).getTime();
+      const tb = new Date(b?.updatedAt || b?.createdAt || 0).getTime();
+      return tb - ta;
+    });
+    return rows.map((r: any) => String(r?.nom || '').trim()).filter(Boolean).slice(0, 5);
+  }, [typesSociete]);
+
   const downloadImportTemplate = () => {
-    const blob = new Blob([clientsFournisseursCsvTemplate()], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([clientsFournisseursCsvTemplate(latestTypeSocieteNames)], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -617,22 +629,79 @@ export default function ClientsFournisseurs() {
     setImportBusy(true);
     setImportReport(null);
     const errs: Array<{ line: number; field: string; message: string }> = [];
+    const existingByTypeName = new Map<string, any>();
+    const seenInFile = new Set<string>();
+    try {
+      const { data } = await api.get('/clients-fournisseurs');
+      const existing = Array.isArray(data) ? data : [];
+      existing.forEach((it: any) => {
+        const key = `${String(it?.type || '').toLowerCase()}::${String(it?.nom || '').trim().toLowerCase()}`;
+        if (key !== '::') existingByTypeName.set(key, it);
+      });
+    } catch {
+      errs.push({
+        line: 1,
+        field: 'api',
+        message: 'Impossible de charger la liste existante pour contrôler les doublons.',
+      });
+      setImportErrors(errs);
+      setImportBusy(false);
+      return;
+    }
     let createdRows = 0;
     for (let i = 0; i < importRows.length; i++) {
       const row = importRows[i];
       const line = i + 2;
       try {
+        const type = String(row.type || '').toLowerCase();
+        const nom = String(row.nom || '').trim();
+        const key = `${type}::${nom.toLowerCase()}`;
+        if (seenInFile.has(key)) {
+          errs.push({
+            line,
+            field: 'nom',
+            message: `Doublon dans le fichier: ${type} "${nom}" déjà présent sur une autre ligne.`,
+          });
+          continue;
+        }
+        seenInFile.add(key);
         const typeSocieteRaw = String(row.type_societe || '').trim();
         const ts = typeSocieteRaw ? typeSocieteByKey.get(typeSocieteRaw.toLowerCase()) : null;
+        const existing = existingByTypeName.get(key);
+        if (existing) {
+          const existingTypeSocieteNom = String(existing?.typeSociete?.nom || '').trim().toLowerCase();
+          const importedTypeSocieteNom = String(ts?.nom || '').trim().toLowerCase();
+          if (
+            importedTypeSocieteNom &&
+            existingTypeSocieteNom &&
+            importedTypeSocieteNom !== existingTypeSocieteNom
+          ) {
+            errs.push({
+              line,
+              field: 'type_societe',
+              message:
+                `Conflit type_societe pour ${type} "${nom}": ` +
+                `existant="${existing?.typeSociete?.nom}", import="${typeSocieteRaw}".`,
+            });
+          } else {
+            errs.push({
+              line,
+              field: 'nom',
+              message: `Doublon en base: ${type} "${nom}" existe déjà.`,
+            });
+          }
+          continue;
+        }
         await api.post('/clients-fournisseurs', {
-          type: String(row.type || '').toLowerCase(),
-          nom: row.nom || '',
+          type,
+          nom,
           typeSocieteId: ts?.id || null,
           matriculeFiscale: row.matricule_fiscale || null,
           adresse: row.adresse || null,
           pays: row.pays || null,
           logoUrl: row.logo_url || null,
         });
+        existingByTypeName.set(key, { type, nom, typeSociete: ts ? { nom: ts.nom } : null });
         createdRows++;
       } catch (e: any) {
         errs.push({
