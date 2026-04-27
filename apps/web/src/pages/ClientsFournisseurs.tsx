@@ -92,6 +92,14 @@ function clientsFournisseursCsvTemplate(typeSocieteExamples: string[]): string {
   ].join('\n');
 }
 
+function csvEscape(value: unknown): string {
+  const s = String(value ?? '');
+  if (s.includes('"') || s.includes(',') || s.includes('\n')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
 /** Libellés courts sur la ligne (style aperçu type Documents). */
 const LABEL_PERM_ROW: Record<string, string> = {
   lecture: 'lecture',
@@ -728,6 +736,70 @@ export default function ClientsFournisseurs() {
     return items.filter((it) => String(it.id).toLowerCase().includes(needle));
   }, [items, searchIdCf]);
 
+  const exportClientsFournisseursCsv = () => {
+    const headers = [
+      'id',
+      'type',
+      'nom',
+      'type_societe',
+      'matricule_fiscale',
+      'adresse',
+      'pays',
+      'logo_url',
+      'createur',
+      'created_at',
+      'updated_at',
+      'projets_lies',
+      'contrats_lies',
+      'representants',
+    ];
+    const lines = [headers.join(',')];
+    for (const item of filteredItems) {
+      const projetsLies = (item.projets || [])
+        .map((p: any) => p?.projet?.nom || p?.projet?.id || '')
+        .filter(Boolean)
+        .join(' | ');
+      const contratsLies = (item.contratsLies || [])
+        .map((c: any) => c?.nom || c?.id || '')
+        .filter(Boolean)
+        .join(' | ');
+      const representants = (item.representants || [])
+        .map((r: any) => {
+          const fullName = `${r?.prenom || ''} ${r?.nom || ''}`.trim();
+          const fonction = r?.fonction ? ` (${r.fonction})` : '';
+          return `${fullName}${fonction}`;
+        })
+        .filter(Boolean)
+        .join(' | ');
+      const createur = item?.createdBy ? `${item.createdBy.prenom || ''} ${item.createdBy.nom || ''}`.trim() : '';
+      const row = [
+        item.id,
+        item.type,
+        item.nom,
+        item.typeSociete?.nom || '',
+        item.matriculeFiscale || '',
+        item.adresse || '',
+        item.pays || '',
+        item.logoUrl || '',
+        createur,
+        item.createdAt || '',
+        item.updatedAt || '',
+        projetsLies,
+        contratsLies,
+        representants,
+      ].map(csvEscape);
+      lines.push(row.join(','));
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateLabel = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `clients-fournisseurs-export-${dateLabel}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const startIdx = (safePage - 1) * pageSize;
@@ -738,6 +810,13 @@ export default function ClientsFournisseurs() {
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Clients / Fournisseurs</h1>
         <div className="flex flex-wrap gap-2 justify-end">
+          <button
+            type="button"
+            onClick={exportClientsFournisseursCsv}
+            className="px-4 py-2 border border-emerald-300 text-emerald-700 rounded-lg hover:bg-emerald-50 text-sm font-medium"
+          >
+            ⬇ Export CSV
+          </button>
           <button
             type="button"
             onClick={async () => {
