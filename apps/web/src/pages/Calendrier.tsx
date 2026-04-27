@@ -16,6 +16,7 @@ type TacheItem = {
   projetId?: string | null;
   projet?: { id: string; nom: string } | null;
   assignesUtilisateurs?: Array<{ id: string; nom: string; prenom: string }>;
+  assignesEntites?: Array<{ id: string; nom: string }>;
 };
 
 type NotificationItem = {
@@ -38,6 +39,7 @@ type CalendarEvent = {
   endDate?: Date | null;
   projectId?: string | null;
   projectName?: string;
+  assigneesLabel?: string;
   status?: string;
   tooltip: string;
 };
@@ -96,6 +98,19 @@ export default function Calendrier() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [adminUserFilter, setAdminUserFilter] = useState<string>('all');
 
+  const canFilterByAssignment = useMemo(() => {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    const u = user as any;
+    return Boolean(
+      u?.isEntiteResponsable ||
+      u?.isResponsableEntite ||
+      (Array.isArray(u?.entitesResponsables) && u.entitesResponsables.length > 0) ||
+      (Array.isArray(u?.entiteResponsableIds) && u.entiteResponsableIds.length > 0) ||
+      user.role === 'contributeur'
+    );
+  }, [user]);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -145,6 +160,9 @@ export default function Calendrier() {
       }
       const start = t.dateDebut ? startOfDay(new Date(t.dateDebut)) : startOfDay(new Date(t.createdAt || Date.now()));
       const end = t.dateFinApprox ? endOfDay(new Date(t.dateFinApprox)) : start;
+      const assigneesUsers = (t.assignesUtilisateurs || []).map((u) => `${u.prenom} ${u.nom}`.trim()).filter(Boolean);
+      const assigneesEntites = (t.assignesEntites || []).map((e) => e.nom).filter(Boolean);
+      const assigneesLabel = [...assigneesUsers, ...assigneesEntites.map((n) => `Entité: ${n}`)].join(' | ');
       let cursor = startOfDay(start);
       const limit = startOfDay(end);
       while (cursor.getTime() <= limit.getTime()) {
@@ -157,8 +175,11 @@ export default function Calendrier() {
           endDate: end,
           projectId: t.projetId || null,
           projectName: t.projet?.nom,
+          assigneesLabel,
           status: t.statut,
-          tooltip: `${t.nom}\nProjet: ${t.projet?.nom || '—'}\nStatut: ${STATUS_LABEL[t.statut] || t.statut}`,
+          tooltip:
+            `${t.nom}\nProjet: ${t.projet?.nom || '—'}\nStatut: ${STATUS_LABEL[t.statut] || t.statut}` +
+            `${assigneesLabel ? `\nAssignés: ${assigneesLabel}` : ''}`,
         });
         cursor = addDays(cursor, 1);
       }
@@ -221,9 +242,16 @@ export default function Calendrier() {
 
   const goToday = () => setAnchor(startOfDay(new Date()));
 
+  const resetFilters = () => {
+    setTypeFilter('all');
+    setProjectFilter('all');
+    setStatusFilter('all');
+    setAdminUserFilter('all');
+  };
+
   const openEvent = (e: CalendarEvent) => {
     if (e.type === 'task') {
-      navigate('/taches');
+      navigate(`/taches?focusTaskId=${encodeURIComponent(e.sourceId)}`);
       return;
     }
     const notif = notifications.find((n) => n.id === e.sourceId);
@@ -291,16 +319,24 @@ export default function Calendrier() {
           <option value="all">Statut: Tous</option>
           {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-        {user?.role === 'admin' && (
+        {canFilterByAssignment && (
           <select value={adminUserFilter} onChange={(e) => setAdminUserFilter(e.target.value)} className="px-2 py-1.5 border rounded text-sm">
-            <option value="all">Planning: Tous</option>
+            <option value="all">Assignation: Tous</option>
             {users.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
           </select>
         )}
+        <button
+          type="button"
+          onClick={resetFilters}
+          className="px-3 py-1.5 border rounded text-sm bg-white hover:bg-gray-50"
+        >
+          Réinitialiser filtres
+        </button>
       </div>
 
       <div className="text-xs text-gray-600 mb-3 flex flex-wrap gap-4">
-        <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-blue-500" /> Tâche</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-blue-500" /> Tâche planifiée (créée/à faire/autre)</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-green-500" /> Tâche active (en cours)</span>
         <span className="inline-flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-orange-400" /> Notification</span>
       </div>
 
@@ -352,6 +388,7 @@ export default function Calendrier() {
                         {isTask && ev.status === 'en_attente' ? 'En pause · ' : ''}
                         {ev.title}
                         {ev.projectName ? ` (${ev.projectName})` : ''}
+                        {ev.assigneesLabel ? ` • ${ev.assigneesLabel}` : ''}
                       </button>
                     );
                   })}
@@ -390,6 +427,7 @@ export default function Calendrier() {
                       >
                         {ev.title}
                         {ev.projectName ? ` (${ev.projectName})` : ''}
+                        {ev.assigneesLabel ? ` • ${ev.assigneesLabel}` : ''}
                       </button>
                     ))}
                   </div>

@@ -4770,6 +4770,11 @@ export default function Taches() {
   const [bulkStatutTaches, setBulkStatutTaches] = useState('en_cours');
   const [bulkStatutUs, setBulkStatutUs] = useState('en_cours');
   const [bulkStatutEpics, setBulkStatutEpics] = useState('en_cours');
+
+  const focusTaskIdFromUrl = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('focusTaskId') || '';
+  }, [location.search]);
   const pageSize = LIST_SECTION_PAGE_SIZE;
 
   const isAdmin = currentUser?.role === 'admin';
@@ -4804,6 +4809,20 @@ export default function Taches() {
     });
     setShowFiltres(true);
   }, [location.search]);
+
+  useEffect(() => {
+    if (!focusTaskIdFromUrl) return;
+    setViewMode('list');
+    setSectionViews((prev) => (prev.taches ? prev : { ...prev, taches: true }));
+    setFilters((prev) => {
+      if (prev.tacheId === focusTaskIdFromUrl) return prev;
+      return {
+        ...prev,
+        tacheId: focusTaskIdFromUrl,
+      };
+    });
+    setShowFiltres(true);
+  }, [focusTaskIdFromUrl]);
 
   useEffect(() => {
     if (!agileAccesModal || !agileAccesDetail) return;
@@ -5510,6 +5529,14 @@ export default function Taches() {
 
   const pageTasksEff = clampListPage(page, sortedVisibleTaches.length, pageSize);
   const pagedTaches = sortedVisibleTaches.slice((pageTasksEff - 1) * pageSize, pageTasksEff * pageSize);
+
+  useEffect(() => {
+    if (!focusTaskIdFromUrl) return;
+    if (!pagedTaches.some((t) => t.id === focusTaskIdFromUrl)) return;
+    const el = document.getElementById(`task-card-${focusTaskIdFromUrl}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [focusTaskIdFromUrl, pagedTaches]);
 
   const pageUsEff = clampListPage(usPage, sortedVisibleUserStories.length, pageSize);
   const pagedUserStories = sortedVisibleUserStories.slice((pageUsEff - 1) * pageSize, pageUsEff * pageSize);
@@ -6230,7 +6257,7 @@ export default function Taches() {
                 <div className="bg-white rounded-lg shadow p-8 text-center text-gray-400">Aucune tâche trouvée</div>
         )}
               {pagedTaches.map((t) => (
-          <div key={t.id} className="relative">
+          <div key={t.id} id={`task-card-${t.id}`} className="relative">
             <label
               className="absolute left-3 top-3 z-20 bg-white/90 border border-gray-300 rounded px-1.5 py-1 shadow-sm"
               onClick={(e) => e.stopPropagation()}
@@ -6260,6 +6287,7 @@ export default function Taches() {
                   onOpenUserStory={(id) => setDetailUserStoryId(id)}
                   onSoftDelete={canSoftDeleteTache(t) ? handleSoftDeleteTache : undefined}
                   onRefreshData={loadAll}
+                  defaultExpanded={focusTaskIdFromUrl === t.id}
           />
           </div>
         ))}
