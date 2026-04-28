@@ -183,6 +183,46 @@ export class TacheService {
     return this.uniqueIds(rows.map((r) => r.entiteId));
   }
 
+  private async getUserEntiteIds(userId: string): Promise<string[]> {
+    const rows = await prisma.userEntite.findMany({
+      where: { userId },
+      select: { entiteId: true },
+    });
+    return this.uniqueIds(rows.map((r) => r.entiteId));
+  }
+
+  private async getEntiteDescendantIds(rootIds: string[]): Promise<string[]> {
+    const roots = this.uniqueIds(rootIds);
+    if (roots.length === 0) return [];
+    const all = new Set<string>(roots);
+    let frontier = [...roots];
+    while (frontier.length > 0) {
+      const children = await prisma.entite.findMany({
+        where: { parentId: { in: frontier }, deletedAt: null },
+        select: { id: true },
+      });
+      const next: string[] = [];
+      for (const c of children) {
+        if (!all.has(c.id)) {
+          all.add(c.id);
+          next.push(c.id);
+        }
+      }
+      frontier = next;
+    }
+    return [...all];
+  }
+
+  private taskHasScopedEntite(
+    row: { assignesEntites?: Array<{ entiteId?: string; entite?: { id?: string } }> },
+    scope: Set<string>
+  ): boolean {
+    const ids = (row.assignesEntites || [])
+      .map((te: any) => te.entiteId ?? te.entite?.id)
+      .filter(Boolean);
+    return ids.some((id: string) => scope.has(id));
+  }
+
   private permRank(p: PermissionType): number {
     return PERM_RANK[p] ?? 0;
   }
@@ -272,8 +312,20 @@ export class TacheService {
       include: TACHE_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
+    let entiteScopeSet = new Set<string>();
+    const isContributeur = filters.requesterRole === 'contributeur' && !!filters.requesterId;
+    if (isContributeur) {
+      const own = await this.getUserEntiteIds(filters.requesterId!);
+      const scope = await this.getEntiteDescendantIds(own);
+      entiteScopeSet = new Set(scope);
+    }
     const visible = filters.requesterId && filters.requesterRole
-      ? taches.filter((t: any) => this.canUserViewTacheRow(t, filters.requesterId!, filters.requesterRole!))
+      ? taches.filter((t: any) => {
+          const assignedOrAcl = this.canUserViewTacheRow(t, filters.requesterId!, filters.requesterRole!);
+          if (!isContributeur) return assignedOrAcl;
+          const entityScoped = this.taskHasScopedEntite(t, entiteScopeSet);
+          return assignedOrAcl || entityScoped;
+        })
       : taches;
     return visible.map(formatTache);
   }
@@ -821,7 +873,17 @@ export class TacheService {
     const t = await this.getTachePermSlice(tacheId);
     if (!t) return false;
     const eff = this.effectiveDeleguePermission(userId, role, t);
-    return eff !== null && this.permRank(eff) >= this.permRank(PermissionType.lecture);
+    const assignedOrAcl = eff !== null && this.permRank(eff) >= this.permRank(PermissionType.lecture);
+    if (assignedOrAcl) return true;
+    if (role !== 'contributeur') return false;
+    const ownEntites = await this.getUserEntiteIds(userId);
+    const scope = new Set(await this.getEntiteDescendantIds(ownEntites));
+    if (scope.size === 0) return false;
+    const linked = await prisma.tacheEntite.findFirst({
+      where: { tacheId, entiteId: { in: [...scope] } },
+      select: { id: true },
+    });
+    return !!linked;
   }
 
   async getAccesDetail(tacheId: string, role: string, requesterId: string) {
