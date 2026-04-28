@@ -15,6 +15,9 @@ const UI_LEVEL_VALUES = new Set<string>(Object.values(UiModuleLevel));
 
 export const getAllUsers = async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.user?.userId || !req.user?.role) {
+      return res.status(401).json({ error: 'Non authentifié' });
+    }
     const { role, entiteId, statut, search, nom, email, sortBy, sortOrder } = req.query;
     const users = await userService.findAll({
       role: role as any,
@@ -25,6 +28,8 @@ export const getAllUsers = async (req: AuthRequest, res: Response) => {
       email: email as string,
       sortBy: sortBy as string,
       sortOrder: (sortOrder as 'asc' | 'desc') || 'asc',
+      requesterId: req.user.userId,
+      requesterRole: req.user.role,
     });
     res.json(users);
   } catch (error: any) {

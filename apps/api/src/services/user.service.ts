@@ -9,6 +9,40 @@ function fonctionFromInput(v: unknown): string | null {
 }
 
 export class UserService {
+  private async getUserEntiteIds(userId: string): Promise<string[]> {
+    const rows = await prisma.userEntite.findMany({
+      where: { userId },
+      select: { entiteId: true },
+    });
+    return [...new Set(rows.map((r) => r.entiteId).filter(Boolean))];
+  }
+
+  private async getEntiteDescendantIds(rootIds: string[]): Promise<string[]> {
+    const roots = [...new Set((rootIds || []).filter(Boolean))];
+    if (!roots.length) return [];
+    const all = new Set<string>(roots);
+    let frontier = [...roots];
+    while (frontier.length) {
+      const children = await prisma.entite.findMany({
+        where: { parentId: { in: frontier }, deletedAt: null },
+        select: { id: true },
+      });
+      const next: string[] = [];
+      for (const c of children) {
+        if (all.has(c.id)) continue;
+        all.add(c.id);
+        next.push(c.id);
+      }
+      frontier = next;
+    }
+    return [...all];
+  }
+
+  private async getScopedEntiteIdsForUser(userId: string): Promise<string[]> {
+    const own = await this.getUserEntiteIds(userId);
+    return this.getEntiteDescendantIds(own);
+  }
+
   async findAll(filters?: {
     role?: Role;
     entiteId?: string;
@@ -18,8 +52,21 @@ export class UserService {
     email?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
+    requesterId?: string;
+    requesterRole?: Role | string;
   }) {
     const where: any = {};
+    if (filters?.requesterRole && filters.requesterRole !== 'admin' && filters?.requesterId) {
+      const scopedEntiteIds = await this.getScopedEntiteIdsForUser(filters.requesterId);
+      if (!scopedEntiteIds.length) {
+        where.id = '__NO_USER_SCOPE__';
+      } else {
+        where.AND = where.AND || [];
+        where.AND.push({
+          entitesMembres: { some: { entiteId: { in: scopedEntiteIds } } },
+        });
+      }
+    }
     if (filters?.role) where.role = filters.role;
     if (filters?.entiteId) {
       where.AND = where.AND || [];

@@ -474,6 +474,108 @@ export class PvReunionService {
   private notificationService = new NotificationService();
   private companyInfoService = new CompanyInfoService();
 
+  private async getUserEntiteIds(userId: string): Promise<string[]> {
+    const rows = await prisma.userEntite.findMany({
+      where: { userId },
+      select: { entiteId: true },
+    });
+    return uniq(rows.map((r) => r.entiteId));
+  }
+
+  private async getEntiteDescendantIds(rootIds: string[]): Promise<string[]> {
+    const roots = uniq(rootIds);
+    if (!roots.length) return [];
+    const all = new Set<string>(roots);
+    let frontier = [...roots];
+    while (frontier.length) {
+      const children = await prisma.entite.findMany({
+        where: { parentId: { in: frontier }, deletedAt: null },
+        select: { id: true },
+      });
+      const next: string[] = [];
+      for (const c of children) {
+        if (all.has(c.id)) continue;
+        all.add(c.id);
+        next.push(c.id);
+      }
+      frontier = next;
+    }
+    return [...all];
+  }
+
+  private async getContributeurEntiteScope(userId: string): Promise<Set<string>> {
+    const own = await this.getUserEntiteIds(userId);
+    const scoped = await this.getEntiteDescendantIds(own);
+    return new Set(scoped);
+  }
+
+  private async listPvIdsLinkedToEntiteScope(scopeEntiteIds: string[]): Promise<Set<string>> {
+    if (!scopeEntiteIds.length) return new Set<string>();
+    const [
+      fromProcessus,
+      fromProjets,
+      fromTaches,
+      fromEpicsByEntite,
+      fromEpicsByProjetEntite,
+      fromUserStoriesByEpicEntite,
+      fromUserStoriesByEpicProjetEntite,
+      fromContratsByProjetEntite,
+    ] = await Promise.all([
+      prisma.pvReunionProcessus.findMany({
+        where: { processus: { entites: { some: { entiteId: { in: scopeEntiteIds } } } } },
+        select: { pvReunionId: true },
+      }),
+      prisma.pvReunionProjet.findMany({
+        where: { projet: { entites: { some: { entiteId: { in: scopeEntiteIds } } } } },
+        select: { pvReunionId: true },
+      }),
+      prisma.pvReunionTache.findMany({
+        where: { tache: { assignesEntites: { some: { entiteId: { in: scopeEntiteIds } } } } },
+        select: { pvReunionId: true },
+      }),
+      prisma.pvReunionEpic.findMany({
+        where: { epic: { assignesEntites: { some: { entiteId: { in: scopeEntiteIds } } } } },
+        select: { pvReunionId: true },
+      }),
+      prisma.pvReunionEpic.findMany({
+        where: { epic: { projet: { entites: { some: { entiteId: { in: scopeEntiteIds } } } } } },
+        select: { pvReunionId: true },
+      }),
+      prisma.pvReunionUserStory.findMany({
+        where: { userStory: { epic: { assignesEntites: { some: { entiteId: { in: scopeEntiteIds } } } } } },
+        select: { pvReunionId: true },
+      }),
+      prisma.pvReunionUserStory.findMany({
+        where: { userStory: { epic: { projet: { entites: { some: { entiteId: { in: scopeEntiteIds } } } } } } },
+        select: { pvReunionId: true },
+      }),
+      prisma.pvReunionContrat.findMany({
+        where: { contrat: { projets: { some: { projet: { entites: { some: { entiteId: { in: scopeEntiteIds } } } } } } } },
+        select: { pvReunionId: true },
+      }),
+    ]);
+    return new Set<string>(
+      [
+        ...fromProcessus,
+        ...fromProjets,
+        ...fromTaches,
+        ...fromEpicsByEntite,
+        ...fromEpicsByProjetEntite,
+        ...fromUserStoriesByEpicEntite,
+        ...fromUserStoriesByEpicProjetEntite,
+        ...fromContratsByProjetEntite,
+      ].map((x) => x.pvReunionId)
+    );
+  }
+
+  private async canContributeurViewPvByEntite(pvId: string, userId: string): Promise<boolean> {
+    const scopeSet = await this.getContributeurEntiteScope(userId);
+    const scope = [...scopeSet];
+    if (!scope.length) return false;
+    const ids = await this.listPvIdsLinkedToEntiteScope(scope);
+    return ids.has(pvId);
+  }
+
   private logoExtToContentType(filename: string): string {
     const ext = path.extname(filename || '').toLowerCase();
     if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
@@ -642,7 +744,17 @@ export class PvReunionService {
         _count: { select: { commentaires: true } },
       },
     });
-    const visible = list.filter((pv) => canViewPvReunion(toPvAcl(pv), userId, role));
+    let entityScopedPvIds = new Set<string>();
+    if (role === Role.contributeur) {
+      const scope = [...(await this.getContributeurEntiteScope(userId))];
+      entityScopedPvIds = await this.listPvIdsLinkedToEntiteScope(scope);
+    }
+    const visible = list.filter((pv) => {
+      const hasAcl = canViewPvReunion(toPvAcl(pv), userId, role);
+      if (hasAcl) return true;
+      if (role !== Role.contributeur) return false;
+      return entityScopedPvIds.has(pv.id);
+    });
     const ids = visible.map((p) => p.id);
     const vueRows =
       ids.length > 0
@@ -680,7 +792,12 @@ export class PvReunionService {
       include: pvIncludeDetail,
     });
     if (!pv) return null;
-    if (!canViewPvReunion(toPvAcl(pv), userId, role)) return null;
+    const hasAcl = canViewPvReunion(toPvAcl(pv), userId, role);
+    if (!hasAcl) {
+      if (role !== Role.contributeur) return null;
+      const hasEntityAccess = await this.canContributeurViewPvByEntite(id, userId);
+      if (!hasEntityAccess) return null;
+    }
     const [nombreCommentaires, nombreVues] = await Promise.all([
       prisma.pvReunionCommentaire.count({ where: { pvReunionId: id } }),
       prisma.journalAcces.count({

@@ -185,19 +185,56 @@ function capabilitiesFor(
 export type EntiteAuth = { userId: string; role: string };
 
 export class EntiteService {
+  private async getUserEntiteIds(userId: string): Promise<string[]> {
+    const rows = await prisma.userEntite.findMany({
+      where: { userId },
+      select: { entiteId: true },
+    });
+    return [...new Set(rows.map((r) => r.entiteId).filter(Boolean))];
+  }
+
+  private async getEntiteDescendantIds(rootIds: string[]): Promise<string[]> {
+    const roots = [...new Set((rootIds || []).filter(Boolean))];
+    if (!roots.length) return [];
+    const all = new Set<string>(roots);
+    let frontier = [...roots];
+    while (frontier.length) {
+      const children = await prisma.entite.findMany({
+        where: { parentId: { in: frontier }, deletedAt: null },
+        select: { id: true },
+      });
+      const next: string[] = [];
+      for (const c of children) {
+        if (all.has(c.id)) continue;
+        all.add(c.id);
+        next.push(c.id);
+      }
+      frontier = next;
+    }
+    return [...all];
+  }
+
+  private async getScopedEntiteIdsForUser(userId: string): Promise<string[]> {
+    const own = await this.getUserEntiteIds(userId);
+    return this.getEntiteDescendantIds(own);
+  }
+
+  private async canAccessEntiteScope(entiteId: string, auth: EntiteAuth): Promise<boolean> {
+    if (isAdminRole(auth.role)) return true;
+    const scoped = await this.getScopedEntiteIdsForUser(auth.userId);
+    return scoped.includes(entiteId);
+  }
+
   private async buildVisibilityWhere(auth: EntiteAuth) {
     if (isAdminRole(auth.role)) {
       return {};
     }
-    const permIds = await permissionEntiteIdsForUser(auth.userId);
+    const scopedIds = await this.getScopedEntiteIdsForUser(auth.userId);
+    if (!scopedIds.length) {
+      return { id: '__NO_ENTITE_SCOPE__' };
+    }
     return {
-      OR: [
-        { createdById: null },
-        { createdById: auth.userId },
-        { responsableId: auth.userId },
-        { membres: { some: { userId: auth.userId } } },
-        ...(permIds.length ? [{ id: { in: permIds } }] : []),
-      ],
+      id: { in: scopedIds },
     };
   }
 
@@ -316,6 +353,7 @@ export class EntiteService {
   }
 
   async findOne(id: string, auth: EntiteAuth) {
+    if (!(await this.canAccessEntiteScope(id, auth))) return null;
     const e = await prisma.entite.findFirst({
       where: { id, deletedAt: null },
       include: {
@@ -357,6 +395,7 @@ export class EntiteService {
   }
 
   async getAccesDetail(entiteId: string, auth: EntiteAuth) {
+    if (!(await this.canAccessEntiteScope(entiteId, auth))) throw new Error('FORBIDDEN');
     const e = await prisma.entite.findFirst({
       where: { id: entiteId, deletedAt: null },
       select: { id: true, createdById: true, responsableId: true },
@@ -514,6 +553,12 @@ export class EntiteService {
   }
 
   async canAccess(entiteId: string, userId: string, userRole: string): Promise<{ canAccess: boolean; reason?: string }> {
+    if (userRole !== 'admin') {
+      const scoped = await this.getScopedEntiteIdsForUser(userId);
+      if (!scoped.includes(entiteId)) {
+        return { canAccess: false, reason: 'Accès refusé à cette entité' };
+      }
+    }
     const e = await prisma.entite.findFirst({
       where: { id: entiteId, deletedAt: null },
       select: { id: true, createdById: true, responsableId: true },
