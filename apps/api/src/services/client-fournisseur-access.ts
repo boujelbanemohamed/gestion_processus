@@ -17,6 +17,10 @@ export function canViewCf(
   userPermTypes: PermissionType[],
   adminImplicitRefused = false
 ) {
+  if (auth.role === 'contributeur') {
+    // Règle métier: un contributeur ne voit que les fiches avec droit explicite.
+    return userPermTypes.length > 0;
+  }
   if (isAdminRole(auth.role)) {
     if (cf.createdById === auth.userId) return true;
     if (adminImplicitRefused && userPermTypes.length === 0) return false;
@@ -24,7 +28,6 @@ export function canViewCf(
   }
   if (cf.createdById === auth.userId) return true;
   if (userPermTypes.length > 0) return true;
-  if (isLegacyOpen(cf) && auth.role === 'contributeur') return true;
   return false;
 }
 
