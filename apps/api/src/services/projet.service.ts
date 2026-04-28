@@ -5,6 +5,11 @@ import { PermissionType } from '../generated/prisma/enums';
 import { fetchProjetAdminExcludedByProjetIds, fetchProjetAdminExcludedForUser } from '../utils/resourceAdminSansAcces';
 import { TacheService } from './tache.service';
 import { NotificationService } from './notification.service';
+import {
+  getEntiteDescendantIds as listEntiteDescendants,
+  getUserDirectEntiteIds,
+  keepMostSpecificEntiteIds,
+} from '../utils/entiteScope';
 
 const TACHE_TERMINEES = ['termine', 'archive'] as const;
 const SCORING_PRODUCTIVITE_WINDOW_DAYS = 30;
@@ -122,33 +127,12 @@ function isAdminRole(role: string) {
 }
 
 async function getUserEntiteIds(userId: string): Promise<string[]> {
-  const rows = await prisma.userEntite.findMany({
-    where: { userId },
-    select: { entiteId: true },
-  });
-  return [...new Set(rows.map((r) => r.entiteId).filter(Boolean))];
+  const direct = await getUserDirectEntiteIds(userId);
+  return keepMostSpecificEntiteIds(direct);
 }
 
 async function getEntiteDescendantIds(rootIds: string[]): Promise<string[]> {
-  const root = [...new Set(rootIds.filter(Boolean))];
-  if (root.length === 0) return [];
-  const all = new Set<string>(root);
-  let frontier = [...root];
-  while (frontier.length > 0) {
-    const children = await prisma.entite.findMany({
-      where: { parentId: { in: frontier }, deletedAt: null },
-      select: { id: true },
-    });
-    const next: string[] = [];
-    for (const c of children) {
-      if (!all.has(c.id)) {
-        all.add(c.id);
-        next.push(c.id);
-      }
-    }
-    frontier = next;
-  }
-  return [...all];
+  return listEntiteDescendants([...new Set(rootIds.filter(Boolean))]);
 }
 
 async function getContributeurProjetEntiteScope(userId: string): Promise<Set<string>> {

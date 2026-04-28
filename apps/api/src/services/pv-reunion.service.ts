@@ -7,6 +7,7 @@ import { Readable } from 'stream';
 import { v4 as uuidv4 } from 'uuid';
 import { generatePvPdfBuffer, type PvPdfMeta } from '../utils/pv-pdf-from-html';
 import { CompanyInfoService } from './company-info.service';
+import { getEntiteDescendantIds, getUserDirectEntiteIds, keepMostSpecificEntiteIds } from '../utils/entiteScope';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 
@@ -475,32 +476,12 @@ export class PvReunionService {
   private companyInfoService = new CompanyInfoService();
 
   private async getUserEntiteIds(userId: string): Promise<string[]> {
-    const rows = await prisma.userEntite.findMany({
-      where: { userId },
-      select: { entiteId: true },
-    });
-    return uniq(rows.map((r) => r.entiteId));
+    const direct = await getUserDirectEntiteIds(userId);
+    return keepMostSpecificEntiteIds(direct);
   }
 
   private async getEntiteDescendantIds(rootIds: string[]): Promise<string[]> {
-    const roots = uniq(rootIds);
-    if (!roots.length) return [];
-    const all = new Set<string>(roots);
-    let frontier = [...roots];
-    while (frontier.length) {
-      const children = await prisma.entite.findMany({
-        where: { parentId: { in: frontier }, deletedAt: null },
-        select: { id: true },
-      });
-      const next: string[] = [];
-      for (const c of children) {
-        if (all.has(c.id)) continue;
-        all.add(c.id);
-        next.push(c.id);
-      }
-      frontier = next;
-    }
-    return [...all];
+    return getEntiteDescendantIds(uniq(rootIds));
   }
 
   private async getContributeurEntiteScope(userId: string): Promise<Set<string>> {

@@ -2,6 +2,7 @@ import { prisma } from '../utils/prisma';
 import { PermissionResource } from '../generated/prisma/enums';
 import { UiModule } from '../generated/prisma/enums';
 import { defaultUiModuleLevel, getEffectiveUiModules, UI_MODULE_LABELS } from './userUiModule.service';
+import { getEntiteDescendantIds, getUserDirectEntiteIds, keepMostSpecificEntiteIds } from '../utils/entiteScope';
 
 function govRolesForProjet(
   userId: string,
@@ -28,32 +29,12 @@ function govRolesForProjet(
 
 export class UserAccessSyntheseService {
   private async getUserEntiteIds(userId: string): Promise<string[]> {
-    const rows = await prisma.userEntite.findMany({
-      where: { userId },
-      select: { entiteId: true },
-    });
-    return [...new Set(rows.map((r) => r.entiteId).filter(Boolean))];
+    const direct = await getUserDirectEntiteIds(userId);
+    return keepMostSpecificEntiteIds(direct);
   }
 
   private async getEntiteDescendantIds(rootIds: string[]): Promise<string[]> {
-    const roots = [...new Set((rootIds || []).filter(Boolean))];
-    if (!roots.length) return [];
-    const all = new Set<string>(roots);
-    let frontier = [...roots];
-    while (frontier.length) {
-      const children = await prisma.entite.findMany({
-        where: { parentId: { in: frontier }, deletedAt: null },
-        select: { id: true },
-      });
-      const next: string[] = [];
-      for (const c of children) {
-        if (all.has(c.id)) continue;
-        all.add(c.id);
-        next.push(c.id);
-      }
-      frontier = next;
-    }
-    return [...all];
+    return getEntiteDescendantIds([...new Set((rootIds || []).filter(Boolean))]);
   }
 
   async build(userId: string) {

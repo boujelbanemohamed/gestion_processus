@@ -8,6 +8,7 @@ import { EntiteService } from './entite.service';
 import { clientFournisseurService } from './client-fournisseur.service';
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { getEntiteDescendantIds, getUserDirectEntiteIds, keepMostSpecificEntiteIds } from '../utils/entiteScope';
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 
@@ -224,32 +225,12 @@ function buildDocumentLinkClause(linkType: string, linkId: string): Record<strin
 
 export class DocumentService {
   private async getUserEntiteIds(userId: string): Promise<string[]> {
-    const rows = await prisma.userEntite.findMany({
-      where: { userId },
-      select: { entiteId: true },
-    });
-    return [...new Set(rows.map((r) => r.entiteId).filter(Boolean))];
+    const direct = await getUserDirectEntiteIds(userId);
+    return keepMostSpecificEntiteIds(direct);
   }
 
   private async getEntiteDescendantIds(rootIds: string[]): Promise<string[]> {
-    const roots = [...new Set((rootIds || []).filter(Boolean))];
-    if (!roots.length) return [];
-    const all = new Set<string>(roots);
-    let frontier = [...roots];
-    while (frontier.length) {
-      const children = await prisma.entite.findMany({
-        where: { parentId: { in: frontier }, deletedAt: null },
-        select: { id: true },
-      });
-      const next: string[] = [];
-      for (const c of children) {
-        if (all.has(c.id)) continue;
-        all.add(c.id);
-        next.push(c.id);
-      }
-      frontier = next;
-    }
-    return [...all];
+    return getEntiteDescendantIds([...new Set((rootIds || []).filter(Boolean))]);
   }
 
   private async isUserWithinViewerEntiteScope(viewerUserId: string, candidateUserId: string): Promise<boolean> {

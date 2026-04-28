@@ -1,6 +1,7 @@
 import { PermissionType, ResourceType } from '../generated/prisma/enums';
 import { NotificationService } from './notification.service';
 import { prisma } from '../utils/prisma';
+import { getEntiteDescendantIds, getUserDirectEntiteIds, keepMostSpecificEntiteIds } from '../utils/entiteScope';
 
 const PERM_RANK: Record<PermissionType, number> = {
   [PermissionType.lecture]: 1,
@@ -184,33 +185,12 @@ export class TacheService {
   }
 
   private async getUserEntiteIds(userId: string): Promise<string[]> {
-    const rows = await prisma.userEntite.findMany({
-      where: { userId },
-      select: { entiteId: true },
-    });
-    return this.uniqueIds(rows.map((r) => r.entiteId));
+    const direct = await getUserDirectEntiteIds(userId);
+    return keepMostSpecificEntiteIds(direct);
   }
 
   private async getEntiteDescendantIds(rootIds: string[]): Promise<string[]> {
-    const roots = this.uniqueIds(rootIds);
-    if (roots.length === 0) return [];
-    const all = new Set<string>(roots);
-    let frontier = [...roots];
-    while (frontier.length > 0) {
-      const children = await prisma.entite.findMany({
-        where: { parentId: { in: frontier }, deletedAt: null },
-        select: { id: true },
-      });
-      const next: string[] = [];
-      for (const c of children) {
-        if (!all.has(c.id)) {
-          all.add(c.id);
-          next.push(c.id);
-        }
-      }
-      frontier = next;
-    }
-    return [...all];
+    return getEntiteDescendantIds(this.uniqueIds(rootIds));
   }
 
   private taskHasScopedEntite(

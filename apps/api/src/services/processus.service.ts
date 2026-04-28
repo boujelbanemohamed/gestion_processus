@@ -5,6 +5,7 @@ import {
   fetchProcessusAdminExcludedByProcessusIds,
   fetchProcessusAdminExcludedForUser,
 } from '../utils/resourceAdminSansAcces';
+import { getUserDirectEntiteIds, keepMostSpecificEntiteIds } from '../utils/entiteScope';
 
 export type ProcessusAuth = { userId: string; role: string };
 
@@ -28,11 +29,8 @@ function isAdminRole(role: string) {
 }
 
 async function getUserEntiteIds(userId: string): Promise<string[]> {
-  const rows = await prisma.userEntite.findMany({
-    where: { userId },
-    select: { entiteId: true },
-  });
-  return rows.map((r) => r.entiteId);
+  const direct = await getUserDirectEntiteIds(userId);
+  return keepMostSpecificEntiteIds(direct);
 }
 
 function rowHasScopedEntite(
