@@ -27,6 +27,35 @@ function govRolesForProjet(
 }
 
 export class UserAccessSyntheseService {
+  private async getUserEntiteIds(userId: string): Promise<string[]> {
+    const rows = await prisma.userEntite.findMany({
+      where: { userId },
+      select: { entiteId: true },
+    });
+    return [...new Set(rows.map((r) => r.entiteId).filter(Boolean))];
+  }
+
+  private async getEntiteDescendantIds(rootIds: string[]): Promise<string[]> {
+    const roots = [...new Set((rootIds || []).filter(Boolean))];
+    if (!roots.length) return [];
+    const all = new Set<string>(roots);
+    let frontier = [...roots];
+    while (frontier.length) {
+      const children = await prisma.entite.findMany({
+        where: { parentId: { in: frontier }, deletedAt: null },
+        select: { id: true },
+      });
+      const next: string[] = [];
+      for (const c of children) {
+        if (all.has(c.id)) continue;
+        all.add(c.id);
+        next.push(c.id);
+      }
+      frontier = next;
+    }
+    return [...all];
+  }
+
   async build(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -47,6 +76,33 @@ export class UserAccessSyntheseService {
       defaultLevel: defaultUiModuleLevel(user.role, module),
       isOverride: overrides.some((o) => o.module === module),
     }));
+
+    const [entiteIdsDirectes, entitesScope] = await (async () => {
+      const directs = await this.getUserEntiteIds(userId);
+      const scoped = await this.getEntiteDescendantIds(directs);
+      const entites = scoped.length
+        ? await prisma.entite.findMany({
+            where: { id: { in: scoped }, deletedAt: null },
+            select: { id: true, nom: true, code: true },
+            orderBy: { nom: 'asc' },
+          })
+        : [];
+      return [directs, entites] as const;
+    })();
+
+    const usersScopeRows =
+      user.role === 'admin'
+        ? []
+        : entitesScope.length
+          ? await prisma.user.findMany({
+              where: {
+                entitesMembres: { some: { entiteId: { in: entitesScope.map((e) => e.id) } } },
+              },
+              select: { id: true, prenom: true, nom: true, email: true },
+              orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
+              take: 500,
+            })
+          : [];
 
     const [
       permissionsRows,
@@ -330,6 +386,27 @@ export class UserAccessSyntheseService {
         else if (pv.modificationDelegues.length > 0) lien = 'délégué modification';
         return { id: pv.id, titre: pv.titre, createdAt: pv.createdAt, lien };
       }),
+      pagesScopes: {
+        entites: {
+          directes: entiteIdsDirectes,
+          scopeAvecEnfants: entitesScope,
+        },
+        utilisateurs:
+          user.role === 'admin'
+            ? {
+                mode: 'global',
+                description: "Administrateur : accès global aux utilisateurs (hors restrictions explicites).",
+                visibleCount: null,
+                preview: [],
+              }
+            : {
+                mode: 'entite_enfants',
+                description:
+                  'Accès limité aux membres des entités de rattachement et de leurs entités enfants (parents exclus).',
+                visibleCount: usersScopeRows.length,
+                preview: usersScopeRows.slice(0, 20),
+              },
+      },
     };
   }
 }

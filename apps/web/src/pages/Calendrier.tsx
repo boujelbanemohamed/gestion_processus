@@ -25,6 +25,7 @@ type TacheItem = {
       nom: string;
     } | null;
   } | null;
+  liaisons?: Array<{ tacheLieeId?: string | null; type?: string | null }>;
 };
 
 type NotificationItem = {
@@ -46,6 +47,13 @@ type JourFerieItem = {
 type ProjetItem = {
   id: string;
   nom: string;
+};
+
+type UserItem = {
+  id: string;
+  nom: string;
+  prenom: string;
+  entitesMembres?: Array<{ entite?: { id: string; nom: string } | null }>;
 };
 
 type CalendarEvent = {
@@ -143,6 +151,8 @@ export default function Calendrier() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [joursFeries, setJoursFeries] = useState<JourFerieItem[]>([]);
   const [projets, setProjets] = useState<ProjetItem[]>([]);
+  const [allUsers, setAllUsers] = useState<UserItem[]>([]);
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<CalendarTypeFilter>('all');
   const [projectFilter, setProjectFilter] = useState<string>('all');
@@ -165,16 +175,18 @@ export default function Calendrier() {
   const load = async () => {
     setLoading(true);
     try {
-      const [tRes, nRes, jfRes, pRes] = await Promise.all([
+      const [tRes, nRes, jfRes, pRes, uRes] = await Promise.all([
         api.get('/taches'),
         api.get('/notifications'),
         api.get('/jours-feries').catch(() => ({ data: [] })),
         api.get('/projets').catch(() => ({ data: [] })),
+        api.get('/users').catch(() => ({ data: [] })),
       ]);
       setTasks(Array.isArray(tRes.data) ? tRes.data : []);
       setNotifications(Array.isArray(nRes.data) ? nRes.data : []);
       setJoursFeries(Array.isArray(jfRes.data) ? jfRes.data : []);
       setProjets(Array.isArray(pRes.data) ? pRes.data : []);
+      setAllUsers(Array.isArray(uRes.data) ? uRes.data : []);
     } finally {
       setLoading(false);
     }
@@ -311,6 +323,20 @@ export default function Calendrier() {
     return out;
   }, [tasks, notifications, typeFilter, projectFilter, statusFilter, adminUserFilter, holidayDates, projectNameById, taskById]);
 
+  const filteredTasksForTimeline = useMemo(() => {
+    if (typeFilter === 'notification') return [] as TacheItem[];
+    return tasks.filter((t) => {
+      if (projectFilter !== 'all' && t.projetId !== projectFilter) return false;
+      if (statusFilter !== 'all' && t.statut !== statusFilter) return false;
+      if (adminUserFilter !== 'all') {
+        const assigned = (t.assignesUtilisateurs || []).some((u) => u.id === adminUserFilter);
+        const created = (t as any).createur?.id === adminUserFilter;
+        if (!assigned && !created) return false;
+      }
+      return true;
+    });
+  }, [tasks, typeFilter, projectFilter, statusFilter, adminUserFilter]);
+
   const [rangeStart, rangeEnd] = useMemo(() => {
     const a = startOfDay(anchor);
     if (view === 'day') return [a, endOfDay(a)] as const;
@@ -354,6 +380,7 @@ export default function Calendrier() {
   const navigatePeriod = (dir: -1 | 1) => {
     if (view === 'day') setAnchor(addDays(anchor, dir));
     else if (view === 'week') setAnchor(addDays(anchor, 7 * dir));
+    else if (view === 'timeline') setAnchor(addDays(anchor, 14 * dir));
     else setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() + dir, anchor.getDate()));
   };
 
@@ -441,6 +468,229 @@ export default function Calendrier() {
       )}
     </div>
   );
+
+  const timelineModel = useMemo(() => {
+    const dayWidth = 44;
+    const rowHeight = 36;
+    const timelineStart = startOfDay(rangeStart);
+    const timelineEnd = endOfDay(rangeEnd);
+    const totalDays = Math.max(1, diffDays(timelineEnd, timelineStart) + 1);
+
+    const userById = new Map<string, UserItem>();
+    for (const u of allUsers) userById.set(u.id, u);
+
+    type Row = { id: string; label: string; level: number; parentId: string | null; kind: string; sticky?: boolean };
+    type Bar = {
+      id: string;
+      rowId: string;
+      taskId: string;
+      title: string;
+      projectName: string;
+      status: string;
+      start: Date;
+      end: Date;
+      task: TacheItem;
+    };
+
+    const rows: Row[] = [];
+    const bars: Bar[] = [];
+    const pushRow = (row: Row) => {
+      if (!rows.some((r) => r.id === row.id)) rows.push(row);
+    };
+
+    for (const t of filteredTasksForTimeline) {
+      const projetId = t.projetId || 'unknown-project';
+      const projetNom = t.projet?.nom || projectNameById.get(t.projetId || '') || 'Sans projet';
+      const projectRowId = `project:${projetId}`;
+      const entitesGroupId = `project:${projetId}:entites`;
+      const tiersGroupId = `project:${projetId}:tiers`;
+      const unknownRowId = `project:${projetId}:unknown`;
+
+      pushRow({ id: projectRowId, label: projetNom, level: 0, parentId: null, kind: 'project' });
+      pushRow({ id: entitesGroupId, label: 'Entités', level: 1, parentId: projectRowId, kind: 'entites-group' });
+      pushRow({ id: tiersGroupId, label: 'Tiers', level: 1, parentId: projectRowId, kind: 'tiers-group' });
+      pushRow({ id: unknownRowId, label: 'Inconnus', level: 1, parentId: projectRowId, kind: 'unknown' });
+
+      const start = t.dateDebut ? startOfDay(new Date(t.dateDebut)) : startOfDay(new Date(t.createdAt || Date.now()));
+      const end = t.dateFinApprox ? endOfDay(new Date(t.dateFinApprox)) : endOfDay(start);
+
+      const addBar = (rowId: string, suffix: string) => {
+        bars.push({
+          id: `${t.id}:${suffix}`,
+          rowId,
+          taskId: t.id,
+          title: t.nom,
+          projectName: projetNom,
+          status: t.statut,
+          start,
+          end,
+          task: t,
+        });
+      };
+
+      const usersAssigned = t.assignesUtilisateurs || [];
+      const tiersAssigned = t.assignesClientsFournisseurs || [];
+      const entitesAssigned = t.assignesEntites || [];
+
+      if (usersAssigned.length > 0) {
+        for (const u of usersAssigned) {
+          const userFullName = `${u.prenom} ${u.nom}`.trim() || 'Utilisateur';
+          const userRowId = `project:${projetId}:user:${u.id}`;
+          const userData = userById.get(u.id);
+          const userEntites = (userData?.entitesMembres || [])
+            .map((ue) => ue.entite)
+            .filter(Boolean) as Array<{ id: string; nom: string }>;
+          if (userEntites.length > 0) {
+            for (const ent of userEntites) {
+              const entiteRowId = `project:${projetId}:entite:${ent.id}`;
+              pushRow({ id: entiteRowId, label: ent.nom, level: 2, parentId: entitesGroupId, kind: 'entite' });
+            }
+            const firstEntiteId = userEntites[0].id;
+            pushRow({
+              id: userRowId,
+              label: userFullName,
+              level: 3,
+              parentId: `project:${projetId}:entite:${firstEntiteId}`,
+              kind: 'user',
+            });
+          } else {
+            const entiteRowId = `project:${projetId}:entite:unknown`;
+            pushRow({ id: entiteRowId, label: 'Entité inconnue', level: 2, parentId: entitesGroupId, kind: 'entite' });
+            pushRow({ id: userRowId, label: userFullName, level: 3, parentId: entiteRowId, kind: 'user' });
+          }
+          addBar(userRowId, `user-${u.id}`);
+        }
+      } else if (tiersAssigned.length > 0) {
+        for (const cf of tiersAssigned) {
+          const tierRowId = `project:${projetId}:tier:${cf.id}`;
+          pushRow({ id: tierRowId, label: cf.nom, level: 2, parentId: tiersGroupId, kind: 'tier' });
+          addBar(tierRowId, `tier-${cf.id}`);
+        }
+      } else if (entitesAssigned.length > 0) {
+        for (const ent of entitesAssigned) {
+          const entiteRowId = `project:${projetId}:entite:${ent.id}`;
+          pushRow({ id: entiteRowId, label: ent.nom, level: 2, parentId: entitesGroupId, kind: 'entite' });
+          addBar(entiteRowId, `entite-${ent.id}`);
+        }
+      } else {
+        addBar(unknownRowId, 'unknown');
+      }
+    }
+
+    const childrenByParent = new Map<string | null, string[]>();
+    for (const row of rows) {
+      const arr = childrenByParent.get(row.parentId) || [];
+      arr.push(row.id);
+      childrenByParent.set(row.parentId, arr);
+    }
+
+    const sortIdsByLabel = (ids: string[]) =>
+      [...ids].sort((a, b) => {
+        const ra = rows.find((r) => r.id === a);
+        const rb = rows.find((r) => r.id === b);
+        return (ra?.label || '').localeCompare(rb?.label || '', 'fr');
+      });
+
+    const orderedRows: Row[] = [];
+    const visit = (parentId: string | null) => {
+      const childIds = sortIdsByLabel(childrenByParent.get(parentId) || []);
+      for (const id of childIds) {
+        const row = rows.find((r) => r.id === id);
+        if (!row) continue;
+        orderedRows.push(row);
+        visit(id);
+      }
+    };
+    visit(null);
+
+    const barItems = bars
+      .map((b) => {
+        const clampedStart = b.start.getTime() < timelineStart.getTime() ? timelineStart : b.start;
+        const clampedEnd = b.end.getTime() > timelineEnd.getTime() ? timelineEnd : b.end;
+        if (clampedEnd.getTime() < timelineStart.getTime() || clampedStart.getTime() > timelineEnd.getTime()) return null;
+        const startOffset = Math.max(0, diffDays(clampedStart, timelineStart));
+        const endOffset = Math.max(startOffset, diffDays(clampedEnd, timelineStart));
+        return {
+          ...b,
+          left: startOffset * dayWidth + 2,
+          width: Math.max(12, (endOffset - startOffset + 1) * dayWidth - 4),
+        };
+      })
+      .filter(Boolean) as Array<Bar & { left: number; width: number }>;
+
+    const barsByRow = new Map<string, Array<Bar & { left: number; width: number }>>();
+    for (const b of barItems) {
+      const arr = barsByRow.get(b.rowId) || [];
+      arr.push(b);
+      barsByRow.set(b.rowId, arr);
+    }
+
+    const firstBarByTaskId = new Map<string, { x: number; y: number }>();
+    orderedRows.forEach((row, rowIndex) => {
+      const rowBars = barsByRow.get(row.id) || [];
+      for (const b of rowBars) {
+        if (firstBarByTaskId.has(b.taskId)) continue;
+        firstBarByTaskId.set(b.taskId, {
+          x: b.left + b.width,
+          y: rowIndex * rowHeight + rowHeight / 2,
+        });
+      }
+    });
+
+    const dependencyLines: Array<{ key: string; left: number; top: number; width: number; height: number }> = [];
+    const added = new Set<string>();
+    for (const t of filteredTasksForTimeline) {
+      const source = firstBarByTaskId.get(t.id);
+      if (!source) continue;
+      for (const l of t.liaisons || []) {
+        const targetId = l?.tacheLieeId || '';
+        if (!targetId) continue;
+        const target = firstBarByTaskId.get(targetId);
+        if (!target) continue;
+        const key = `${t.id}->${targetId}`;
+        if (added.has(key)) continue;
+        added.add(key);
+        const left = Math.min(source.x, target.x);
+        const top = Math.min(source.y, target.y);
+        const width = Math.max(1, Math.abs(target.x - source.x));
+        const height = Math.max(1, Math.abs(target.y - source.y));
+        dependencyLines.push({ key, left, top, width, height });
+      }
+    }
+
+    const days: Date[] = [];
+    let cur = startOfDay(timelineStart);
+    while (cur.getTime() <= timelineEnd.getTime()) {
+      days.push(new Date(cur));
+      cur = addDays(cur, 1);
+    }
+
+    return {
+      dayWidth,
+      rowHeight,
+      totalDays,
+      orderedRows,
+      rowById: new Map(orderedRows.map((r) => [r.id, r])),
+      barsByRow,
+      dependencyLines,
+      days,
+      timelineWidth: totalDays * dayWidth,
+    };
+  }, [filteredTasksForTimeline, allUsers, projectNameById, rangeStart, rangeEnd]);
+
+  const visibleTimelineRows = useMemo(() => {
+    const rows = timelineModel.orderedRows;
+    const byId = timelineModel.rowById;
+    const isExpanded = (id: string) => expandedRows[id] !== false;
+    return rows.filter((row) => {
+      let p = row.parentId;
+      while (p) {
+        if (!isExpanded(p)) return false;
+        p = byId.get(p)?.parentId || null;
+      }
+      return true;
+    });
+  }, [timelineModel, expandedRows]);
 
   return (
     <div className="p-6">
@@ -555,54 +805,129 @@ export default function Calendrier() {
           })}
         </div>
       ) : view === 'timeline' ? (
-        <div className="bg-white border rounded p-3">
-          <div className="space-y-3">
-            {[...events]
-              .sort((a, b) => a.date.getTime() - b.date.getTime())
-              .map((ev) => {
-                const isTask = ev.type === 'task';
-                const status = ev.status || '';
-                const badgeClass = isTask
-                  ? status === 'termine'
-                    ? 'bg-blue-100 text-gray-500 line-through'
-                    : status === 'bloque'
-                      ? 'bg-red-100 text-red-800'
-                      : status === 'en_attente'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : status === 'en_cours'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-blue-100 text-blue-900'
-                  : 'bg-orange-100 text-orange-900';
+        <div className="bg-white border rounded">
+          <div className="overflow-auto max-h-[75vh]">
+            <div
+              className="relative"
+              style={{ minWidth: `${320 + timelineModel.timelineWidth}px` }}
+            >
+              <div className="flex sticky top-0 z-20 bg-white border-b">
+                <div className="w-80 shrink-0 px-3 py-2 text-xs font-semibold text-gray-700 border-r">
+                  Hiérarchie
+                </div>
+                <div className="relative" style={{ width: `${timelineModel.timelineWidth}px` }}>
+                  <div className="h-6 border-b text-[11px] text-gray-500">
+                    {timelineModel.days
+                      .filter((d) => d.getDay() === 1)
+                      .map((d) => (
+                        <div
+                          key={`w-${dayKey(d)}`}
+                          className="absolute top-0 h-6 border-l border-gray-300 pl-1"
+                          style={{ left: `${diffDays(d, startOfDay(rangeStart)) * timelineModel.dayWidth}px` }}
+                        >
+                          Semaine du {d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}
+                        </div>
+                      ))}
+                  </div>
+                  <div className="h-8 flex text-[10px] text-gray-600">
+                    {timelineModel.days.map((d) => (
+                      <div
+                        key={`d-${dayKey(d)}`}
+                        className={`h-8 border-l border-gray-200 flex items-center justify-center ${isWeekend(d) ? 'bg-gray-50' : ''}`}
+                        style={{ width: `${timelineModel.dayWidth}px` }}
+                      >
+                        {d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {visibleTimelineRows.map((row, rowIndex) => {
+                const rowBars = timelineModel.barsByRow.get(row.id) || [];
+                const hasChildren = timelineModel.orderedRows.some((r) => r.parentId === row.id);
+                const isOpen = expandedRows[row.id] !== false;
+                const rowBg = row.kind === 'project' ? 'bg-gray-50 font-semibold' : row.kind.endsWith('group') ? 'bg-gray-25' : 'bg-white';
                 return (
-                  <button
-                    key={ev.id}
-                    title={ev.tooltip}
-                    onClick={() => openEvent(ev)}
-                    className="w-full text-left border rounded p-3 hover:bg-gray-50"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className={`inline-flex items-center px-2 py-0.5 rounded text-xs ${badgeClass}`}>
-                        {isTask ? 'Tâche' : 'Notification'}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {ev.date.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  <div key={row.id} className={`flex border-b ${rowBg}`} style={{ height: `${timelineModel.rowHeight}px` }}>
+                    <div className="w-80 shrink-0 border-r px-2 flex items-center text-xs text-gray-800 sticky left-0 z-10 bg-white">
+                      <div style={{ paddingLeft: `${row.level * 14}px` }} className="flex items-center gap-1">
+                        {hasChildren ? (
+                          <button
+                            type="button"
+                            className="w-4 h-4 inline-flex items-center justify-center rounded border text-[10px]"
+                            onClick={() => setExpandedRows((prev) => ({ ...prev, [row.id]: !(prev[row.id] !== false) }))}
+                            title={isOpen ? 'Réduire' : 'Développer'}
+                          >
+                            {isOpen ? '−' : '+'}
+                          </button>
+                        ) : (
+                          <span className="w-4 h-4 inline-block" />
+                        )}
+                        <span>{row.label}</span>
                       </div>
                     </div>
-                    <div className="mt-1 text-sm font-medium text-gray-900">
-                      {isTask && ev.status === 'bloque' ? 'Retard · ' : ''}
-                      {isTask && ev.status === 'en_attente' ? 'En pause · ' : ''}
-                      {ev.title}
-                      {ev.projectName ? <span className="text-xs text-gray-600"> ({ev.projectName})</span> : null}
+                    <div className="relative" style={{ width: `${timelineModel.timelineWidth}px` }}>
+                      {timelineModel.days.map((d) => (
+                        <div
+                          key={`${row.id}:${dayKey(d)}`}
+                          className={`absolute top-0 bottom-0 border-l ${isWeekend(d) ? 'bg-gray-50 border-gray-200' : 'border-gray-100'}`}
+                          style={{ left: `${diffDays(d, startOfDay(rangeStart)) * timelineModel.dayWidth}px`, width: `${timelineModel.dayWidth}px` }}
+                        />
+                      ))}
+                      {rowBars.map((b) => {
+                        const barClass =
+                          b.status === 'termine'
+                            ? 'bg-blue-400'
+                            : b.status === 'en_cours'
+                              ? 'bg-green-500'
+                              : b.status === 'bloque'
+                                ? 'bg-red-500'
+                                : 'bg-blue-500';
+                        return (
+                          <button
+                            key={b.id}
+                            title={`${b.title}\nProjet: ${b.projectName}`}
+                            onClick={() => openEvent({
+                              id: b.id,
+                              sourceId: b.taskId,
+                              type: 'task',
+                              title: b.title,
+                              date: b.start,
+                              endDate: b.end,
+                              status: b.status,
+                              projectName: b.projectName,
+                              tooltip: b.title,
+                            })}
+                            className={`absolute top-1/2 -translate-y-1/2 h-5 rounded text-[10px] text-white px-2 text-left truncate ${barClass}`}
+                            style={{ left: `${b.left}px`, width: `${b.width}px` }}
+                          >
+                            {b.title}
+                          </button>
+                        );
+                      })}
+                      {rowIndex === 0 &&
+                        timelineModel.dependencyLines.map((ln) => (
+                          <div key={ln.key}>
+                            <div
+                              className="absolute border-t border-indigo-400"
+                              style={{ left: `${ln.left}px`, top: `${ln.top}px`, width: `${ln.width}px` }}
+                            />
+                            <div
+                              className="absolute border-l border-indigo-400"
+                              style={{ left: `${ln.left + ln.width}px`, top: `${ln.top}px`, height: `${ln.height}px` }}
+                            />
+                          </div>
+                        ))}
                     </div>
-                    {isTask && renderTaskMeta(ev)}
-                  </button>
+                  </div>
                 );
               })}
-            {events.length === 0 && (
-              <div className="text-sm text-gray-500 p-4 border rounded">
-                Aucun élément à afficher sur la période.
-              </div>
-            )}
+
+              {visibleTimelineRows.length === 0 && (
+                <div className="p-4 text-sm text-gray-500">Aucune tâche à afficher pour la période et les filtres sélectionnés.</div>
+              )}
+            </div>
           </div>
         </div>
       ) : (

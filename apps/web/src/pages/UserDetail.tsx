@@ -690,6 +690,33 @@ export default function UserDetail() {
             </section>
 
             <section>
+              <h3 className="text-md font-medium text-gray-700 mb-2">Périmètre réel par page</h3>
+              <div className="border rounded-lg p-3 bg-gray-50 space-y-3">
+                <div>
+                  <p className="text-xs font-semibold text-gray-700">Utilisateurs</p>
+                  <p className="text-xs text-gray-600">
+                    {synthese.pagesScopes?.utilisateurs?.description || '—'}
+                  </p>
+                  {typeof synthese.pagesScopes?.utilisateurs?.visibleCount === 'number' && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Utilisateurs visibles estimés: {synthese.pagesScopes.utilisateurs.visibleCount}
+                    </p>
+                  )}
+                  {Array.isArray(synthese.pagesScopes?.utilisateurs?.preview) &&
+                    synthese.pagesScopes.utilisateurs.preview.length > 0 && (
+                      <ul className="mt-2 text-xs text-gray-700 list-disc list-inside">
+                        {synthese.pagesScopes.utilisateurs.preview.map((u: any) => (
+                          <li key={u.id}>
+                            {u.prenom} {u.nom} ({u.email})
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                </div>
+              </div>
+            </section>
+
+            <section>
               <h3 className="text-md font-medium text-gray-700 mb-2">Projets — gouvernance</h3>
               <p className="text-xs text-gray-500 mb-2">
                 Rôles sur le projet (hors table des délégations). Retirer un rôle se fait depuis la fiche projet.
