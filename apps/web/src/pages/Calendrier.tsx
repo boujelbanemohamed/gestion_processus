@@ -321,6 +321,25 @@ export default function Calendrier() {
     });
   }, [tasks, typeFilter, projectFilter, statusFilter, assignUserFilter, assignEntiteFilter, assignCfFilter]);
 
+  const filteredNotificationsForTimeline = useMemo(() => {
+    if (typeFilter === 'task') return [] as NotificationItem[];
+    const visibleTaskIds = new Set(filteredTasksForTimeline.map((t) => t.id));
+    return notifications.filter((n) => {
+      if (n.lienType === 'tache' && n.lienId) {
+        // Notification visible seulement si la tâche est dans le périmètre courant.
+        return visibleTaskIds.has(n.lienId);
+      }
+      if (n.lienType === 'projet' && n.lienId) {
+        if (projectFilter !== 'all' && n.lienId !== projectFilter) return false;
+        // Projet visible seulement s'il est présent dans le scope remonté au calendrier.
+        return projectNameById.has(n.lienId);
+      }
+      if (projectFilter !== 'all') return false;
+      // Notification sans lien projet/tâche: reste visible car reçue par l'utilisateur connecté.
+      return true;
+    });
+  }, [typeFilter, notifications, filteredTasksForTimeline, projectFilter, projectNameById]);
+
   const dynamicUsers = useMemo(() => {
     const m = new Map<string, string>();
     filteredTasksForTimeline.forEach((t) => {
@@ -607,6 +626,46 @@ export default function Calendrier() {
       }
     }
 
+    for (const n of filteredNotificationsForTimeline) {
+      let projetId = 'unknown-project';
+      let projetNom = 'Sans projet';
+      if (n.lienType === 'projet' && n.lienId) {
+        projetId = n.lienId;
+        projetNom = projectNameById.get(n.lienId) || 'Projet';
+      } else if (n.lienType === 'tache' && n.lienId) {
+        const t = taskById.get(n.lienId);
+        if (t?.projetId) {
+          projetId = t.projetId;
+          projetNom = t.projet?.nom || projectNameById.get(t.projetId) || 'Projet';
+        }
+      }
+      const projectRowId = `project:${projetId}`;
+      const notifGroupId = `project:${projetId}:notifications`;
+      pushRow({ id: projectRowId, label: projetNom, level: 0, parentId: null, kind: 'project' });
+      pushRow({ id: notifGroupId, label: 'Notifications', level: 1, parentId: projectRowId, kind: 'notifications-group' });
+      const notifRowId = `project:${projetId}:notification:${n.id}`;
+      pushRow({ id: notifRowId, label: n.titre, level: 2, parentId: notifGroupId, kind: 'notification' });
+
+      const date = startOfDay(new Date(n.createdAt));
+      bars.push({
+        id: `notif:${n.id}`,
+        rowId: notifRowId,
+        taskId: `notification:${n.id}`,
+        title: n.titre,
+        projectName: projetNom,
+        status: 'notification',
+        start: date,
+        end: endOfDay(date),
+        task: {
+          id: `notification:${n.id}`,
+          nom: n.titre,
+          statut: 'notification',
+          dateDebut: n.createdAt,
+          dateFinApprox: n.createdAt,
+        },
+      });
+    }
+
     const childrenByParent = new Map<string | null, string[]>();
     for (const row of rows) {
       const arr = childrenByParent.get(row.parentId) || [];
@@ -706,7 +765,7 @@ export default function Calendrier() {
       days,
       timelineWidth: totalDays * dayWidth,
     };
-  }, [filteredTasksForTimeline, allUsers, projectNameById, rangeStart, rangeEnd]);
+  }, [filteredTasksForTimeline, filteredNotificationsForTimeline, allUsers, projectNameById, rangeStart, rangeEnd, taskById]);
 
   const visibleTimelineRows = useMemo(() => {
     const rows = timelineModel.orderedRows;
@@ -920,7 +979,9 @@ export default function Calendrier() {
                       ))}
                       {rowBars.map((b) => {
                         const barClass =
-                          b.status === 'termine'
+                          b.status === 'notification'
+                            ? 'bg-orange-500'
+                            : b.status === 'termine'
                             ? 'bg-blue-400'
                             : b.status === 'en_cours'
                               ? 'bg-green-500'
@@ -931,17 +992,33 @@ export default function Calendrier() {
                           <button
                             key={b.id}
                             title={`${b.title}\nProjet: ${b.projectName}`}
-                            onClick={() => openEvent({
-                              id: b.id,
-                              sourceId: b.taskId,
-                              type: 'task',
-                              title: b.title,
-                              date: b.start,
-                              endDate: b.end,
-                              status: b.status,
-                              projectName: b.projectName,
-                              tooltip: b.title,
-                            })}
+                            onClick={() => {
+                              if (b.taskId.startsWith('notification:')) {
+                                openEvent({
+                                  id: b.id,
+                                  sourceId: b.taskId.replace('notification:', ''),
+                                  type: 'notification',
+                                  title: b.title,
+                                  date: b.start,
+                                  endDate: b.end,
+                                  status: b.status,
+                                  projectName: b.projectName,
+                                  tooltip: b.title,
+                                });
+                                return;
+                              }
+                              openEvent({
+                                id: b.id,
+                                sourceId: b.taskId,
+                                type: 'task',
+                                title: b.title,
+                                date: b.start,
+                                endDate: b.end,
+                                status: b.status,
+                                projectName: b.projectName,
+                                tooltip: b.title,
+                              });
+                            }}
                             className={`absolute top-1/2 -translate-y-1/2 h-5 rounded text-[10px] text-white px-2 text-left truncate ${barClass}`}
                             style={{ left: `${b.left}px`, width: `${b.width}px` }}
                           >
