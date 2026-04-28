@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../store/auth';
 
-type CalendarView = 'month' | 'week' | 'day';
+type CalendarView = 'month' | 'week' | 'day' | 'timeline';
 type CalendarTypeFilter = 'all' | 'task' | 'notification';
 
 type TacheItem = {
@@ -284,8 +284,13 @@ export default function Calendrier() {
       if (n.lienType === 'projet' && n.lienId) {
         notifProjectId = n.lienId;
         notifProjectName = projectNameById.get(n.lienId);
+        // Même logique de périmètre que les tâches:
+        // si le projet n'est pas visible dans le scope utilisateur, on masque l'événement.
+        if (!notifProjectName) continue;
       } else if (n.lienType === 'tache' && n.lienId) {
         const t = taskById.get(n.lienId);
+        // Si la tâche n'est pas accessible (donc absente de /taches), la notification est masquée.
+        if (!t) continue;
         notifProjectId = t?.projetId || null;
         notifProjectName = t?.projet?.nom || (notifProjectId ? projectNameById.get(notifProjectId) : undefined);
       }
@@ -309,6 +314,7 @@ export default function Calendrier() {
   const [rangeStart, rangeEnd] = useMemo(() => {
     const a = startOfDay(anchor);
     if (view === 'day') return [a, endOfDay(a)] as const;
+    if (view === 'timeline') return [startOfDay(addDays(a, -14)), endOfDay(addDays(a, 14))] as const;
     if (view === 'week') {
       const d = a.getDay() === 0 ? 7 : a.getDay();
       const monday = addDays(a, 1 - d);
@@ -451,7 +457,8 @@ export default function Calendrier() {
       <div className="flex flex-wrap gap-2 mb-4">
         <button onClick={() => setView('month')} className={`px-3 py-1.5 rounded text-sm ${view === 'month' ? 'bg-blue-600 text-white' : 'bg-white border'}`}>Mois</button>
         <button onClick={() => setView('week')} className={`px-3 py-1.5 rounded text-sm ${view === 'week' ? 'bg-blue-600 text-white' : 'bg-white border'}`}>Semaine</button>
-        <button onClick={() => setView('day')} className={`px-3 py-1.5 rounded text-sm ${view === 'day' ? 'bg-blue-600 text-white' : 'bg-white border'}`}>Jour</button>
+          <button onClick={() => setView('day')} className={`px-3 py-1.5 rounded text-sm ${view === 'day' ? 'bg-blue-600 text-white' : 'bg-white border'}`}>Jour</button>
+          <button onClick={() => setView('timeline')} className={`px-3 py-1.5 rounded text-sm ${view === 'timeline' ? 'bg-blue-600 text-white' : 'bg-white border'}`}>Timeline</button>
 
         <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as CalendarTypeFilter)} className="px-2 py-1.5 border rounded text-sm">
           <option value="all">Type: Tous</option>
@@ -546,6 +553,57 @@ export default function Calendrier() {
               </div>
             );
           })}
+        </div>
+      ) : view === 'timeline' ? (
+        <div className="bg-white border rounded p-3">
+          <div className="space-y-3">
+            {[...events]
+              .sort((a, b) => a.date.getTime() - b.date.getTime())
+              .map((ev) => {
+                const isTask = ev.type === 'task';
+                const status = ev.status || '';
+                const badgeClass = isTask
+                  ? status === 'termine'
+                    ? 'bg-blue-100 text-gray-500 line-through'
+                    : status === 'bloque'
+                      ? 'bg-red-100 text-red-800'
+                      : status === 'en_attente'
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : status === 'en_cours'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-blue-100 text-blue-900'
+                  : 'bg-orange-100 text-orange-900';
+                return (
+                  <button
+                    key={ev.id}
+                    title={ev.tooltip}
+                    onClick={() => openEvent(ev)}
+                    className="w-full text-left border rounded p-3 hover:bg-gray-50"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className={`inline-flex items-center px-2 py-0.5 rounded text-xs ${badgeClass}`}>
+                        {isTask ? 'Tâche' : 'Notification'}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {ev.date.toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}
+                      </div>
+                    </div>
+                    <div className="mt-1 text-sm font-medium text-gray-900">
+                      {isTask && ev.status === 'bloque' ? 'Retard · ' : ''}
+                      {isTask && ev.status === 'en_attente' ? 'En pause · ' : ''}
+                      {ev.title}
+                      {ev.projectName ? <span className="text-xs text-gray-600"> ({ev.projectName})</span> : null}
+                    </div>
+                    {isTask && renderTaskMeta(ev)}
+                  </button>
+                );
+              })}
+            {events.length === 0 && (
+              <div className="text-sm text-gray-500 p-4 border rounded">
+                Aucun élément à afficher sur la période.
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <div className="bg-white border rounded p-3">
