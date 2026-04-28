@@ -121,6 +121,52 @@ function isAdminRole(role: string) {
   return role === 'admin';
 }
 
+async function getUserEntiteIds(userId: string): Promise<string[]> {
+  const rows = await prisma.userEntite.findMany({
+    where: { userId },
+    select: { entiteId: true },
+  });
+  return [...new Set(rows.map((r) => r.entiteId).filter(Boolean))];
+}
+
+async function getEntiteDescendantIds(rootIds: string[]): Promise<string[]> {
+  const root = [...new Set(rootIds.filter(Boolean))];
+  if (root.length === 0) return [];
+  const all = new Set<string>(root);
+  let frontier = [...root];
+  while (frontier.length > 0) {
+    const children = await prisma.entite.findMany({
+      where: { parentId: { in: frontier }, deletedAt: null },
+      select: { id: true },
+    });
+    const next: string[] = [];
+    for (const c of children) {
+      if (!all.has(c.id)) {
+        all.add(c.id);
+        next.push(c.id);
+      }
+    }
+    frontier = next;
+  }
+  return [...all];
+}
+
+async function getContributeurProjetEntiteScope(userId: string): Promise<Set<string>> {
+  const ownEntites = await getUserEntiteIds(userId);
+  const scope = await getEntiteDescendantIds(ownEntites);
+  return new Set(scope);
+}
+
+function projetHasScopedEntite(
+  p: { entites?: Array<{ entiteId?: string; entite?: { id?: string } }> },
+  scopedEntites: Set<string>
+) {
+  const ids = (p.entites || [])
+    .map((pe: any) => pe.entiteId ?? pe.entite?.id)
+    .filter(Boolean);
+  return ids.some((id: string) => scopedEntites.has(id));
+}
+
 async function myPermTypesForProjet(projetId: string, userId: string): Promise<PermissionType[]> {
   const rows = await prisma.permission.findMany({
     where: { ressourceType: 'projet', ressourceId: projetId, userId },
@@ -745,6 +791,10 @@ export class ProjetService {
     },
     auth: ProjetAuth
   ) {
+    const isContributeur = auth.role === 'contributeur';
+    const contributeurEntiteScope = isContributeur
+      ? await getContributeurProjetEntiteScope(auth.userId)
+      : new Set<string>();
     const where: any = { deletedAt: null };
     if (filters?.statut) where.statut = filters.statut;
     if (filters?.priorite) where.priorite = filters.priorite;
@@ -807,6 +857,9 @@ export class ProjetService {
       const perms = permMap.get(p.id) ?? [];
       const permTypes = perms.map((x: any) => x.permission as PermissionType);
       const gov = isGovernanceMember(p, auth.userId);
+      if (isContributeur) {
+        return gov || permTypes.length > 0 || projetHasScopedEntite(p as any, contributeurEntiteScope);
+      }
       return canViewProjet(
         { id: p.id, createdById: p.createdById },
         auth,
@@ -851,6 +904,7 @@ export class ProjetService {
       select: {
         id: true,
         createdById: true,
+        entites: { select: { entiteId: true } },
         responsableId: true,
         gestionnaireId: true,
         sponsors: { select: { userId: true } },
@@ -864,6 +918,13 @@ export class ProjetService {
     }
     const permTypes = await myPermTypesForProjet(projetId, userId);
     const gov = isGovernanceMember(projet as any, userId);
+    if (userRole === 'contributeur') {
+      const scope = await getContributeurProjetEntiteScope(userId);
+      const entityScoped = projetHasScopedEntite(projet as any, scope);
+      if (!gov && permTypes.length === 0 && !entityScoped) {
+        return { canAccess: false, reason: 'Accès refusé à ce projet' };
+      }
+    }
     const adminExcl = await fetchProjetAdminExcludedForUser(userId, [projet.id]);
     const ok = canViewProjet(
       { id: projet.id, createdById: projet.createdById },
@@ -889,6 +950,11 @@ export class ProjetService {
     const perms = (await loadPermissionsForProjets([id])).get(id) ?? [];
     const permTypes = perms.map((x: any) => x.permission as PermissionType);
     const gov = isGovernanceMember(projet, auth.userId);
+    if (auth.role === 'contributeur') {
+      const scope = await getContributeurProjetEntiteScope(auth.userId);
+      const entityScoped = projetHasScopedEntite(projet as any, scope);
+      if (!gov && permTypes.length === 0 && !entityScoped) return null;
+    }
     const adminExclViewer = await fetchProjetAdminExcludedForUser(auth.userId, [id]);
     const adminImplicitRefused = adminExclViewer.has(id);
     if (!canViewProjet({ id: projet.id, createdById: projet.createdById }, auth, permTypes, gov, adminImplicitRefused)) {
