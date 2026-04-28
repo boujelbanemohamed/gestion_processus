@@ -827,6 +827,11 @@ export function TacheModal({
   );
   const [userStoryId, setUserStoryId] = useState(editTache?.userStory?.id || lockUserStoryId || '');
   const [userStoryOptions, setUserStoryOptions] = useState<{ id: string; description: string }[]>([]);
+  const [newDocFile, setNewDocFile] = useState<File | null>(null);
+  const [newDocNom, setNewDocNom] = useState('');
+  const [newDocDesc, setNewDocDesc] = useState('');
+  const [newCommentaire, setNewCommentaire] = useState('');
+  const [newCommentFile, setNewCommentFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [idCopied, setIdCopied] = useState(false);
@@ -918,10 +923,28 @@ export function TacheModal({
         liaisons: liaisons.filter(l => l.tacheLieeId),
         userStoryId: userStoryId || null,
       };
+      let tacheId = editTache?.id || '';
       if (editTache) {
-        await api.put(`/taches/${editTache.id}`, payload);
+        const res = await api.put(`/taches/${editTache.id}`, payload);
+        tacheId = res?.data?.id || editTache.id;
       } else {
-        await api.post('/taches', payload);
+        const res = await api.post('/taches', payload);
+        tacheId = res?.data?.id || '';
+      }
+
+      if (newDocFile && tacheId) {
+        const fd = new FormData();
+        fd.append('fichier', newDocFile);
+        fd.append('nom', newDocNom.trim() || newDocFile.name);
+        if (newDocDesc.trim()) fd.append('description', newDocDesc.trim());
+        await api.post(`/taches/${tacheId}/documents`, fd);
+      }
+
+      if ((newCommentaire.trim() || newCommentFile) && tacheId) {
+        const fd = new FormData();
+        if (newCommentaire.trim()) fd.append('contenu', newCommentaire.trim());
+        if (newCommentFile) fd.append('fichier', newCommentFile);
+        await api.post(`/taches/${tacheId}/commentaires`, fd);
       }
       onSave();
       onClose();
@@ -1179,6 +1202,49 @@ export function TacheModal({
                 </div>
               ))}
               {liaisons.length === 0 && <p className="text-sm text-gray-400">Aucune liaison définie</p>}
+            </div>
+
+            {/* Document à ajouter à l'enregistrement */}
+            <div className="border border-gray-200 rounded-md p-3 bg-gray-50">
+              <h3 className="text-sm font-semibold text-gray-800 mb-2">Document (optionnel)</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                <input
+                  type="text"
+                  value={newDocNom}
+                  onChange={(e) => setNewDocNom(e.target.value)}
+                  placeholder="Nom du document"
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+                <input
+                  type="text"
+                  value={newDocDesc}
+                  onChange={(e) => setNewDocDesc(e.target.value)}
+                  placeholder="Description du document"
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+              </div>
+              <input
+                type="file"
+                onChange={(e) => setNewDocFile(e.target.files?.[0] || null)}
+                className="text-sm"
+              />
+            </div>
+
+            {/* Commentaire + pièce jointe */}
+            <div className="border border-gray-200 rounded-md p-3 bg-gray-50">
+              <h3 className="text-sm font-semibold text-gray-800 mb-2">Commentaire (optionnel)</h3>
+              <textarea
+                rows={3}
+                value={newCommentaire}
+                onChange={(e) => setNewCommentaire(e.target.value)}
+                placeholder="Ajouter un commentaire..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-md resize-y text-sm mb-2"
+              />
+              <input
+                type="file"
+                onChange={(e) => setNewCommentFile(e.target.files?.[0] || null)}
+                className="text-sm"
+              />
             </div>
           </div>
 
