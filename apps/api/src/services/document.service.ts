@@ -223,6 +223,46 @@ function buildDocumentLinkClause(linkType: string, linkId: string): Record<strin
 }
 
 export class DocumentService {
+  private async getUserEntiteIds(userId: string): Promise<string[]> {
+    const rows = await prisma.userEntite.findMany({
+      where: { userId },
+      select: { entiteId: true },
+    });
+    return [...new Set(rows.map((r) => r.entiteId).filter(Boolean))];
+  }
+
+  private async getEntiteDescendantIds(rootIds: string[]): Promise<string[]> {
+    const roots = [...new Set((rootIds || []).filter(Boolean))];
+    if (!roots.length) return [];
+    const all = new Set<string>(roots);
+    let frontier = [...roots];
+    while (frontier.length) {
+      const children = await prisma.entite.findMany({
+        where: { parentId: { in: frontier }, deletedAt: null },
+        select: { id: true },
+      });
+      const next: string[] = [];
+      for (const c of children) {
+        if (all.has(c.id)) continue;
+        all.add(c.id);
+        next.push(c.id);
+      }
+      frontier = next;
+    }
+    return [...all];
+  }
+
+  private async isUserWithinViewerEntiteScope(viewerUserId: string, candidateUserId: string): Promise<boolean> {
+    const viewerDirectEntites = await this.getUserEntiteIds(viewerUserId);
+    const scopeIds = await this.getEntiteDescendantIds(viewerDirectEntites);
+    if (!scopeIds.length) return false;
+    const membership = await prisma.userEntite.findFirst({
+      where: { userId: candidateUserId, entiteId: { in: scopeIds } },
+      select: { userId: true },
+    });
+    return !!membership;
+  }
+
   async ensureUploadDir() {
     try {
       await fs.access(UPLOAD_DIR);
@@ -717,7 +757,18 @@ export class DocumentService {
       }
     }
 
-    if (!document.estConfidentiel) return true;
+    if (!document.estConfidentiel) {
+      if (r === 'contributeur' || r === 'lecteur') {
+        if (document.uploadedById === userId) return true;
+        const hasExplicitPermission = await prisma.documentPermission.findFirst({
+          where: { documentId, userId },
+          select: { id: true },
+        });
+        if (hasExplicitPermission) return true;
+        return this.isUserWithinViewerEntiteScope(userId, document.uploadedById);
+      }
+      return true;
+    }
 
     /** Pièce confidentielle déposée sur le projet : accès = auteur + liste explicite + admins non exclus (pas de passe-droit gouvernance). */
     if (isNativeProjetUploadDocument(document)) {

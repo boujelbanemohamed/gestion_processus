@@ -5,6 +5,7 @@ import { useAuth } from '../store/auth';
 
 type CalendarView = 'month' | 'week' | 'day' | 'timeline';
 type CalendarTypeFilter = 'all' | 'task' | 'notification';
+type TimelineScale = 'day' | 'week' | 'month';
 
 type TacheItem = {
   id: string;
@@ -144,7 +145,7 @@ function isWeekend(d: Date) {
 
 export default function Calendrier() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  useAuth();
   const [view, setView] = useState<CalendarView>('month');
   const [anchor, setAnchor] = useState<Date>(startOfDay(new Date()));
   const [tasks, setTasks] = useState<TacheItem[]>([]);
@@ -157,20 +158,10 @@ export default function Calendrier() {
   const [typeFilter, setTypeFilter] = useState<CalendarTypeFilter>('all');
   const [projectFilter, setProjectFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [adminUserFilter, setAdminUserFilter] = useState<string>('all');
-
-  const canFilterByAssignment = useMemo(() => {
-    if (!user) return false;
-    if (user.role === 'admin') return true;
-    const u = user as any;
-    return Boolean(
-      u?.isEntiteResponsable ||
-      u?.isResponsableEntite ||
-      (Array.isArray(u?.entitesResponsables) && u.entitesResponsables.length > 0) ||
-      (Array.isArray(u?.entiteResponsableIds) && u.entiteResponsableIds.length > 0) ||
-      user.role === 'contributeur'
-    );
-  }, [user]);
+  const [assignUserFilter, setAssignUserFilter] = useState<string>('all');
+  const [assignEntiteFilter, setAssignEntiteFilter] = useState<string>('all');
+  const [assignCfFilter, setAssignCfFilter] = useState<string>('all');
+  const [timelineScale, setTimelineScale] = useState<TimelineScale>('week');
 
   const load = async () => {
     setLoading(true);
@@ -223,18 +214,6 @@ export default function Calendrier() {
     return m;
   }, [tasks]);
 
-  const users = useMemo(() => {
-    const m = new Map<string, string>();
-    tasks.forEach((t) => {
-      (t.assignesUtilisateurs || []).forEach((u) => m.set(u.id, `${u.prenom} ${u.nom}`));
-      if (t as any && (t as any).createur?.id) {
-        const c = (t as any).createur;
-        m.set(c.id, `${c.prenom} ${c.nom}`);
-      }
-    });
-    return [...m.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label, 'fr'));
-  }, [tasks]);
-
   const holidayDates = useMemo(() => {
     const s = new Set<string>();
     for (const j of joursFeries) {
@@ -249,10 +228,17 @@ export default function Calendrier() {
     for (const t of tasks) {
       if (projectFilter !== 'all' && t.projetId !== projectFilter) continue;
       if (statusFilter !== 'all' && t.statut !== statusFilter) continue;
-      if (adminUserFilter !== 'all') {
-        const assigned = (t.assignesUtilisateurs || []).some((u) => u.id === adminUserFilter);
-        const created = (t as any).createur?.id === adminUserFilter;
-        if (!assigned && !created) continue;
+      if (assignUserFilter !== 'all') {
+        const assigned = (t.assignesUtilisateurs || []).some((u) => u.id === assignUserFilter);
+        if (!assigned) continue;
+      }
+      if (assignEntiteFilter !== 'all') {
+        const assigned = (t.assignesEntites || []).some((e) => e.id === assignEntiteFilter);
+        if (!assigned) continue;
+      }
+      if (assignCfFilter !== 'all') {
+        const assigned = (t.assignesClientsFournisseurs || []).some((cf) => cf.id === assignCfFilter);
+        if (!assigned) continue;
       }
       const start = t.dateDebut ? startOfDay(new Date(t.dateDebut)) : startOfDay(new Date(t.createdAt || Date.now()));
       const end = t.dateFinApprox ? endOfDay(new Date(t.dateFinApprox)) : start;
@@ -321,26 +307,64 @@ export default function Calendrier() {
     if (typeFilter === 'task') return out.filter((e) => e.type === 'task');
     if (typeFilter === 'notification') return out.filter((e) => e.type === 'notification');
     return out;
-  }, [tasks, notifications, typeFilter, projectFilter, statusFilter, adminUserFilter, holidayDates, projectNameById, taskById]);
+  }, [tasks, notifications, typeFilter, projectFilter, statusFilter, assignUserFilter, assignEntiteFilter, assignCfFilter, holidayDates, projectNameById, taskById]);
 
   const filteredTasksForTimeline = useMemo(() => {
     if (typeFilter === 'notification') return [] as TacheItem[];
     return tasks.filter((t) => {
       if (projectFilter !== 'all' && t.projetId !== projectFilter) return false;
       if (statusFilter !== 'all' && t.statut !== statusFilter) return false;
-      if (adminUserFilter !== 'all') {
-        const assigned = (t.assignesUtilisateurs || []).some((u) => u.id === adminUserFilter);
-        const created = (t as any).createur?.id === adminUserFilter;
-        if (!assigned && !created) return false;
-      }
+      if (assignUserFilter !== 'all' && !(t.assignesUtilisateurs || []).some((u) => u.id === assignUserFilter)) return false;
+      if (assignEntiteFilter !== 'all' && !(t.assignesEntites || []).some((e) => e.id === assignEntiteFilter)) return false;
+      if (assignCfFilter !== 'all' && !(t.assignesClientsFournisseurs || []).some((cf) => cf.id === assignCfFilter)) return false;
       return true;
     });
-  }, [tasks, typeFilter, projectFilter, statusFilter, adminUserFilter]);
+  }, [tasks, typeFilter, projectFilter, statusFilter, assignUserFilter, assignEntiteFilter, assignCfFilter]);
+
+  const dynamicUsers = useMemo(() => {
+    const m = new Map<string, string>();
+    filteredTasksForTimeline.forEach((t) => {
+      (t.assignesUtilisateurs || []).forEach((u) => m.set(u.id, `${u.prenom} ${u.nom}`));
+    });
+    return [...m.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+  }, [filteredTasksForTimeline]);
+
+  const dynamicEntites = useMemo(() => {
+    const m = new Map<string, string>();
+    filteredTasksForTimeline.forEach((t) => {
+      (t.assignesEntites || []).forEach((e) => m.set(e.id, e.nom));
+    });
+    return [...m.entries()].map(([id, nom]) => ({ id, nom })).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+  }, [filteredTasksForTimeline]);
+
+  const dynamicCfs = useMemo(() => {
+    const m = new Map<string, string>();
+    filteredTasksForTimeline.forEach((t) => {
+      (t.assignesClientsFournisseurs || []).forEach((cf) => m.set(cf.id, cf.nom));
+    });
+    return [...m.entries()].map(([id, nom]) => ({ id, nom })).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+  }, [filteredTasksForTimeline]);
+
+  useEffect(() => {
+    if (assignUserFilter !== 'all' && !dynamicUsers.some((u) => u.id === assignUserFilter)) setAssignUserFilter('all');
+    if (assignEntiteFilter !== 'all' && !dynamicEntites.some((e) => e.id === assignEntiteFilter)) setAssignEntiteFilter('all');
+    if (assignCfFilter !== 'all' && !dynamicCfs.some((c) => c.id === assignCfFilter)) setAssignCfFilter('all');
+  }, [dynamicUsers, dynamicEntites, dynamicCfs, assignUserFilter, assignEntiteFilter, assignCfFilter]);
 
   const [rangeStart, rangeEnd] = useMemo(() => {
     const a = startOfDay(anchor);
     if (view === 'day') return [a, endOfDay(a)] as const;
-    if (view === 'timeline') return [startOfDay(addDays(a, -14)), endOfDay(addDays(a, 14))] as const;
+    if (view === 'timeline') {
+      if (timelineScale === 'day') return [a, endOfDay(a)] as const;
+      if (timelineScale === 'week') {
+        const d = a.getDay() === 0 ? 7 : a.getDay();
+        const monday = addDays(a, 1 - d);
+        return [monday, endOfDay(addDays(monday, 6))] as const;
+      }
+      const first = new Date(a.getFullYear(), a.getMonth(), 1);
+      const last = new Date(a.getFullYear(), a.getMonth() + 1, 0);
+      return [startOfDay(first), endOfDay(last)] as const;
+    }
     if (view === 'week') {
       const d = a.getDay() === 0 ? 7 : a.getDay();
       const monday = addDays(a, 1 - d);
@@ -349,7 +373,7 @@ export default function Calendrier() {
     const first = new Date(a.getFullYear(), a.getMonth(), 1);
     const last = new Date(a.getFullYear(), a.getMonth() + 1, 0);
     return [startOfDay(first), endOfDay(last)] as const;
-  }, [anchor, view]);
+  }, [anchor, view, timelineScale]);
 
   const daysInRange = useMemo(() => {
     const arr: Date[] = [];
@@ -380,7 +404,11 @@ export default function Calendrier() {
   const navigatePeriod = (dir: -1 | 1) => {
     if (view === 'day') setAnchor(addDays(anchor, dir));
     else if (view === 'week') setAnchor(addDays(anchor, 7 * dir));
-    else if (view === 'timeline') setAnchor(addDays(anchor, 14 * dir));
+    else if (view === 'timeline') {
+      if (timelineScale === 'day') setAnchor(addDays(anchor, dir));
+      else if (timelineScale === 'week') setAnchor(addDays(anchor, 7 * dir));
+      else setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() + dir, anchor.getDate()));
+    }
     else setAnchor(new Date(anchor.getFullYear(), anchor.getMonth() + dir, anchor.getDate()));
   };
 
@@ -390,7 +418,9 @@ export default function Calendrier() {
     setTypeFilter('all');
     setProjectFilter('all');
     setStatusFilter('all');
-    setAdminUserFilter('all');
+    setAssignUserFilter('all');
+    setAssignEntiteFilter('all');
+    setAssignCfFilter('all');
   };
 
   const openEvent = (e: CalendarEvent) => {
@@ -723,10 +753,23 @@ export default function Calendrier() {
           <option value="all">Statut: Tous</option>
           {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-        {canFilterByAssignment && (
-          <select value={adminUserFilter} onChange={(e) => setAdminUserFilter(e.target.value)} className="px-2 py-1.5 border rounded text-sm">
-            <option value="all">Assignation: Tous</option>
-            {users.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+        <select value={assignUserFilter} onChange={(e) => setAssignUserFilter(e.target.value)} className="px-2 py-1.5 border rounded text-sm">
+          <option value="all">Assignation utilisateur: Tous</option>
+          {dynamicUsers.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+        </select>
+        <select value={assignEntiteFilter} onChange={(e) => setAssignEntiteFilter(e.target.value)} className="px-2 py-1.5 border rounded text-sm">
+          <option value="all">Assignation entité: Toutes</option>
+          {dynamicEntites.map((e) => <option key={e.id} value={e.id}>{e.nom}</option>)}
+        </select>
+        <select value={assignCfFilter} onChange={(e) => setAssignCfFilter(e.target.value)} className="px-2 py-1.5 border rounded text-sm">
+          <option value="all">Assignation client/fournisseur: Tous</option>
+          {dynamicCfs.map((c) => <option key={c.id} value={c.id}>{c.nom}</option>)}
+        </select>
+        {view === 'timeline' && (
+          <select value={timelineScale} onChange={(e) => setTimelineScale(e.target.value as TimelineScale)} className="px-2 py-1.5 border rounded text-sm">
+            <option value="day">Période timeline: Jour</option>
+            <option value="week">Période timeline: Semaine</option>
+            <option value="month">Période timeline: Mois</option>
           </select>
         )}
         <button
