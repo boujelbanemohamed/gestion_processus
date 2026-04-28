@@ -12,7 +12,7 @@ export class JourFerieService {
     const rows = await (prisma as any).jourFerie.findMany({
       orderBy: { date: 'asc' },
     });
-    return rows.map((r) => ({
+    return rows.map((r: any) => ({
       ...r,
       date: r.date.toISOString().slice(0, 10),
     }));

@@ -35,6 +35,16 @@ async function getUserEntiteIds(userId: string): Promise<string[]> {
   return rows.map((r) => r.entiteId);
 }
 
+function rowHasScopedEntite(
+  row: { entites?: Array<{ entiteId?: string; entite?: { id?: string } }> },
+  scopedEntiteIds: Set<string>
+) {
+  const ids = (row.entites || [])
+    .map((pe: any) => pe.entiteId ?? pe.entite?.id)
+    .filter(Boolean);
+  return ids.some((id: string) => scopedEntiteIds.has(id));
+}
+
 async function myPermTypesForProcessus(processusId: string, userId: string): Promise<PermissionType[]> {
   const rows = await prisma.permission.findMany({
     where: { ressourceType: 'processus', ressourceId: processusId, userId },
@@ -329,6 +339,9 @@ export class ProcessusService {
     auth: ProcessusAuth
   ) {
     const where: any = {};
+    const isContributeur = auth.role === 'contributeur';
+    const userEntiteIds = !isAdminRole(auth.role) ? await getUserEntiteIds(auth.userId) : [];
+    const userEntiteIdSet = new Set(userEntiteIds);
     if (filters?.statut) where.statut = filters.statut;
     if (filters?.entiteId) {
       where.entites = { some: { entiteId: filters.entiteId } };
@@ -374,11 +387,26 @@ export class ProcessusService {
 
     where.deletedAt = null;
 
-    // Règle métier: hors admin, on ne voit que les processus rattachés à ses entités.
-    if (!isAdminRole(auth.role)) {
-      const entiteIds = await getUserEntiteIds(auth.userId);
-      if (entiteIds.length === 0) return [];
-      const entiteScope = { entites: { some: { entiteId: { in: entiteIds } } } };
+    // Contributeur: accès strict = ACL explicite OU entité concernée.
+    if (isContributeur) {
+      const aclRows = await prisma.permission.findMany({
+        where: { ressourceType: 'processus', userId: auth.userId },
+        select: { ressourceId: true },
+      });
+      const aclIds = [...new Set(aclRows.map((r) => r.ressourceId).filter(Boolean))];
+      if (userEntiteIds.length === 0 && aclIds.length === 0) return [];
+      const scopeOr: any[] = [];
+      if (userEntiteIds.length > 0) {
+        scopeOr.push({ entites: { some: { entiteId: { in: userEntiteIds } } } });
+      }
+      if (aclIds.length > 0) {
+        scopeOr.push({ id: { in: aclIds } });
+      }
+      where.AND = [...(Array.isArray(where.AND) ? where.AND : []), { OR: scopeOr }];
+    } else if (!isAdminRole(auth.role)) {
+      // Règle existante pour les autres non-admin.
+      if (userEntiteIds.length === 0) return [];
+      const entiteScope = { entites: { some: { entiteId: { in: userEntiteIds } } } };
       if (where.entites) {
         where.AND = [...(Array.isArray(where.AND) ? where.AND : []), entiteScope];
       } else {
@@ -415,6 +443,10 @@ export class ProcessusService {
     );
     const visible = filteredList.filter((p) => {
       const permTypes = (permMap.get(p.id) ?? []).map((x: any) => x.permission as PermissionType);
+      if (isContributeur) {
+        const entityScoped = rowHasScopedEntite(p as any, userEntiteIdSet);
+        return entityScoped || permTypes.length > 0;
+      }
       return canViewProcessusRow(
         { statut: p.statut, createdById: p.createdById, proprietaireId: p.proprietaireId },
         auth,
@@ -471,7 +503,7 @@ export class ProcessusService {
   }
 
   async findOne(id: string, auth: ProcessusAuth) {
-    if (!isAdminRole(auth.role)) {
+    if (!isAdminRole(auth.role) && auth.role !== 'contributeur') {
       const entiteIds = await getUserEntiteIds(auth.userId);
       if (entiteIds.length === 0) return null;
       const linked = await prisma.processusEntite.findFirst({
@@ -492,6 +524,11 @@ export class ProcessusService {
     });
     if (!p) return null;
     const permTypes = await myPermTypesForProcessus(id, auth.userId);
+    if (auth.role === 'contributeur') {
+      const entiteIds = await getUserEntiteIds(auth.userId);
+      const entityScoped = rowHasScopedEntite(p as any, new Set(entiteIds));
+      if (!entityScoped && permTypes.length === 0) return null;
+    }
     const adminExclViewer = await fetchProcessusAdminExcludedForUser(auth.userId, [id]);
     const adminImplicitRefused = adminExclViewer.has(id);
     if (
@@ -538,6 +575,13 @@ export class ProcessusService {
     });
     if (!row) throw new Error('NOT_FOUND');
     const permTypes = await myPermTypesForProcessus(processusId, auth.userId);
+    if (auth.role === 'contributeur') {
+      const linked = await prisma.processusEntite.findFirst({
+        where: { processusId, entiteId: { in: await getUserEntiteIds(auth.userId) } },
+        select: { id: true },
+      });
+      if (!linked && permTypes.length === 0) throw new Error('FORBIDDEN');
+    }
     const adminExclViewer = await fetchProcessusAdminExcludedForUser(auth.userId, [processusId]);
     if (
       !canViewProcessusRow(
@@ -935,6 +979,15 @@ export class ProcessusService {
       return { canAccess: false, reason: 'Processus non trouvé' };
     }
     const permTypes = await myPermTypesForProcessus(id, userId);
+    if (userRole === 'contributeur') {
+      const linked = await prisma.processusEntite.findFirst({
+        where: { processusId: id, entiteId: { in: await getUserEntiteIds(userId) } },
+        select: { id: true },
+      });
+      if (!linked && permTypes.length === 0) {
+        return { canAccess: false, reason: 'Accès refusé (hors périmètre contributeur)' };
+      }
+    }
     const excl = await fetchProcessusAdminExcludedForUser(userId, [id]);
     const ok = canViewProcessusRow(
       {
