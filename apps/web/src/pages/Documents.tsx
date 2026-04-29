@@ -10,6 +10,7 @@ import { PvReunionAccesModal } from '../components/PvReunionAccesModal';
 import { isNativeAuthorControlledUploadDoc as isNativeProjetUploadDoc } from '../utils/documentNativeAcces';
 import { canModifyModule } from '../utils/uiModuleRoute';
 import * as XLSX from 'xlsx';
+import * as mammoth from 'mammoth';
 
 const NIVEAUX_CONTRAT_DOC = [
   { value: 'lecture', label: '👁 Lecture' },
@@ -81,6 +82,8 @@ export default function Documents() {
   const [currentSheet, setCurrentSheet] = useState<string>('');
   const [loadingExcel, setLoadingExcel] = useState(false);
   const [excelWorkbook, setExcelWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [docxHtml, setDocxHtml] = useState('');
+  const [loadingDocx, setLoadingDocx] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [fileNames, setFileNames] = useState<{ [key: string]: string }>({});
@@ -447,10 +450,12 @@ export default function Documents() {
         responseType: 'blob',
       });
       
-      const fileType = getFileType(doc.fichierType);
+      const fileType = getFileType(doc.fichierType, doc.fichierNomOriginal || doc.nom);
       
+      setDocxHtml('');
       // Si c'est un fichier Excel, parser le contenu
       if (fileType === 'excel') {
+        setDocumentUrl(null);
         setLoadingExcel(true);
         const arrayBuffer = await response.data.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer, { type: 'array' });
@@ -465,6 +470,13 @@ export default function Documents() {
         const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
         setExcelData(jsonData);
         setLoadingExcel(false);
+      } else if (fileType === 'word') {
+        setDocumentUrl(null);
+        setLoadingDocx(true);
+        const arrayBuffer = await response.data.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        setDocxHtml(result.value || '<p>Document vide.</p>');
+        setLoadingDocx(false);
       } else {
         // Créer un blob avec le type MIME correct pour une meilleure compatibilité
         const mimeType = doc.fichierType || response.headers['content-type'] || 'application/octet-stream';
@@ -543,6 +555,8 @@ export default function Documents() {
     setExcelSheetNames([]);
     setCurrentSheet('');
     setExcelWorkbook(null);
+    setDocxHtml('');
+    setLoadingDocx(false);
   };
 
   const handleSheetChange = (sheetName: string) => {
@@ -706,7 +720,9 @@ export default function Documents() {
     }
   };
 
-  const getFileType = (mimeType: string): string => {
+  const getFileType = (mimeType: string, fileName?: string): string => {
+    const lowerName = (fileName || '').toLowerCase();
+    if (mimeType?.includes('wordprocessingml') || mimeType?.includes('msword') || lowerName.endsWith('.docx')) return 'word';
     if (mimeType?.includes('pdf')) return 'pdf';
     if (mimeType?.includes('image')) return 'image';
     if (mimeType?.includes('text')) return 'text';
@@ -1629,7 +1645,7 @@ export default function Documents() {
       </div>
 
       {/* Modal de visualisation */}
-      {viewingDocument && (documentUrl || getFileType(viewingDocument.fichierType) === 'excel') && (
+      {viewingDocument && (documentUrl || getFileType(viewingDocument.fichierType, viewingDocument.fichierNomOriginal || viewingDocument.nom) === 'excel' || getFileType(viewingDocument.fichierType, viewingDocument.fichierNomOriginal || viewingDocument.nom) === 'word') && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-[90vw] h-[90vh] flex flex-col">
             {/* Header */}
@@ -1659,7 +1675,7 @@ export default function Documents() {
 
             {/* Content */}
             <div className="flex-1 overflow-hidden p-4">
-              {getFileType(viewingDocument.fichierType) === 'excel' ? (
+              {getFileType(viewingDocument.fichierType, viewingDocument.fichierNomOriginal || viewingDocument.nom) === 'excel' ? (
                 <div className="h-full flex flex-col">
                   {excelSheetNames.length > 1 && (
                     <div className="mb-4">
@@ -1706,13 +1722,23 @@ export default function Documents() {
                     </div>
                   )}
                 </div>
-              ) : getFileType(viewingDocument.fichierType) === 'pdf' ? (
+              ) : getFileType(viewingDocument.fichierType, viewingDocument.fichierNomOriginal || viewingDocument.nom) === 'word' ? (
+                loadingDocx ? (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-gray-500">Chargement du document Word...</p>
+                  </div>
+                ) : (
+                  <div className="h-full overflow-auto border border-gray-300 rounded p-6 bg-white">
+                    <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: docxHtml }} />
+                  </div>
+                )
+              ) : getFileType(viewingDocument.fichierType, viewingDocument.fichierNomOriginal || viewingDocument.nom) === 'pdf' ? (
                 <iframe
                   src={documentUrl || undefined}
                   className="w-full h-full border border-gray-300 rounded"
                   title={viewingDocument.nom}
                 />
-              ) : getFileType(viewingDocument.fichierType) === 'image' ? (
+              ) : getFileType(viewingDocument.fichierType, viewingDocument.fichierNomOriginal || viewingDocument.nom) === 'image' ? (
                 <div className="flex justify-center items-center h-full overflow-auto">
                   <img
                     src={documentUrl || undefined}
@@ -1720,7 +1746,7 @@ export default function Documents() {
                     className="max-w-full max-h-full object-contain"
                   />
                 </div>
-              ) : getFileType(viewingDocument.fichierType) === 'text' ? (
+              ) : getFileType(viewingDocument.fichierType, viewingDocument.fichierNomOriginal || viewingDocument.nom) === 'text' ? (
                 <iframe
                   src={documentUrl || undefined}
                   className="w-full h-full border border-gray-300 rounded"
