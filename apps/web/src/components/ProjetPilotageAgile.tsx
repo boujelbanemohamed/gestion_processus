@@ -685,6 +685,7 @@ export default function ProjetPilotageAgile({
                     <th className="px-3 py-2">Assignés (pers. / clients-fournisseurs)</th>
                     <th className="px-3 py-2">Début</th>
                     <th className="px-3 py-2">Fin</th>
+                    <th className="px-3 py-2">Epic</th>
                     <th className="px-3 py-2">User story</th>
                   </tr>
                 </thead>
@@ -748,6 +749,13 @@ export default function ProjetPilotageAgile({
                       </td>
                       <td className="px-3 py-2 text-gray-600">
                         {t.dateFinApprox ? new Date(t.dateFinApprox).toLocaleDateString('fr-FR') : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-gray-600 max-w-[180px] truncate" title={t.userStory?.epic?.nom || ''}>
+                        {t.userStory?.epic?.nom
+                          ? t.userStory.epic.nom.length > 50
+                            ? `${t.userStory.epic.nom.slice(0, 50)}…`
+                            : t.userStory.epic.nom
+                          : '—'}
                       </td>
                       <td className="px-3 py-2 text-gray-600 max-w-[200px] truncate" title={t.userStory?.description}>
                         {t.userStory?.description
