@@ -329,6 +329,12 @@ export const addCommentaire = async (req: AuthRequest, res: Response) => {
       contenu?.trim() || '',
       req.file,
     );
+    await logAccess(req, res, 'modification', ResourceType.tache, req.params.id, undefined, {
+      action: 'commentaire_ajoute_tache',
+      commentaireId: commentaire.id,
+      apercu:
+        contenu?.trim()?.slice(0, 200) || (req.file ? '[Pièce jointe]' : ''),
+    });
     res.status(201).json(commentaire);
   } catch (error: any) {
     res.status(400).json({ error: error.message });

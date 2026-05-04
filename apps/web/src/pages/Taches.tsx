@@ -156,6 +156,10 @@ function formatHistoryDetails(h: any): string[] {
   }
   if (action === 'restauration') lines.push('Tâche restaurée depuis la corbeille');
   if (action === 'corbeille_tache') lines.push('Tâche déplacée vers la corbeille');
+  if (action === 'commentaire_ajoute_tache') {
+    const ap = d.apercu != null ? String(d.apercu) : '';
+    lines.push(ap ? `Commentaire : ${ap}` : 'Commentaire ajouté');
+  }
 
   const mods = Array.isArray(d.modifications) ? d.modifications : [];
   const fieldLabel: Record<string, string> = {
@@ -832,6 +836,9 @@ export function TacheModal({
   const [newDocDesc, setNewDocDesc] = useState('');
   const [newCommentaire, setNewCommentaire] = useState('');
   const [newCommentFile, setNewCommentFile] = useState<File | null>(null);
+  const [modalCommentaires, setModalCommentaires] = useState<Commentaire[]>([]);
+  const [modalHistory, setModalHistory] = useState<any[]>([]);
+  const [modalSideLoading, setModalSideLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [idCopied, setIdCopied] = useState(false);
@@ -895,6 +902,47 @@ export function TacheModal({
       cancel = true;
     };
   }, [form.projetId, lockProjetId, lockUserStoryId]);
+
+  useEffect(() => {
+    const id = editTache?.id;
+    if (!id) {
+      setModalCommentaires([]);
+      setModalHistory([]);
+      setModalSideLoading(false);
+      return;
+    }
+    let cancel = false;
+    setModalSideLoading(true);
+    Promise.all([
+      api.get(`/taches/${id}/commentaires`),
+      api.get(`/taches/${id}/history`, { params: { page: 1, limit: 80 } }),
+    ])
+      .then(([cRes, hRes]) => {
+        if (cancel) return;
+        setModalCommentaires(Array.isArray(cRes.data) ? cRes.data : []);
+        setModalHistory(Array.isArray(hRes.data?.data) ? hRes.data.data : []);
+      })
+      .catch(() => {
+        if (!cancel) {
+          setModalCommentaires([]);
+          setModalHistory([]);
+        }
+      })
+      .finally(() => {
+        if (!cancel) setModalSideLoading(false);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [editTache?.id]);
+
+  const tacheIdForCommentLinks = editTache?.id;
+  const commentaireFichierHref = (commentaireId: string) => {
+    if (!tacheIdForCommentLinks) return '#';
+    const token = localStorage.getItem('token');
+    const q = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${API_BASE_URL}/taches/${tacheIdForCommentLinks}/commentaires/${commentaireId}/fichier${q}`;
+  };
 
   const toggleUser = (id: string) =>
     setSelectedUsers(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -1203,6 +1251,104 @@ export function TacheModal({
               ))}
               {liaisons.length === 0 && <p className="text-sm text-gray-400">Aucune liaison définie</p>}
             </div>
+
+            {editTache?.id && (
+              <div className="space-y-4 border-t border-gray-200 pt-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-800 mb-2">Commentaires enregistrés</h3>
+                  {modalSideLoading ? (
+                    <p className="text-xs text-gray-500">Chargement…</p>
+                  ) : modalCommentaires.length === 0 ? (
+                    <p className="text-sm text-gray-400">Aucun commentaire pour l’instant</p>
+                  ) : (
+                    <ul className="space-y-2 max-h-48 overflow-y-auto">
+                      {modalCommentaires.map((c) => (
+                        <li key={c.id} className="bg-gray-50 rounded-lg p-3 text-sm">
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 mb-1">
+                            <span className="font-medium text-gray-700">
+                              {c.auteur?.prenom} {c.auteur?.nom}
+                            </span>
+                            <span>{new Date(c.createdAt).toLocaleString('fr-FR')}</span>
+                          </div>
+                          {c.contenu ? (
+                            <p className="text-gray-800 whitespace-pre-wrap">{c.contenu}</p>
+                          ) : null}
+                          {c.pieceJointeNom && (
+                            <a
+                              href={commentaireFichierHref(c.id)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-blue-600 hover:underline mt-1 inline-block"
+                            >
+                              Pièce jointe : {c.pieceJointeNom}
+                            </a>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-800 mb-2">Documents rattachés</h3>
+                  {!editTache.documents?.length ? (
+                    <p className="text-sm text-gray-400">Aucun document lié à cette tâche</p>
+                  ) : (
+                    <ul className="space-y-1 max-h-36 overflow-y-auto text-sm">
+                      {(editTache.documents || []).map((doc) => {
+                        const tok = localStorage.getItem('token');
+                        const q = tok ? `?token=${encodeURIComponent(tok)}` : '';
+                        return (
+                          <li key={doc.id}>
+                            <a
+                              href={`${API_BASE_URL}/documents/${doc.id}/view${q}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-600 hover:underline"
+                            >
+                              {doc.nom}
+                            </a>
+                            <span className="text-gray-400 text-xs ml-2 capitalize">{doc.typeDocument}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-800 mb-2">Historique des actions</h3>
+                  {modalSideLoading ? (
+                    <p className="text-xs text-gray-500">Chargement…</p>
+                  ) : modalHistory.length === 0 ? (
+                    <p className="text-sm text-gray-400">Aucun événement enregistré</p>
+                  ) : (
+                    <ul className="space-y-2 max-h-52 overflow-y-auto text-xs">
+                      {modalHistory.map((h: any) => (
+                        <li key={h.id} className="border-b border-gray-100 pb-2">
+                          <div className="flex flex-wrap justify-between gap-1 text-gray-500">
+                            <span>{new Date(h.timestamp).toLocaleString('fr-FR')}</span>
+                            <span>
+                              {h.user?.prenom} {h.user?.nom}
+                            </span>
+                          </div>
+                          <p className="font-medium text-gray-800 mt-0.5">
+                            {LABEL_LOG_ACTION[h.action] || h.action}
+                          </p>
+                          {formatHistoryDetails(h).length > 0 && (
+                            <ul className="mt-1 space-y-0.5 text-gray-700">
+                              {formatHistoryDetails(h).map((line, idx) => (
+                                <li key={`${h.id}-d-${idx}`}>— {line}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Document à ajouter à l'enregistrement */}
             <div className="border border-gray-200 rounded-md p-3 bg-gray-50">
@@ -1613,9 +1759,7 @@ function CommentairesSection({ target, users }: { target: CommentairesTarget; us
       const formData = new FormData();
       formData.append('contenu', texte.trim());
       if (fichier) formData.append('fichier', fichier);
-      await api.post(paths.post, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      await api.post(paths.post, formData);
       setTexte('');
       setFichier(null);
       if (fileRef.current) fileRef.current.value = '';
@@ -2157,9 +2301,7 @@ function DocumentsTache({
       formData.append('fichier', uploadFile);
       formData.append('nom', uploadNom || uploadFile.name);
       formData.append('description', uploadDesc);
-      const res = await api.post(`/taches/${tacheId}/documents`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const res = await api.post(`/taches/${tacheId}/documents`, formData);
       setDocs((prev) => [...prev, normalizeDocumentAclFields(res.data)]);
       setShowUpload(false); setUploadFile(null); setUploadNom(''); setUploadDesc('');
       onDocumentsChange?.();

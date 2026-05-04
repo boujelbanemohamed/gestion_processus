@@ -17,6 +17,15 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  // Laisser le navigateur poser multipart + boundary ; sinon Multer ne reçoit pas les champs.
+  if (config.data instanceof FormData && config.headers) {
+    const headers = config.headers as { delete?: (k: string) => void } & Record<string, unknown>;
+    if (typeof headers.delete === 'function') headers.delete('Content-Type');
+    else {
+      delete headers['Content-Type'];
+      delete headers['content-type'];
+    }
+  }
   return config;
 });
 
