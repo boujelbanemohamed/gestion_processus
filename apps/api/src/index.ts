@@ -47,8 +47,6 @@ const allowedOrigins = [
   "http://127.0.0.1:5175",
   "http://172.17.5.198:5173",
   "http://127.0.0.1:5173",
-  "https://172.17.11.17",
-  "https://pmo.monetiquetunisie.com",
 ];
 
 app.use(
